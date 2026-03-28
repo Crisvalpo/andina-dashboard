@@ -33,11 +33,13 @@ Sigue estos pasos para aplicar cualquier nueva actualización en vivo:
 
 ---
 
-## ⚙️ Configuración del Cliente
-Para cambiar de proyecto o recuperar la vinculación de datos:
-1.  Haz clic en el icono de configuración (⚙️) en la esquina inferior.
-2.  Ingresa tu `AppID` y tu llave `AccessKey` de AppSheet.
-3.  Haz clic en **Vincular Datos**. (*Tus credenciales permanecen seguras en el `localStorage` del navegador*).
+## 🔑 Gestión de Credenciales (AppSheet)
+Actualmente, el `AppID` y la `AccessKey` de AppSheet están configurados de forma estática en el objeto `API` al inicio de `app.js`.
+
+Para cambiar de proyecto o actualizar las llaves:
+1.  Abre `app.js`.
+2.  Modifica los valores de `appId` y `appKey`.
+3.  Guarda y haz `git push` para desplegar el cambio.
 
 ## 📊 Orígenes de Datos (AppSheet APIREST)
 El dashboard se alimenta actualmente de:
