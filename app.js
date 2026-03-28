@@ -1,0 +1,721 @@
+/**
+ * Andina Piping Dashboard — app.js
+ * AppSheet API V2 | ISO Weeks (Monday start)
+ * Secciones: Overview, Juntas, Spools, QC, SDI
+ */
+
+// ============ CONFIG ============
+const API = {
+    appId: 'eb4713b6-0828-4993-b5e1-935eec83cf4e',
+    appKey: 'V2-b9qXt-SY9es-eDDQb-L2lXN-NIInJ-U0DvZ-5fa2N-4huez',
+    base: 'https://api.appsheet.com/api/v2/apps'
+};
+
+// Fecha de inicio del proyecto (FECHA_INICIO_OBRA en AppSheet)
+// Semana del proyecto = floor((hoy - inicio) / 7) → coincide con fórmula de LukeAPP
+const PROJECT_START_DATE = new Date('2025-09-15');
+
+function getProjectWeek(d = new Date()) {
+    const days = Math.floor((d - PROJECT_START_DATE) / (1000 * 60 * 60 * 24));
+    return Math.floor(days / 7);
+}
+
+// ============ STATE ============
+const state = {
+    lineas: [],
+    isos: [],
+    spools: [],
+    juntas: [],
+    ejecuciones: [],   // REG_EjecucionJuntas_MS
+    sdis: [],
+    inspecciones: [],  // REG_InspeccionVisual_MS
+    catUniones: [],    // CAT_TipoUnion_MS
+    catFluidos: [],    // CAT_FluidoServicio_MS
+    currentWeek: currentISOWeek(),
+    currentSection: 'overview'
+};
+
+let charts = {};
+
+// ============ INIT ============
+document.addEventListener('DOMContentLoaded', () => {
+    setWeekDisplay(state.currentWeek);
+    refreshData();
+    setInterval(updateTime, 60000);
+    updateTime();
+});
+
+// ============ UTILS: SEMANA PROYECTO ============
+function currentISOWeek() {
+    return getProjectWeek();
+}
+
+function getISOWeek(d) {
+    if (!(d instanceof Date)) d = new Date(d);
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+    const yearStart = new Date(d.getFullYear(), 0, 1);
+    return Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
+}
+
+function parseDate(str) {
+    if (!str) return null;
+    const part = str.split(' ')[0];
+    const s = part.split('/');
+    if (s.length === 3) return new Date(`${s[2]}-${s[1].padStart(2, '0')}-${s[0].padStart(2, '0')}`);
+    return new Date(str);
+}
+
+// Format date string to DD/MM/AA
+function formatDate(str) {
+    if (!str) return '--';
+    const part = str.split(' ')[0];
+    const s = part.split('/');
+    if (s.length === 3) {
+        const yy = s[2].length === 4 ? s[2].slice(2) : s[2];
+        return `${s[0].padStart(2, '0')}/${s[1].padStart(2, '0')}/${yy}`;
+    }
+    return part;
+}
+
+function getWeekOfDate(str) {
+    const d = parseDate(str);
+    return d ? getProjectWeek(d) : null;
+}
+
+function setWeekDisplay(w) {
+    document.getElementById('week-number').textContent = `S${w}`;
+}
+
+function changeWeek(delta) {
+    state.currentWeek = Math.max(1, Math.min(53, state.currentWeek + delta));
+    setWeekDisplay(state.currentWeek);
+    renderCurrentSection();
+}
+
+function goToCurrentWeek() {
+    state.currentWeek = currentISOWeek();
+    setWeekDisplay(state.currentWeek);
+    renderCurrentSection();
+}
+
+function updateTime() {
+    const t = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    document.getElementById('last-update').textContent = t;
+}
+
+// ============ NAVIGATION ============
+function showSection(name) {
+    document.querySelectorAll('.section-content').forEach(s => s.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+    document.getElementById(`${name}-section`).classList.add('active');
+    document.getElementById(`nav-${name}`).classList.add('active');
+
+    const titles = {
+        overview: 'Dashboard Overview',
+        juntas: 'Avance de Juntas',
+        spools: 'Fabricación de Spools',
+        qc: 'Control de Calidad',
+        sdi: 'SDI — Consultas Técnicas'
+    };
+    document.getElementById('section-title').textContent = titles[name] || name;
+    state.currentSection = name;
+    renderCurrentSection();
+}
+
+function renderCurrentSection() {
+    switch (state.currentSection) {
+        case 'overview': renderOverview(); break;
+        case 'juntas': renderJuntas(); break;
+        case 'spools': renderSpools(); break;
+        case 'qc': renderQC(); break;
+        case 'sdi': break; // Próximamente
+    }
+}
+
+// ============ API FETCH ============
+async function fetchTable(tableName) {
+    const url = `${API.base}/${API.appId}/tables/${tableName}/Action`;
+    try {
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'ApplicationAccessKey': API.appKey,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ Action: 'Find', Properties: { Locale: 'es-ES' }, Rows: [] })
+        });
+        if (!res.ok) { console.error(`[API] ${tableName} → HTTP ${res.status}`); return []; }
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        console.error(`[API] Fallo red ${tableName}:`, e);
+        return [];
+    }
+}
+
+async function refreshData() {
+    console.log('[Dashboard] Cargando datos...');
+    const dot = document.getElementById('api-dot');
+
+    const [lineas, isos, spools, juntas, ejecuciones, sdis, inspecciones, catUniones, catFluidos] = await Promise.all([
+        fetchTable('LIST_Lineas_MS'),
+        fetchTable('LIST_Iso_MS'),
+        fetchTable('LIST_Spools_MS'),
+        fetchTable('LIST_Juntas_MS'),
+        fetchTable('REG_EjecucionJuntas_MS'),
+        fetchTable('LOG_SDI_MS'),
+        fetchTable('REG_InspeccionVisual_MS'),
+        fetchTable('CAT_TipoUnion_MS'),
+        fetchTable('CAT_FluidoServicio_MS')
+    ]);
+
+    state.lineas = lineas;
+    state.isos = isos;
+    state.spools = spools;
+    state.juntas = juntas;
+    state.ejecuciones = ejecuciones;
+    state.sdis = sdis;
+    state.inspecciones = inspecciones;
+    state.catUniones = catUniones || [];
+    state.catFluidos = catFluidos || [];
+
+    const ok = juntas.length > 0 || lineas.length > 0;
+    dot.className = 'api-dot' + (ok ? '' : ' error');
+
+    updateTime();
+    renderCurrentSection();
+    console.log(`[Dashboard] Datos cargados: ${lineas.length} líneas | ${isos.length} ISOs | ${spools.length} spools | ${juntas.length} juntas | ${ejecuciones.length} ejecuciones`);
+}
+
+// ============ ETAPA HELPER ============
+// REG_EjecucionJuntas_MS: columna ESTADO_EJECUCION
+// Valores: "EJECUTADA" | "EMPLANTILLADO" | "CORTE DIMENSIONADO"
+
+function getEstado(row) {
+    // Trim all keys to handle trailing spaces in CSV column names
+    const v = row['ESTADO_EJECUCION'] || row['ESTADO_EJECUCION '] || '';
+    return v.trim();
+}
+
+function getJuntaId(row) {
+    const v = row['ID_JUNTA'] || row['ID_JUNTA '] || '';
+    return v.trim();
+}
+
+function getEtapaBadge(estado) {
+    if (!estado) return '<span class="badge badge-pending">Sin Registro</span>';
+    const e = estado.toUpperCase();
+    if (e.includes('EJECUTAD')) return `<span class="badge badge-done">EJECUTADA</span>`;
+    if (e.includes('EMPLANTILL')) return `<span class="badge badge-emplantillado">EMPLANTILLADO</span>`;
+    if (e.includes('CORTE')) return `<span class="badge badge-corte">CORTE</span>`;
+    return `<span class="badge badge-pending">${estado}</span>`;
+}
+
+function getEtapaWeight(estado) {
+    if (!estado) return 0;
+    const e = estado.toUpperCase();
+    if (e.includes('EJECUTAD')) return 3;
+    if (e.includes('EMPLANTILL')) return 2;
+    if (e.includes('CORTE')) return 1;
+    return 0;
+}
+
+// Para cada junta, encuentra su estado más avanzado en ejecuciones
+function getMaxEtapa(idJunta) {
+    const id = (idJunta || '').trim();
+    const regs = state.ejecuciones.filter(r => getJuntaId(r) === id);
+    if (!regs.length) return null;
+    return regs.reduce((best, r) => {
+        const estado = getEstado(r);
+        return getEtapaWeight(estado) > getEtapaWeight(best) ? estado : best;
+    }, '');
+}
+
+// ============ RENDER: OVERVIEW ============
+function renderOverview() {
+    const { lineas, isos, spools, juntas, ejecuciones, sdis } = state;
+
+    // Totales del proyecto
+    setText('kpi-lineas', lineas.length);
+    setText('kpi-isos', isos.length);
+    setText('kpi-spools-total', spools.length);
+    setText('kpi-total-juntas', juntas.length);
+
+    // Líneas sin isométrico — excluye TIE-IN (no requieren cubicación)
+    const isoLineSet = new Set(
+        isos.map(i => (i.ID_LINEA || i['ID_LINEA '] || '').trim()).filter(Boolean)
+    );
+    const lineasSinIso = lineas.filter(l => {
+        const id = (l.ID_LINEA || l['ID_LINEA '] || '').trim();
+        return id && !id.toUpperCase().startsWith('TIE-IN') && !isoLineSet.has(id);
+    }).length;
+    const subEl = document.getElementById('kpi-lineas-sin-iso-sub');
+    if (subEl) subEl.textContent = lineasSinIso > 0 ? `⚠ ${lineasSinIso} sin ISO` : '✓ Todas cubicadas';
+
+    // Estado de avance
+    // Count juntas by max state reached in REG_EjecucionJuntas_MS
+    const ejecutadas = juntas.filter(j => {
+        const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
+        return et && et.toUpperCase().includes('EJECUTAD');
+    }).length;
+
+    const enProceso = ejecuciones.filter(e => {
+        const et = getEstado(e).toUpperCase();
+        return et.includes('EMPLANTILL') || et.includes('CORTE');
+    }).map(e => getJuntaId(e)).filter((v, i, a) => v && a.indexOf(v) === i).length;
+
+    const sdiAbiertas = sdis.filter(s => (s.ESTADO || '').toUpperCase() !== 'CERRADA').length;
+
+    // Semana actual
+    const semanaActual = ejecuciones.filter(e => getWeekOfDate(e.FECHA_EJECUCION) === state.currentWeek).length;
+
+    setText('kpi-ejecutadas', ejecutadas);
+    setText('kpi-en-proceso', enProceso);
+    setText('kpi-sdi', sdiAbiertas);
+    setText('kpi-semana', semanaActual);
+
+    const tag = document.getElementById('week-tag');
+    if (tag) tag.textContent = `S${state.currentWeek}`;
+
+    // S-Curve chart
+    renderSCurve();
+
+    // Bar chart by fluid
+    renderBarChart();
+
+    // Latest movements table
+    renderLogTable();
+}
+
+function renderJuntasBreakdown() {
+    const { juntas, catUniones } = state;
+
+    // Maps for fast lookup
+    const catMap = {};
+    catUniones.forEach(c => {
+        catMap[(c.ID_TIPO_UNION || c['ID_TIPO_UNION '] || '').trim()] = (c.NMB_UNION || c['NMB_UNION '] || '').trim();
+    });
+
+    const shop = { total: 0, ejec: 0, types: {} };
+    const field = { total: 0, ejec: 0, types: {} };
+
+    juntas.forEach(j => {
+        const cat = (j.CATEGORIA_JUNTA || j['CATEGORIA_JUNTA '] || '').toUpperCase().trim();
+        const tipo = (j.ID_TIPO_UNION || j['ID_TIPO_UNION '] || 'VAR').trim();
+        const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
+        const isEjecutada = et && et.toUpperCase().includes('EJECUTAD');
+
+        const isShop = cat === 'S' || cat === 'SHOP' || cat === 'TALLER';
+        const target = isShop ? shop : field; // Si no es S, asumimos Field por defecto
+
+        target.total++;
+        if (isEjecutada) target.ejec++;
+
+        if (!target.types[tipo]) target.types[tipo] = { total: 0, ejec: 0, name: catMap[tipo] || 'S/D' };
+        target.types[tipo].total++;
+        if (isEjecutada) target.types[tipo].ejec++;
+    });
+
+    // Render Stats Headers
+    const shopEl = document.getElementById('shop-stats');
+    if (shopEl) shopEl.innerHTML = `Total: ${shop.total}<br>Ejecutadas: <span>${shop.ejec}</span>`;
+
+    const fieldEl = document.getElementById('field-stats');
+    if (fieldEl) fieldEl.innerHTML = `Total: ${field.total}<br>Ejecutadas: <span>${field.ejec}</span>`;
+
+    // Render Cards
+    const renderCards = (typeObj) => {
+        const types = Object.keys(typeObj).sort((a, b) => typeObj[b].total - typeObj[a].total);
+        if (!types.length) return `<div class="empty-msg" style="padding:1rem">Sin registros</div>`;
+        return types.map(t => {
+            const data = typeObj[t];
+            return `<div class="jc-card">
+                <div class="jc-card-title">${t}</div>
+                <div class="jc-card-subtitle" title="${data.name}">${data.name}</div>
+                <div class="jc-card-stats">
+                    <div><span class="label">TOTAL</span><span class="val">${data.total}</span></div>
+                    <div><span class="label">EJEC</span><span class="val done">${data.ejec}</span></div>
+                </div>
+            </div>`;
+        }).join('');
+    };
+
+    const sCards = document.getElementById('shop-cards');
+    if (sCards) sCards.innerHTML = renderCards(shop.types);
+
+    const fCards = document.getElementById('field-cards');
+    if (fCards) fCards.innerHTML = renderCards(field.types);
+}
+
+function renderSCurve() {
+    const weekMap = {};
+    state.ejecuciones.forEach(e => {
+        const w = getWeekOfDate(e.FECHA_EJECUCION);
+        if (w) weekMap[w] = (weekMap[w] || 0) + 1;
+    });
+
+    const sorted = Object.keys(weekMap).map(Number).sort((a, b) => a - b);
+    let cum = 0;
+    const labels = sorted.map(w => `S${w}`);
+    const data = sorted.map(w => { cum += weekMap[w]; return cum; });
+
+    if (charts.sCurve) charts.sCurve.destroy();
+    const ctx = document.getElementById('sCurveChart');
+    if (!ctx) return;
+    charts.sCurve = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Acumulado', data,
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16,185,129,0.08)',
+                fill: true, tension: 0.3, pointRadius: 4,
+                pointBackgroundColor: '#10b981'
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                x: { grid: { display: false }, ticks: { color: '#64748b' } }
+            },
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+function renderBarChart() {
+    let fluids = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
+    if (!fluids.length) fluids = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW']; // fallback
+
+    const counts = fluids.map(f =>
+        state.ejecuciones.filter(e => {
+            const iso = e.ID_ISO || e['ID_ISO '] || '';
+            return iso.includes(`-${f}-`) || iso.includes(`/${f}/`);
+        }).length
+    );
+
+    if (charts.bar) charts.bar.destroy();
+    const ctx = document.getElementById('barChart');
+    if (!ctx) return;
+    charts.bar = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: fluids,
+            datasets: [{
+                label: 'Actividad', data: counts,
+                backgroundColor: ['#6366f1', '#10b981', '#f59e0b', '#38bdf8', '#a78bfa', '#ef4444'],
+                borderRadius: 6
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            scales: {
+                y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                x: { grid: { display: false }, ticks: { color: '#64748b' } }
+            },
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+function renderLogTable() {
+    const tbody = document.getElementById('log-tbody');
+    if (!tbody) return;
+
+    const filtered = state.ejecuciones.filter(e => getWeekOfDate(e.FECHA_EJECUCION) === state.currentWeek);
+    const data = filtered.length > 0 ? filtered :
+        [...state.ejecuciones].sort((a, b) => parseDate(b.FECHA_EJECUCION) - parseDate(a.FECHA_EJECUCION)).slice(0, 10);
+
+    if (!data.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty-msg">Sin movimientos registrados</td></tr>`; return; }
+
+    tbody.innerHTML = data.slice(0, 15).map(e => {
+        const spool = (e.ID_SPOOL || e['ID_SPOOL '] || e.ID_ISO || e['ID_ISO '] || '--');
+        return `<tr>
+            <td>${getJuntaId(e) || '--'}</td>
+            <td>${spool}</td>
+            <td>${getEtapaBadge(getEstado(e))}</td>
+            <td>${formatDate(e.FECHA_EJECUCION)}</td>
+        </tr>`;
+    }).join('');
+}
+
+// ============ RENDER: JUNTAS ============
+function renderJuntas() {
+    const { juntas, ejecuciones } = state;
+
+    // Count by max etapa per junta
+    let ejecutadas = 0, emplantillado = 0, corte = 0, pendiente = 0;
+
+    juntas.forEach(j => {
+        const id = (j.ID_JUNTA || j['ID_JUNTA '] || '').trim();
+        const etapa = getMaxEtapa(id);
+        if (!etapa) { pendiente++; return; }
+        const e = etapa.toUpperCase();
+        if (e.includes('EJECUTAD')) ejecutadas++;
+        else if (e.includes('EMPLANTILL')) emplantillado++;
+        else if (e.includes('CORTE')) corte++;
+        else pendiente++;
+    });
+
+    setText('j-ejecutadas', ejecutadas);
+    setText('j-emplantillado', emplantillado);
+    setText('j-corte', corte);
+    setText('j-pendiente', pendiente);
+
+    // Desglose Taller vs Terreno
+    renderJuntasBreakdown();
+
+    // Donut
+    if (charts.donut) charts.donut.destroy();
+    const dCtx = document.getElementById('donutChart');
+    if (dCtx) {
+        charts.donut = new Chart(dCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Ejecutadas', 'Emplantillado', 'Corte', 'Sin Iniciar'],
+                datasets: [{
+                    data: [ejecutadas, emplantillado, corte, pendiente],
+                    backgroundColor: ['#10b981', '#6366f1', '#f59e0b', '#334155'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                cutout: '60%',
+                plugins: { legend: { position: 'bottom', labels: { color: '#64748b', boxWidth: 12 } } }
+            }
+        });
+    }
+
+    // Fluid chart
+    let fluids = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
+    if (!fluids.length) fluids = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW']; // fallback
+
+    const fluidTotals = fluids.map(f => juntas.filter(j => (j.ID_ISO || j['ID_ISO '] || '').includes(`-${f}-`)).length);
+    const fluidExec = fluids.map(f => {
+        const juntasDelFluido = juntas.filter(j => (j.ID_ISO || j['ID_ISO '] || '').includes(`-${f}-`));
+        return juntasDelFluido.filter(j => {
+            const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
+            return et && et.toUpperCase().includes('EJECUTAD');
+        }).length;
+    });
+
+    if (charts.fluid) charts.fluid.destroy();
+    const fCtx = document.getElementById('fluidChart');
+    if (fCtx) {
+        charts.fluid = new Chart(fCtx, {
+            type: 'bar',
+            data: {
+                labels: fluids,
+                datasets: [
+                    { label: 'Total', data: fluidTotals, backgroundColor: 'rgba(99,102,241,0.3)', borderRadius: 4 },
+                    { label: 'Ejecutadas', data: fluidExec, backgroundColor: '#6366f1', borderRadius: 4 }
+                ]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { labels: { color: '#64748b', boxWidth: 12 } } }
+            }
+        });
+    }
+
+    // Table
+    const tbody = document.getElementById('juntas-tbody');
+    if (!tbody) return;
+    const weekData = ejecuciones.filter(e => getWeekOfDate(e.FECHA_EJECUCION) === state.currentWeek);
+    const data = weekData.length > 0 ? weekData : [...ejecuciones].sort((a, b) => parseDate(b.FECHA_EJECUCION) - parseDate(a.FECHA_EJECUCION)).slice(0, 20);
+
+    tbody.innerHTML = data.map(e => {
+        return `<tr>
+            <td>${getJuntaId(e) || '--'}</td>
+            <td>${(e.ID_TIPO_UNION || e['ID_TIPO_UNION '] || '--')}</td>
+            <td>${getEtapaBadge(getEstado(e))}</td>
+            <td>${(e.RESPONSABLE || e['RESPONSABLE '] || '--')}</td>
+            <td>${formatDate(e.FECHA_EJECUCION)}</td>
+        </tr>`;
+    }).join('') || `<tr><td colspan="5" class="empty-msg">Sin registros en S${state.currentWeek}</td></tr>`;
+}
+
+// ============ RENDER: SPOOLS ============
+function renderSpools() {
+    const { spools } = state;
+
+    const fab = spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FAB')).length;
+    const pintura = spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('PINT')).length;
+    const despachados = spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('DESPACH')).length;
+
+    setText('s-total', spools.length);
+    setText('s-fab', fab);
+    setText('s-pintura', pintura);
+    setText('s-despachados', despachados);
+
+    // Gráficos Spools
+
+    // 1. Distribución por Estado
+    const ctxEstado = document.getElementById('spools-estado-chart');
+    if (ctxEstado) {
+        if (charts.spoolsEstado) charts.spoolsEstado.destroy();
+
+        const estadosMap = {};
+        spools.forEach(s => {
+            let e = (s.ESTADO_FABRICACION || 'PENDIENTE').trim();
+            e = e.replace(/^[^\w\s]+/, '').trim(); // Remove emojis
+            estadosMap[e] = (estadosMap[e] || 0) + 1;
+        });
+
+        const labels = Object.keys(estadosMap);
+        const data = Object.values(estadosMap);
+
+        charts.spoolsEstado = new Chart(ctxEstado, {
+            type: 'doughnut',
+            data: {
+                labels,
+                datasets: [{
+                    data,
+                    backgroundColor: [
+                        '#64748b', // Pendiente
+                        '#6366f1', // Fab
+                        '#f59e0b', // Pintura
+                        '#10b981', // Despachado
+                        '#0ea5e9', // Otro
+                        '#ec4899'
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: { position: 'right', labels: { color: '#64748b', boxWidth: 12 } }
+                }
+            }
+        });
+    }
+
+    // 2. Spools por Fluido
+    const ctxFluido = document.getElementById('spools-fluido-chart');
+    if (ctxFluido) {
+        if (charts.spoolsFluido) charts.spoolsFluido.destroy();
+
+        let fluidList = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
+        if (!fluidList.length) fluidList = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW']; // fallback
+
+        const fluidosMap = {};
+        fluidList.forEach(f => fluidosMap[f] = 0);
+        fluidosMap['OTROS'] = 0;
+
+        spools.forEach(s => {
+            const val = (s.ID_ISO || s['ID_ISO '] || s.LINEA || '').toUpperCase();
+            const fl = fluidList.find(f => val.includes(`-${f}-`) || val.includes(`/${f}/`));
+            if (fl) {
+                fluidosMap[fl]++;
+            } else {
+                fluidosMap['OTROS']++;
+            }
+        });
+
+        // Solo mostrar los que tienen datos
+        const labels = Object.keys(fluidosMap).filter(l => fluidosMap[l] > 0).sort((a, b) => fluidosMap[b] - fluidosMap[a]).slice(0, 6);
+        const data = labels.map(l => fluidosMap[l]);
+
+        charts.spoolsFluido = new Chart(ctxFluido, {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Spools',
+                    data,
+                    backgroundColor: '#0ea5e9',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    }
+}
+
+// ============ RENDER: QC ============
+function renderQC() {
+    const { inspecciones, ejecuciones } = state;
+
+    // "Pendiente VT" = juntas EJECUTADA que NO tienen registro de inspección visual
+    const inspeccionIds = new Set(
+        inspecciones.map(i => (i.ID_JUNTA || i['ID_JUNTA '] || '').trim()).filter(Boolean)
+    );
+    const ejecutadasIds = ejecuciones
+        .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'))
+        .map(e => getJuntaId(e))
+        .filter((v, i, a) => v && a.indexOf(v) === i);
+
+    const pendienteVT = ejecutadasIds.filter(id => !inspeccionIds.has(id));
+
+    // "VT Aprobado" = tienen inspección con ESTADO = APROBADO
+    const aprobadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('APROBADO'));
+
+    // "NDE Solicitado" = tienen inspección pendiente de NDE
+    const ndeList = inspecciones.filter(i => (i.PROXIMA_ETAPA || i['PROXIMA_ETAPA '] || i.ESTADO || '').toUpperCase().includes('NDE'));
+
+    setText('qc-aprobado', aprobadas.length);
+    setText('qc-rechazado', inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('RECHAZA')).length);
+    setText('qc-nde', ndeList.length);
+
+    // Kanban col: Pendiente VT (IDs de juntas ejecutadas sin inspección)
+    const pendienteContainer = document.getElementById('kanban-pending');
+    if (pendienteContainer) {
+        if (!pendienteVT.length) {
+            pendienteContainer.innerHTML = `<div class="empty-msg">Sin juntas pendientes</div>`;
+        } else {
+            pendienteContainer.innerHTML = pendienteVT.slice(0, 15).map(id => `
+                <div class="kanban-card">
+                    <div class="kanban-card-id">${id}</div>
+                    <div class="kanban-card-sub">Ejecutada · sin VT</div>
+                </div>`).join('');
+        }
+    }
+
+    fillKanban('kanban-approved', aprobadas, 'VT APROBADO');
+    fillKanban('kanban-nde', ndeList, 'NDE SOLICITADO');
+}
+
+function fillKanban(containerId, items, label) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    if (!items.length) {
+        container.innerHTML = `<div class="empty-msg">Sin registros</div>`;
+        return;
+    }
+    container.innerHTML = items.slice(0, 15).map(i => {
+        const id = i.ID_JUNTA || i['ID_JUNTA '] || '--';
+        const sub = i.ID_ISO || i['ID_ISO '] || '';
+        return `<div class="kanban-card">
+            <div class="kanban-card-id">${id}</div>
+            <div class="kanban-card-sub">${sub}</div>
+        </div>`;
+    }).join('');
+}
+
+// SDI — Próximamente (sección marcada como coming soon)
+
+// ============ UTILS ============
+function setText(id, val) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val;
+}

@@ -1,0 +1,757 @@
+/* ============================================
+   ANDINA PIPING DASHBOARD - DESIGN SYSTEM
+   Dark Mode | Glassmorphism | ISO Weeks
+   ============================================ */
+
+:root {
+    --primary: #6366f1;
+    --primary-light: #818cf8;
+    --accent: #10b981;
+    --warning: #f59e0b;
+    --danger: #ef4444;
+    --info: #38bdf8;
+    --purple: #a78bfa;
+    --bg: #0f172a;
+    --bg2: #1e293b;
+    --card: rgba(30, 41, 59, 0.75);
+    --border: rgba(255, 255, 255, 0.07);
+    --text: #f1f5f9;
+    --text-dim: #64748b;
+    --radius: 14px;
+    --sidebar-w: 220px;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Outfit', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+}
+
+.dark-theme {
+    background: radial-gradient(ellipse at top left, #1e1b4b 0%, #0f172a 60%);
+    min-height: 100vh;
+}
+
+/* ============ LAYOUT ============ */
+.app-layout {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* ============ SIDEBAR ============ */
+.sidebar {
+    width: var(--sidebar-w);
+    min-width: var(--sidebar-w);
+    background: rgba(15, 23, 42, 0.95);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    backdrop-filter: blur(12px);
+    z-index: 10;
+}
+
+.sidebar-header {
+    padding: 1.5rem 1.25rem 1rem;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.brand {
+    display: flex;
+    flex-direction: column;
+}
+
+.brand-accent {
+    font-size: 1.1rem;
+    font-weight: 800;
+    color: var(--primary-light);
+    letter-spacing: 0.5px;
+}
+
+.brand-sub {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    font-weight: 300;
+}
+
+.sidebar-logo {
+    width: 72px;
+    height: 72px;
+    object-fit: contain;
+    margin-bottom: 0.5rem;
+    filter: drop-shadow(0 0 8px rgba(99, 102, 241, 0.4));
+}
+
+/* ============ WEEK SELECTOR ============ */
+.week-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+.week-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 52px;
+}
+
+.week-label {
+    font-size: 0.6rem;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+}
+
+.week-number {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: var(--primary-light);
+    line-height: 1;
+}
+
+.week-btn {
+    width: 34px;
+    height: 34px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--text-dim);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    font-size: 0.85rem;
+}
+
+.week-btn:hover {
+    background: rgba(99, 102, 241, 0.25);
+    color: var(--text);
+    border-color: var(--primary);
+}
+
+.week-btn-today {
+    background: rgba(16, 185, 129, 0.12);
+    color: var(--accent);
+    border-color: rgba(16, 185, 129, 0.3);
+}
+
+.week-btn-today:hover {
+    background: rgba(16, 185, 129, 0.3);
+    color: #fff;
+}
+
+.api-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 6px var(--accent);
+    flex-shrink: 0;
+}
+
+.api-dot.error {
+    background: var(--danger);
+    box-shadow: 0 0 6px var(--danger);
+}
+
+.sidebar-nav {
+    flex: 1;
+    padding: 1rem 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.nav-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.7rem 1rem;
+    border: none;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-dim);
+    font-size: 0.875rem;
+    font-family: 'Outfit', sans-serif;
+    cursor: pointer;
+    text-align: left;
+    transition: all 0.2s ease;
+}
+
+.nav-btn i {
+    width: 16px;
+    text-align: center;
+}
+
+.nav-btn:hover {
+    background: rgba(99, 102, 241, 0.1);
+    color: var(--text);
+}
+
+.nav-btn.active {
+    background: rgba(99, 102, 241, 0.2);
+    color: var(--primary-light);
+    font-weight: 600;
+}
+
+.sidebar-footer {
+    padding: 1rem 1.25rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.last-update {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+}
+
+.last-update i {
+    color: var(--accent);
+}
+
+.refresh-btn {
+    background: rgba(99, 102, 241, 0.15);
+    border: 1px solid rgba(99, 102, 241, 0.3);
+    color: var(--primary-light);
+    border-radius: 8px;
+    padding: 0.4rem;
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.refresh-btn:hover {
+    background: rgba(99, 102, 241, 0.3);
+}
+
+/* ============ MAIN ============ */
+.main-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.top-bar {
+    padding: 1rem 2rem;
+    background: rgba(15, 23, 42, 0.8);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    backdrop-filter: blur(8px);
+    flex-shrink: 0;
+}
+
+.section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+}
+
+/* Week Navigator */
+.week-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: rgba(30, 41, 59, 0.6);
+    padding: 0.4rem 0.75rem;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+.week-btn {
+    background: rgba(99, 102, 241, 0.2);
+    border: none;
+    color: var(--primary-light);
+    width: 28px;
+    height: 28px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.75rem;
+    transition: background 0.2s;
+}
+
+.week-btn:hover {
+    background: rgba(99, 102, 241, 0.4);
+}
+
+.week-display {
+    text-align: center;
+    min-width: 60px;
+}
+
+.week-label {
+    display: block;
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.week-number {
+    display: block;
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: var(--primary-light);
+    line-height: 1.2;
+}
+
+/* ============ SECTIONS ============ */
+.section-content {
+    display: none;
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem 2rem;
+}
+
+.section-content.active {
+    display: block;
+}
+
+/* ============ KPIs ============ */
+.kpi-section-label {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    padding: 0 0.25rem;
+    margin-bottom: 0.75rem;
+    margin-top: 0.25rem;
+}
+
+.kpi-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.kpi-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.25rem;
+    border-radius: var(--radius);
+    transition: transform 0.25s ease, border-color 0.25s;
+}
+
+.kpi-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+.kpi-card.kpi-primary {
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
+.kpi-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.kpi-label {
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.kpi-value {
+    font-size: 1.8rem;
+    font-weight: 800;
+    line-height: 1.2;
+}
+
+/* ============ GLASS ============ */
+.glass {
+    background: var(--card);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+}
+
+/* ============ CHARTS ============ */
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.chart-card {
+    padding: 1.25rem;
+}
+
+.chart-card h3 {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 1rem;
+}
+
+.chart-body {
+    position: relative;
+    height: 280px;
+}
+
+/* ============ TABLES ============ */
+.table-card {
+    padding: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.table-card h3 {
+    font-size: 0.9rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 1rem;
+}
+
+.filter-tag {
+    background: rgba(99, 102, 241, 0.2);
+    color: var(--primary-light);
+    padding: 2px 8px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    vertical-align: middle;
+}
+
+.table-wrap {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+th {
+    text-align: left;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    padding: 0 0.75rem 0.75rem;
+}
+
+td {
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+tr:last-child td {
+    border-bottom: none;
+}
+
+tr:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Status Badges */
+.badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}
+
+.badge-done {
+    background: rgba(16, 185, 129, 0.15);
+    color: #10b981;
+}
+
+.badge-emplantillado {
+    background: rgba(99, 102, 241, 0.15);
+    color: #818cf8;
+}
+
+.badge-corte {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+}
+
+.badge-pending {
+    background: rgba(100, 116, 139, 0.15);
+    color: #94a3b8;
+}
+
+.badge-rejection {
+    background: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+}
+
+.badge-nde {
+    background: rgba(167, 139, 250, 0.15);
+    color: #a78bfa;
+}
+
+/* ============ JUNTAS BREAKDOWN ============ */
+.juntas-breakdown-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.jc-col {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.jc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.75rem;
+}
+
+.jc-header-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.jc-header-stats {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-align: right;
+}
+
+.jc-header-stats span {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.jc-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 0.75rem;
+}
+
+.jc-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.85rem;
+    text-align: center;
+    transition: background 0.2s;
+}
+
+.jc-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.jc-card-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--info);
+    margin-bottom: 0.25rem;
+}
+
+.jc-card-subtitle {
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jc-card-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.jc-card-stats div {
+    display: flex;
+    flex-direction: column;
+}
+
+.jc-card-stats .label {
+    font-size: 0.55rem;
+    color: var(--text-dim);
+}
+
+.jc-card-stats .val {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.jc-card-stats .val.done {
+    color: var(--accent);
+}
+
+/* ============ KANBAN ============ */
+.kanban-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+}
+
+.kanban-col {
+    padding: 1rem;
+    min-height: 300px;
+}
+
+.kanban-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.kanban-title.pending {
+    color: var(--text-dim);
+}
+
+.kanban-title.approved {
+    color: var(--accent);
+}
+
+.kanban-title.nde {
+    color: var(--purple);
+}
+
+.kanban-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.kanban-card {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-size: 0.8rem;
+}
+
+.kanban-card:hover {
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.kanban-card-id {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.kanban-card-sub {
+    color: var(--text-dim);
+    font-size: 0.72rem;
+    margin-top: 2px;
+}
+
+/* ============ MESSAGE ============ */
+.empty-msg {
+    text-align: center;
+    color: var(--text-dim);
+    padding: 2rem;
+    font-size: 0.85rem;
+}
+
+/* ============ COMING SOON ============ */
+.coming-soon-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 1rem;
+    text-align: center;
+}
+
+.coming-soon-icon {
+    font-size: 3.5rem;
+}
+
+.coming-soon-wrapper h2 {
+    font-size: 1.5rem;
+    color: var(--text);
+}
+
+.coming-soon-wrapper p {
+    color: var(--text-dim);
+    max-width: 480px;
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+
+.coming-soon-tags {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 0.5rem;
+}
+
+/* ============ KPI SUBLABEL ============ */
+.kpi-sublabel {
+    font-size: 0.72rem;
+    margin-top: 2px;
+}
+
+/* ============ RESPONSIVE ============ */
+@media (max-width: 800px) {
+    .sidebar {
+        width: 60px;
+        min-width: 60px;
+    }
+
+    .brand-sub,
+    .nav-btn span,
+    .sidebar-footer {
+        display: none;
+    }
+
+    .kanban-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+}
