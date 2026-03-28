@@ -517,6 +517,110 @@ tr:hover td {
     color: #a78bfa;
 }
 
+/* ============ JUNTAS BREAKDOWN ============ */
+.juntas-breakdown-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.jc-col {
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.jc-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.75rem;
+}
+
+.jc-header-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.jc-header-stats {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    text-align: right;
+}
+
+.jc-header-stats span {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.jc-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 0.75rem;
+}
+
+.jc-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.85rem;
+    text-align: center;
+    transition: background 0.2s;
+}
+
+.jc-card:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.jc-card-title {
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: var(--info);
+    margin-bottom: 0.25rem;
+}
+
+.jc-card-subtitle {
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.jc-card-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    padding-top: 0.5rem;
+    border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.jc-card-stats div {
+    display: flex;
+    flex-direction: column;
+}
+
+.jc-card-stats .label {
+    font-size: 0.55rem;
+    color: var(--text-dim);
+}
+
+.jc-card-stats .val {
+    font-weight: 600;
+    color: var(--text);
+}
+
+.jc-card-stats .val.done {
+    color: var(--accent);
+}
+
 /* ============ KANBAN ============ */
 .kanban-grid {
     display: grid;

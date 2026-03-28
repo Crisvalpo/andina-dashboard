@@ -4,6 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Version: 1.1.0 (Auto-Deployed via GitHub Webhook) -->
     <title>Dashboard Piping | Andina PRY-413</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -143,7 +144,11 @@
                         <div class="kpi-icon" style="background:#ef444420"><i class="fas fa-exclamation-triangle"
                                 style="color:#ef4444"></i></div>
                         <div>
-                            <p class="kpi-label">SDI Abiertas</p>
+                            <p class="kpi-label" style="display:flex;align-items:center;gap:0.4rem">
+                                SDI Abiertas
+                                <span class="badge badge-pending"
+                                    style="font-size:0.5rem;padding:2px 4px;border-radius:4px;letter-spacing:0">PRÓXIMAMENTE</span>
+                            </p>
                             <p class="kpi-value" id="kpi-sdi">--</p>
                         </div>
                     </div>
@@ -156,6 +161,8 @@
                         </div>
                     </div>
                 </div>
+
+
 
                 <!-- Charts -->
                 <div class="charts-grid">
@@ -173,23 +180,6 @@
                     </div>
                 </div>
 
-                <!-- Latest Moves -->
-                <div class="table-card glass">
-                    <h3>Últimos Movimientos <span class="filter-tag" id="week-tag"></span></h3>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Junta</th>
-                                    <th>Spool / ISO</th>
-                                    <th>Estado</th>
-                                    <th>Fecha</th>
-                                </tr>
-                            </thead>
-                            <tbody id="log-tbody"></tbody>
-                        </table>
-                    </div>
-                </div>
             </section>
 
             <!-- ===== SECTION: JUNTAS ===== -->
@@ -228,6 +218,30 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- KPI Row: Desglose Juntas -->
+                <div class="kpi-section-label" style="margin-top:0.5rem">🛠️ Distribución de Juntas (Taller vs Terreno)
+                </div>
+                <div class="juntas-breakdown-grid" id="juntas-breakdown">
+                    <!-- Taller Column -->
+                    <div class="jc-col glass">
+                        <div class="jc-header">
+                            <div class="jc-header-title">🏭 Shop (Taller)</div>
+                            <div class="jc-header-stats" id="shop-stats">Total: --<br>Ejecutadas: <span>--</span></div>
+                        </div>
+                        <div class="jc-cards" id="shop-cards"></div>
+                    </div>
+
+                    <!-- Terreno Column -->
+                    <div class="jc-col glass">
+                        <div class="jc-header">
+                            <div class="jc-header-title">🏗️ Field (Terreno)</div>
+                            <div class="jc-header-stats" id="field-stats">Total: --<br>Ejecutadas: <span>--</span></div>
+                        </div>
+                        <div class="jc-cards" id="field-cards"></div>
+                    </div>
+                </div>
+
                 <div class="charts-grid">
                     <div class="chart-card glass">
                         <h3>Distribución por Estado</h3>
@@ -240,23 +254,6 @@
                         <div class="chart-body">
                             <canvas id="fluidChart"></canvas>
                         </div>
-                    </div>
-                </div>
-                <div class="table-card glass">
-                    <h3>Registro de Actividad</h3>
-                    <div class="table-wrap">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Junta</th>
-                                    <th>Tipo Unión</th>
-                                    <th>Estado</th>
-                                    <th>Responsable</th>
-                                    <th>Fecha</th>
-                                </tr>
-                            </thead>
-                            <tbody id="juntas-tbody"></tbody>
-                        </table>
                     </div>
                 </div>
             </section>

@@ -29,6 +29,8 @@ const state = {
     ejecuciones: [],   // REG_EjecucionJuntas_MS
     sdis: [],
     inspecciones: [],  // REG_InspeccionVisual_MS
+    catUniones: [],    // CAT_TipoUnion_MS
+    catFluidos: [],    // CAT_FluidoServicio_MS
     currentWeek: currentISOWeek(),
     currentSection: 'overview'
 };
@@ -157,14 +159,16 @@ async function refreshData() {
     console.log('[Dashboard] Cargando datos...');
     const dot = document.getElementById('api-dot');
 
-    const [lineas, isos, spools, juntas, ejecuciones, sdis, inspecciones] = await Promise.all([
+    const [lineas, isos, spools, juntas, ejecuciones, sdis, inspecciones, catUniones, catFluidos] = await Promise.all([
         fetchTable('LIST_Lineas_MS'),
         fetchTable('LIST_Iso_MS'),
         fetchTable('LIST_Spools_MS'),
         fetchTable('LIST_Juntas_MS'),
         fetchTable('REG_EjecucionJuntas_MS'),
         fetchTable('LOG_SDI_MS'),
-        fetchTable('REG_InspeccionVisual_MS')
+        fetchTable('REG_InspeccionVisual_MS'),
+        fetchTable('CAT_TipoUnion_MS'),
+        fetchTable('CAT_FluidoServicio_MS')
     ]);
 
     state.lineas = lineas;
@@ -174,6 +178,8 @@ async function refreshData() {
     state.ejecuciones = ejecuciones;
     state.sdis = sdis;
     state.inspecciones = inspecciones;
+    state.catUniones = catUniones || [];
+    state.catFluidos = catFluidos || [];
 
     const ok = juntas.length > 0 || lineas.length > 0;
     dot.className = 'api-dot' + (ok ? '' : ' error');
@@ -270,7 +276,6 @@ function renderOverview() {
     setText('kpi-sdi', sdiAbiertas);
     setText('kpi-semana', semanaActual);
 
-    // Week Tag
     const tag = document.getElementById('week-tag');
     if (tag) tag.textContent = `S${state.currentWeek}`;
 
@@ -282,6 +287,66 @@ function renderOverview() {
 
     // Latest movements table
     renderLogTable();
+}
+
+function renderJuntasBreakdown() {
+    const { juntas, catUniones } = state;
+
+    // Maps for fast lookup
+    const catMap = {};
+    catUniones.forEach(c => {
+        catMap[(c.ID_TIPO_UNION || c['ID_TIPO_UNION '] || '').trim()] = (c.NMB_UNION || c['NMB_UNION '] || '').trim();
+    });
+
+    const shop = { total: 0, ejec: 0, types: {} };
+    const field = { total: 0, ejec: 0, types: {} };
+
+    juntas.forEach(j => {
+        const cat = (j.CATEGORIA_JUNTA || j['CATEGORIA_JUNTA '] || '').toUpperCase().trim();
+        const tipo = (j.ID_TIPO_UNION || j['ID_TIPO_UNION '] || 'VAR').trim();
+        const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
+        const isEjecutada = et && et.toUpperCase().includes('EJECUTAD');
+
+        const isShop = cat === 'S' || cat === 'SHOP' || cat === 'TALLER';
+        const target = isShop ? shop : field; // Si no es S, asumimos Field por defecto
+
+        target.total++;
+        if (isEjecutada) target.ejec++;
+
+        if (!target.types[tipo]) target.types[tipo] = { total: 0, ejec: 0, name: catMap[tipo] || 'S/D' };
+        target.types[tipo].total++;
+        if (isEjecutada) target.types[tipo].ejec++;
+    });
+
+    // Render Stats Headers
+    const shopEl = document.getElementById('shop-stats');
+    if (shopEl) shopEl.innerHTML = `Total: ${shop.total}<br>Ejecutadas: <span>${shop.ejec}</span>`;
+
+    const fieldEl = document.getElementById('field-stats');
+    if (fieldEl) fieldEl.innerHTML = `Total: ${field.total}<br>Ejecutadas: <span>${field.ejec}</span>`;
+
+    // Render Cards
+    const renderCards = (typeObj) => {
+        const types = Object.keys(typeObj).sort((a, b) => typeObj[b].total - typeObj[a].total);
+        if (!types.length) return `<div class="empty-msg" style="padding:1rem">Sin registros</div>`;
+        return types.map(t => {
+            const data = typeObj[t];
+            return `<div class="jc-card">
+                <div class="jc-card-title">${t}</div>
+                <div class="jc-card-subtitle" title="${data.name}">${data.name}</div>
+                <div class="jc-card-stats">
+                    <div><span class="label">TOTAL</span><span class="val">${data.total}</span></div>
+                    <div><span class="label">EJEC</span><span class="val done">${data.ejec}</span></div>
+                </div>
+            </div>`;
+        }).join('');
+    };
+
+    const sCards = document.getElementById('shop-cards');
+    if (sCards) sCards.innerHTML = renderCards(shop.types);
+
+    const fCards = document.getElementById('field-cards');
+    if (fCards) fCards.innerHTML = renderCards(field.types);
 }
 
 function renderSCurve() {
@@ -323,7 +388,9 @@ function renderSCurve() {
 }
 
 function renderBarChart() {
-    const fluids = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW'];
+    let fluids = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
+    if (!fluids.length) fluids = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW']; // fallback
+
     const counts = fluids.map(f =>
         state.ejecuciones.filter(e => {
             const iso = e.ID_ISO || e['ID_ISO '] || '';
@@ -399,6 +466,9 @@ function renderJuntas() {
     setText('j-corte', corte);
     setText('j-pendiente', pendiente);
 
+    // Desglose Taller vs Terreno
+    renderJuntasBreakdown();
+
     // Donut
     if (charts.donut) charts.donut.destroy();
     const dCtx = document.getElementById('donutChart');
@@ -422,9 +492,17 @@ function renderJuntas() {
     }
 
     // Fluid chart
-    const fluids = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW'];
+    let fluids = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
+    if (!fluids.length) fluids = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW']; // fallback
+
     const fluidTotals = fluids.map(f => juntas.filter(j => (j.ID_ISO || j['ID_ISO '] || '').includes(`-${f}-`)).length);
-    const fluidExec = fluids.map(f => ejecuciones.filter(e => (e.ID_ISO || e['ID_ISO '] || '').includes(`-${f}-`)).length);
+    const fluidExec = fluids.map(f => {
+        const juntasDelFluido = juntas.filter(j => (j.ID_ISO || j['ID_ISO '] || '').includes(`-${f}-`));
+        return juntasDelFluido.filter(j => {
+            const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
+            return et && et.toUpperCase().includes('EJECUTAD');
+        }).length;
+    });
 
     if (charts.fluid) charts.fluid.destroy();
     const fCtx = document.getElementById('fluidChart');
@@ -435,7 +513,7 @@ function renderJuntas() {
                 labels: fluids,
                 datasets: [
                     { label: 'Total', data: fluidTotals, backgroundColor: 'rgba(99,102,241,0.3)', borderRadius: 4 },
-                    { label: 'Con Actividad', data: fluidExec, backgroundColor: '#6366f1', borderRadius: 4 }
+                    { label: 'Ejecutadas', data: fluidExec, backgroundColor: '#6366f1', borderRadius: 4 }
                 ]
             },
             options: {
@@ -528,15 +606,25 @@ function renderSpools() {
     if (ctxFluido) {
         if (charts.spoolsFluido) charts.spoolsFluido.destroy();
 
+        let fluidList = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
+        if (!fluidList.length) fluidList = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW']; // fallback
+
         const fluidosMap = {};
+        fluidList.forEach(f => fluidosMap[f] = 0);
+        fluidosMap['OTROS'] = 0;
+
         spools.forEach(s => {
-            const line = s.LINEA || '';
-            const match = line.match(/^(\w+)-/);
-            const fl = match ? match[1] : 'VAR';
-            fluidosMap[fl] = (fluidosMap[fl] || 0) + 1;
+            const val = (s.ID_ISO || s['ID_ISO '] || s.LINEA || '').toUpperCase();
+            const fl = fluidList.find(f => val.includes(`-${f}-`) || val.includes(`/${f}/`));
+            if (fl) {
+                fluidosMap[fl]++;
+            } else {
+                fluidosMap['OTROS']++;
+            }
         });
 
-        const labels = Object.keys(fluidosMap).sort((a, b) => fluidosMap[b] - fluidosMap[a]).slice(0, 6);
+        // Solo mostrar los que tienen datos
+        const labels = Object.keys(fluidosMap).filter(l => fluidosMap[l] > 0).sort((a, b) => fluidosMap[b] - fluidosMap[a]).slice(0, 6);
         const data = labels.map(l => fluidosMap[l]);
 
         charts.spoolsFluido = new Chart(ctxFluido, {
