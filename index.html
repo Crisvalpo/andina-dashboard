@@ -224,21 +224,35 @@
                 </div>
                 <div class="juntas-breakdown-grid" id="juntas-breakdown">
                     <!-- Taller Column -->
-                    <div class="jc-col glass">
-                        <div class="jc-header">
-                            <div class="jc-header-title">🏭 Shop (Taller)</div>
-                            <div class="jc-header-stats" id="shop-stats">Total: --<br>Ejecutadas: <span>--</span></div>
+                    <div class="jc-col glass collapsed" id="col-shop">
+                        <div class="jc-header" onclick="toggleJuntaCol('shop')">
+                            <div class="jc-header-main">
+                                <i class="fas fa-chevron-down toggle-icon"></i>
+                                <div class="jc-header-title">🏭 Shop (Taller)</div>
+                            </div>
+                            <div class="jc-metrics-grid" id="shop-metrics">
+                                <!-- Populated via app.js -->
+                            </div>
                         </div>
-                        <div class="jc-cards" id="shop-cards"></div>
+                        <div class="jc-content" id="shop-content">
+                            <div class="jc-cards" id="shop-cards"></div>
+                        </div>
                     </div>
 
                     <!-- Terreno Column -->
-                    <div class="jc-col glass">
-                        <div class="jc-header">
-                            <div class="jc-header-title">🏗️ Field (Terreno)</div>
-                            <div class="jc-header-stats" id="field-stats">Total: --<br>Ejecutadas: <span>--</span></div>
+                    <div class="jc-col glass collapsed" id="col-field">
+                        <div class="jc-header" onclick="toggleJuntaCol('field')">
+                            <div class="jc-header-main">
+                                <i class="fas fa-chevron-down toggle-icon"></i>
+                                <div class="jc-header-title">🏗️ Field (Terreno)</div>
+                            </div>
+                            <div class="jc-metrics-grid" id="field-metrics">
+                                <!-- Populated via app.js -->
+                            </div>
                         </div>
-                        <div class="jc-cards" id="field-cards"></div>
+                        <div class="jc-content" id="field-content">
+                            <div class="jc-cards" id="field-cards"></div>
+                        </div>
                     </div>
                 </div>
 
@@ -291,6 +305,15 @@
                         <div>
                             <p class="kpi-label">Despachados</p>
                             <p class="kpi-value" id="s-despachados">--</p>
+                        </div>
+                    </div>
+                    <!-- Nuevo: Montados -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#8b5cf620"><i class="fas fa-check-circle"
+                                style="color:#a78bfa"></i></div>
+                        <div>
+                            <p class="kpi-label">Montados</p>
+                            <p class="kpi-value" id="s-montados">--</p>
                         </div>
                     </div>
                 </div>

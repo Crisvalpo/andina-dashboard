@@ -1,15 +1,18 @@
 const express = require('express');
 const path = require('path');
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3005;
 
-// Serve static files from the root directory
-app.use(express.static(path.join(__dirname)));
-
-app.get('*', (req, res) => {
+// Middleware para capturar TODAS las peticiones y servir index.html
+app.use((req, res, next) => {
+    // Si es una petición a un archivo (tiene extensión), dejar que express.static lo maneje
+    if (path.extname(req.url)) return next();
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+// Servir archivos estáticos
+app.use(express.static(__dirname));
+
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Andina Dashboard running on http://localhost:${PORT}`);
 });

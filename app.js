@@ -318,12 +318,30 @@ function renderJuntasBreakdown() {
         if (isEjecutada) target.types[tipo].ejec++;
     });
 
-    // Render Stats Headers
-    const shopEl = document.getElementById('shop-stats');
-    if (shopEl) shopEl.innerHTML = `Total: ${shop.total}<br>Ejecutadas: <span>${shop.ejec}</span>`;
+    // Render Metrics Cards
+    const renderMetrics = (data) => {
+        const perc = data.total > 0 ? Math.round((data.ejec / data.total) * 100) : 0;
+        return `
+            <div class="jc-metric-card">
+                <span class="jc-metric-label">TOTAL</span>
+                <span class="jc-metric-value">${data.total}</span>
+            </div>
+            <div class="jc-metric-card">
+                <span class="jc-metric-label">EJEC</span>
+                <span class="jc-metric-value">${data.ejec}</span>
+            </div>
+            <div class="jc-metric-card perc">
+                <span class="jc-metric-label">% ACUM</span>
+                <span class="jc-metric-value">${perc}%</span>
+            </div>
+        `;
+    };
 
-    const fieldEl = document.getElementById('field-stats');
-    if (fieldEl) fieldEl.innerHTML = `Total: ${field.total}<br>Ejecutadas: <span>${field.ejec}</span>`;
+    const shopMetrics = document.getElementById('shop-metrics');
+    if (shopMetrics) shopMetrics.innerHTML = renderMetrics(shop);
+
+    const fieldMetrics = document.getElementById('field-metrics');
+    if (fieldMetrics) fieldMetrics.innerHTML = renderMetrics(field);
 
     // Render Cards
     const renderCards = (typeObj) => {
@@ -347,6 +365,13 @@ function renderJuntasBreakdown() {
 
     const fCards = document.getElementById('field-cards');
     if (fCards) fCards.innerHTML = renderCards(field.types);
+}
+
+function toggleJuntaCol(type) {
+    const col = document.getElementById(`col-${type}`);
+    if (col) {
+        col.classList.toggle('collapsed');
+    }
 }
 
 function renderSCurve() {
@@ -548,14 +573,32 @@ function renderJuntas() {
 function renderSpools() {
     const { spools } = state;
 
-    const fab = spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FAB')).length;
-    const pintura = spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('PINT')).length;
-    const despachados = spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('DESPACH')).length;
+    // Lógica refinada de estados
+    const fab = spools.filter(s => {
+        const st = (s.ESTADO_FABRICACION || '').toUpperCase();
+        return st.includes('EN FABRICACION') && !st.includes('FABRICADO');
+    }).length;
+
+    const pintura = spools.filter(s => {
+        const cv = (s.ESTADO_CICLO_VIDA || '').toUpperCase();
+        return cv.includes('PINTURA');
+    }).length;
+
+    const despachados = spools.filter(s => {
+        const cv = (s.ESTADO_CICLO_VIDA || '').toUpperCase();
+        return cv.includes('DESPACH') || cv.includes('LLEGADA') || cv.includes('TERRENO');
+    }).length;
+
+    const montados = spools.filter(s => {
+        const cv = (s.ESTADO_CICLO_VIDA || '').toUpperCase();
+        return cv.includes('MONTADO') || cv.includes('MONTAJE') || cv.includes('INSTALADO');
+    }).length;
 
     setText('s-total', spools.length);
     setText('s-fab', fab);
     setText('s-pintura', pintura);
     setText('s-despachados', despachados);
+    setText('s-montados', montados);
 
     // Gráficos Spools
 

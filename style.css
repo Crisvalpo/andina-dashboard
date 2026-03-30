@@ -538,12 +538,79 @@ tr:hover td {
     align-items: center;
     border-bottom: 1px solid var(--border);
     padding-bottom: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+}
+
+.jc-header-main {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.toggle-icon {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    transition: transform 0.3s ease;
+}
+
+.jc-col.collapsed .toggle-icon {
+    transform: rotate(-90deg);
+}
+
+.jc-col.collapsed .jc-content {
+    display: none;
+}
+
+.jc-col.collapsed {
+    padding-bottom: 0.75rem;
 }
 
 .jc-header-title {
-    font-size: 1.05rem;
-    font-weight: 600;
+    font-size: 1.1rem;
+    font-weight: 700;
     color: var(--text);
+}
+
+/* Metrics Grid / Cards */
+.jc-metrics-grid {
+    display: flex;
+    gap: 0.6rem;
+}
+
+.jc-metric-card {
+    background: rgba(30, 41, 59, 0.4);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.8rem;
+    min-width: 70px;
+    text-align: center;
+    transition: all 0.2s;
+}
+
+.jc-metric-card:hover {
+    background: rgba(99, 102, 241, 0.1);
+    border-color: rgba(99, 102, 241, 0.3);
+}
+
+.jc-metric-label {
+    display: block;
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 1px;
+}
+
+.jc-metric-value {
+    display: block;
+    font-size: 1.1rem;
+    font-weight: 800;
+    line-height: 1;
+}
+
+.jc-metric-card.perc .jc-metric-value {
+    color: var(--accent);
 }
 
 .jc-header-stats {
