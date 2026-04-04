@@ -71,8 +71,8 @@ app.get('/guia/:id', (req, res) => {
     res.sendFile(path.join(__dirname, 'guia.html'));
 });
 
-// SPA fallback (Dashboard principal)
-app.get('*', (req, res) => {
+// SPA fallback (Dashboard principal / Error 404 handler)
+app.use((req, res, next) => {
     if (path.extname(req.url)) return res.sendStatus(404);
     res.sendFile(path.join(__dirname, 'index.html'));
 });
