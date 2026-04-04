@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <!-- Version: 1.1.0 (Auto-Deployed via GitHub Webhook) -->
     <title>Dashboard Piping | Andina PRY-413</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -33,6 +33,9 @@
                 </div>
                 <div class="api-dot" id="api-dot" title="Estado API"></div>
             </div>
+            <!-- Mobile icon shown when sidebar is collapsed -->
+            <i class="fas fa-hard-hat sidebar-mobile-icon"
+                style="display:none;color:var(--primary-light);font-size:1.2rem;"></i>
 
             <nav class="sidebar-nav">
                 <button class="nav-btn active" onclick="showSection('overview')" id="nav-overview">
@@ -67,15 +70,11 @@
             <!-- TOP BAR -->
             <div class="top-bar">
                 <h2 class="section-title" id="section-title">Dashboard Overview</h2>
-                <div class="week-nav">
-                    <button class="week-btn" onclick="changeWeek(-1)"><i class="fas fa-chevron-left"></i></button>
+                <div class="week-nav title-mode">
                     <div class="week-display">
                         <span class="week-label">SEMANA</span>
                         <span class="week-number" id="week-number">--</span>
                     </div>
-                    <button class="week-btn" onclick="changeWeek(1)"><i class="fas fa-chevron-right"></i></button>
-                    <button class="week-btn week-btn-today" onclick="goToCurrentWeek()" title="Ir a semana actual"><i
-                            class="fas fa-calendar-day"></i></button>
                 </div>
             </div>
 
@@ -274,7 +273,7 @@
 
             <!-- ===== SECTION: SPOOLS ===== -->
             <section class="section-content" id="spools-section">
-                <div class="kpi-row">
+                <div class="kpi-row kpi-row-compact">
                     <div class="kpi-card glass">
                         <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-industry"
                                 style="color:#10b981"></i></div>
@@ -289,6 +288,14 @@
                         <div>
                             <p class="kpi-label">En Fabricación</p>
                             <p class="kpi-value" id="s-fab">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-check-double"
+                                style="color:#10b981"></i></div>
+                        <div>
+                            <p class="kpi-label">Fabricados</p>
+                            <p class="kpi-value" id="s-fabricados">--</p>
                         </div>
                     </div>
                     <div class="kpi-card glass">
@@ -317,16 +324,16 @@
                         </div>
                     </div>
                 </div>
-                <div class="charts-row">
+                <div class="charts-grid">
                     <div class="chart-card glass">
                         <h3>Distribución por Estado</h3>
-                        <div class="chart-wrapper">
+                        <div class="chart-body">
                             <canvas id="spools-estado-chart"></canvas>
                         </div>
                     </div>
                     <div class="chart-card glass">
                         <h3>Spools por Fluido</h3>
-                        <div class="chart-wrapper">
+                        <div class="chart-body">
                             <canvas id="spools-fluido-chart"></canvas>
                         </div>
                     </div>
@@ -361,18 +368,23 @@
                         </div>
                     </div>
                 </div>
-                <div class="kanban-grid">
-                    <div class="kanban-col glass">
-                        <h3 class="kanban-title pending">⏳ Pendiente VT</h3>
-                        <div id="kanban-pending" class="kanban-body"></div>
+                <div class="kpi-section-label">📋 Detalle de Inspección</div>
+                <div class="kpi-row" id="qc-detail-cards">
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#64748b20"><i class="fas fa-history"
+                                style="color:#94a3b8"></i></div>
+                        <div>
+                            <p class="kpi-label">Pendiente VT</p>
+                            <p class="kpi-value" id="qc-pendiente">--</p>
+                        </div>
                     </div>
-                    <div class="kanban-col glass">
-                        <h3 class="kanban-title approved">✅ VT Aprobado</h3>
-                        <div id="kanban-approved" class="kanban-body"></div>
-                    </div>
-                    <div class="kanban-col glass">
-                        <h3 class="kanban-title nde">🔬 NDE Solicitado</h3>
-                        <div id="kanban-nde" class="kanban-body"></div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#a78bfa20"><i class="fas fa-microscope"
+                                style="color:#a78bfa"></i></div>
+                        <div>
+                            <p class="kpi-label">Solicitado NDE</p>
+                            <p class="kpi-value" id="qc-nde-sol">--</p>
+                        </div>
                     </div>
                 </div>
             </section>

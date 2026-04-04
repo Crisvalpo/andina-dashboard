@@ -11,12 +11,17 @@ const API = {
     base: 'https://api.appsheet.com/api/v2/apps'
 };
 
-// Fecha de inicio del proyecto (FECHA_INICIO_OBRA en AppSheet)
-// Semana del proyecto = floor((hoy - inicio) / 7) → coincide con fórmula de LukeAPP
-const PROJECT_START_DATE = new Date('2025-09-15');
+// Fecha de inicio del proyecto (Local 00:00:00)
+const PROJECT_START_DATE = new Date(2025, 8, 15); // Septiembre 15, 2025
 
 function getProjectWeek(d = new Date()) {
-    const days = Math.floor((d - PROJECT_START_DATE) / (1000 * 60 * 60 * 24));
+    if (!(d instanceof Date) || isNaN(d.getTime())) return null;
+    const start = new Date(PROJECT_START_DATE);
+    start.setHours(0, 0, 0, 0);
+    const current = new Date(d);
+    current.setHours(0, 0, 0, 0);
+    const diff = current - start;
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
     return Math.floor(days / 7);
 }
 
@@ -31,7 +36,7 @@ const state = {
     inspecciones: [],  // REG_InspeccionVisual_MS
     catUniones: [],    // CAT_TipoUnion_MS
     catFluidos: [],    // CAT_FluidoServicio_MS
-    currentWeek: currentISOWeek(),
+    currentWeek: getProjectWeek(),
     currentSection: 'overview'
 };
 
@@ -60,10 +65,51 @@ function getISOWeek(d) {
 
 function parseDate(str) {
     if (!str) return null;
-    const part = str.split(' ')[0];
-    const s = part.split('/');
-    if (s.length === 3) return new Date(`${s[2]}-${s[1].padStart(2, '0')}-${s[0].padStart(2, '0')}`);
-    return new Date(str);
+    if (str instanceof Date) return str;
+
+    // Support YYYY-MM-DD and DD/MM/YYYY or MM/DD/YYYY
+    const part = String(str).split(' ')[0];
+    const s = part.split(/[-/]/);
+    if (s.length !== 3) return new Date(str);
+
+    let year, month, day;
+    if (s[0].length === 4) {
+        // YYYY-MM-DD
+        year = parseInt(s[0]);
+        month = parseInt(s[1]) - 1;
+        day = parseInt(s[2]);
+    } else {
+        // DD/MM/YYYY or MM/DD/YYYY
+        year = parseInt(s[2]);
+        if (year < 100) year += 2000;
+
+        let d1 = parseInt(s[0]);
+        let d2 = parseInt(s[1]);
+
+        // Logic: If d2 > 12, it must be the day (MM/DD/YYYY)
+        // If d1 > 12, it must be the day (DD/MM/YYYY)
+        // If both <= 12, we check if month=d2 (DD/MM) results in a week closer to now
+        // Current month is April (3), so if one date gives Jan and other gives April, we pick April.
+        if (d2 > 12) { // MM/DD/YYYY
+            month = d1 - 1; day = d2;
+        } else if (d1 > 12) { // DD/MM/YYYY
+            month = d2 - 1; day = d1;
+        } else {
+            // Ambiguous (e.g. 01/04/2026). Check which one gives Week 28 vs Week 15
+            const test1 = new Date(year, d2 - 1, d1); // Assume DD/MM
+            const w1 = getProjectWeek(test1);
+            const todayW = getProjectWeek(new Date());
+
+            if (Math.abs((w1 || 0) - todayW) < 5) {
+                month = d2 - 1; day = d1;
+            } else {
+                month = d1 - 1; day = d2;
+            }
+        }
+    }
+
+    const res = new Date(year, month, day);
+    return isNaN(res.getTime()) ? null : res;
 }
 
 // Format date string to DD/MM/AA
@@ -84,7 +130,7 @@ function getWeekOfDate(str) {
 }
 
 function setWeekDisplay(w) {
-    document.getElementById('week-number').textContent = `S${w}`;
+    document.getElementById('week-number').textContent = w;
 }
 
 function changeWeek(delta) {
@@ -144,7 +190,7 @@ async function fetchTable(tableName) {
                 'ApplicationAccessKey': API.appKey,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ Action: 'Find', Properties: { Locale: 'es-ES' }, Rows: [] })
+            body: JSON.stringify({ Action: 'Find', Properties: { Locale: 'es-CL' }, Rows: [] })
         });
         if (!res.ok) { console.error(`[API] ${tableName} → HTTP ${res.status}`); return []; }
         const data = await res.json();
@@ -181,6 +227,14 @@ async function refreshData() {
     state.catUniones = catUniones || [];
     state.catFluidos = catFluidos || [];
 
+    // 🔍 DEBUG: Log raw date format from API (remove after fixing)
+    const sampleDates = ejecuciones.slice(0, 3).map(e => ({
+        raw: e.FECHA_EJECUCION || e['FECHA_EJECUCION '],
+        parsed: parseDate(e.FECHA_EJECUCION || e['FECHA_EJECUCION ']),
+        week: getWeekOfDate(e.FECHA_EJECUCION || e['FECHA_EJECUCION '])
+    }));
+    console.log('[DEBUG] FECHA_EJECUCION samples:', sampleDates);
+
     const ok = juntas.length > 0 || lineas.length > 0;
     dot.className = 'api-dot' + (ok ? '' : ' error');
 
@@ -193,15 +247,19 @@ async function refreshData() {
 // REG_EjecucionJuntas_MS: columna ESTADO_EJECUCION
 // Valores: "EJECUTADA" | "EMPLANTILLADO" | "CORTE DIMENSIONADO"
 
+function getVal(row, key) {
+    if (!row) return '';
+    // Handle both "KEY" and "KEY " (trailing space)
+    const v = row[key] || row[key.trim()] || row[key.trim() + ' '] || '';
+    return typeof v === 'string' ? v.trim() : v;
+}
+
 function getEstado(row) {
-    // Trim all keys to handle trailing spaces in CSV column names
-    const v = row['ESTADO_EJECUCION'] || row['ESTADO_EJECUCION '] || '';
-    return v.trim();
+    return getVal(row, 'ESTADO_EJECUCION');
 }
 
 function getJuntaId(row) {
-    const v = row['ID_JUNTA'] || row['ID_JUNTA '] || '';
-    return v.trim();
+    return getVal(row, 'ID_JUNTA');
 }
 
 function getEtapaBadge(estado) {
@@ -376,15 +434,32 @@ function toggleJuntaCol(type) {
 
 function renderSCurve() {
     const weekMap = {};
+    const todayWeek = getProjectWeek(); // S28
+
     state.ejecuciones.forEach(e => {
-        const w = getWeekOfDate(e.FECHA_EJECUCION);
-        if (w) weekMap[w] = (weekMap[w] || 0) + 1;
+        const estado = getEstado(e).toUpperCase();
+        // Solo uniones "EJECUTADA" (terminadas) se grafican en la Curva S
+        if (estado.includes('EJECUTAD')) {
+            const rawDate = getVal(e, 'FECHA_EJECUCION');
+            const w = getWeekOfDate(rawDate);
+            // ONLY accept weeks between 0 and current week (S28)
+            if (w !== null && w >= 0 && w <= todayWeek) {
+                weekMap[w] = (weekMap[w] || 0) + 1;
+            }
+        }
     });
 
     const sorted = Object.keys(weekMap).map(Number).sort((a, b) => a - b);
+
+    // If no data in range, show current week as 0 to keep chart axis consistent
+    if (!sorted.length) sorted.push(todayWeek);
+
     let cum = 0;
     const labels = sorted.map(w => `S${w}`);
-    const data = sorted.map(w => { cum += weekMap[w]; return cum; });
+    const data = sorted.map(w => {
+        cum += (weekMap[w] || 0);
+        return cum;
+    });
 
     if (charts.sCurve) charts.sCurve.destroy();
     const ctx = document.getElementById('sCurveChart');
@@ -594,8 +669,11 @@ function renderSpools() {
         return cv.includes('MONTADO') || cv.includes('MONTAJE') || cv.includes('INSTALADO');
     }).length;
 
+    const fabCount = spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FABRICADO')).length;
+
     setText('s-total', spools.length);
     setText('s-fab', fab);
+    setText('s-fabricados', fabCount);
     setText('s-pintura', pintura);
     setText('s-despachados', despachados);
     setText('s-montados', montados);
@@ -720,22 +798,9 @@ function renderQC() {
     setText('qc-rechazado', inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('RECHAZA')).length);
     setText('qc-nde', ndeList.length);
 
-    // Kanban col: Pendiente VT (IDs de juntas ejecutadas sin inspección)
-    const pendienteContainer = document.getElementById('kanban-pending');
-    if (pendienteContainer) {
-        if (!pendienteVT.length) {
-            pendienteContainer.innerHTML = `<div class="empty-msg">Sin juntas pendientes</div>`;
-        } else {
-            pendienteContainer.innerHTML = pendienteVT.slice(0, 15).map(id => `
-                <div class="kanban-card">
-                    <div class="kanban-card-id">${id}</div>
-                    <div class="kanban-card-sub">Ejecutada · sin VT</div>
-                </div>`).join('');
-        }
-    }
-
-    fillKanban('kanban-approved', aprobadas, 'VT APROBADO');
-    fillKanban('kanban-nde', ndeList, 'NDE SOLICITADO');
+    // New Detail Cards
+    setText('qc-pendiente', pendienteVT.length);
+    setText('qc-nde-sol', ndeList.length);
 }
 
 function fillKanban(containerId, items, label) {
