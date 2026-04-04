@@ -34,6 +34,7 @@ const state = {
     ejecuciones: [],   // REG_EjecucionJuntas_MS
     sdis: [],
     inspecciones: [],  // REG_InspeccionVisual_MS
+    dimensional: [],   // REG_DimensionalSpool_MS
     catUniones: [],    // CAT_TipoUnion_MS
     catFluidos: [],    // CAT_FluidoServicio_MS
     currentWeek: getProjectWeek(),
@@ -205,7 +206,7 @@ async function refreshData() {
     console.log('[Dashboard] Cargando datos...');
     const dot = document.getElementById('api-dot');
 
-    const [lineas, isos, spools, juntas, ejecuciones, sdis, inspecciones, catUniones, catFluidos] = await Promise.all([
+    const [lineas, isos, spools, juntas, ejecuciones, sdis, inspecciones, dimensional, catUniones, catFluidos] = await Promise.all([
         fetchTable('LIST_Lineas_MS'),
         fetchTable('LIST_Iso_MS'),
         fetchTable('LIST_Spools_MS'),
@@ -213,6 +214,7 @@ async function refreshData() {
         fetchTable('REG_EjecucionJuntas_MS'),
         fetchTable('LOG_SDI_MS'),
         fetchTable('REG_InspeccionVisual_MS'),
+        fetchTable('REG_DimensionalSpool_MS'),
         fetchTable('CAT_TipoUnion_MS'),
         fetchTable('CAT_FluidoServicio_MS')
     ]);
@@ -224,6 +226,7 @@ async function refreshData() {
     state.ejecuciones = ejecuciones;
     state.sdis = sdis;
     state.inspecciones = inspecciones;
+    state.dimensional = dimensional || [];
     state.catUniones = catUniones || [];
     state.catFluidos = catFluidos || [];
 
@@ -801,6 +804,24 @@ function renderQC() {
     // New Detail Cards
     setText('qc-pendiente', pendienteVT.length);
     setText('qc-nde-sol', ndeList.length);
+
+    // ============ Métrica Dimensional (Spools) ============
+    const spoolsFabricados = state.spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FABRICADO')).length;
+
+    // Contar spools únicos con DCC emitido
+    const dccEmitidos = new Set();
+    state.dimensional.forEach(d => {
+        const id = (d.ID_SPOOL || d['ID_SPOOL '] || '').trim();
+        const resultado = (d.RESULTADO || d['RESULTADO '] || '').toUpperCase();
+        // Solo contamos si fue aprobado (o si el mero reporte ya cuenta, aquí validamos que no esté vacío)
+        if (id) dccEmitidos.add(id);
+    });
+    const dimCount = dccEmitidos.size;
+    const pendDim = spoolsFabricados - dimCount;
+
+    setText('qc-spool-fab', spoolsFabricados);
+    setText('qc-spool-dim', dimCount);
+    setText('qc-spool-pend', pendDim > 0 ? pendDim : 0);
 }
 
 function fillKanban(containerId, items, label) {
