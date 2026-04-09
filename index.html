@@ -143,11 +143,7 @@
                         <div class="kpi-icon" style="background:#ef444420"><i class="fas fa-exclamation-triangle"
                                 style="color:#ef4444"></i></div>
                         <div>
-                            <p class="kpi-label" style="display:flex;align-items:center;gap:0.4rem">
-                                SDI Abiertas
-                                <span class="badge badge-pending"
-                                    style="font-size:0.5rem;padding:2px 4px;border-radius:4px;letter-spacing:0">PRÓXIMAMENTE</span>
-                            </p>
+                            <p class="kpi-label">SDI Abiertas</p>
                             <p class="kpi-value" id="kpi-sdi">--</p>
                         </div>
                     </div>
@@ -419,15 +415,61 @@
 
             <!-- ===== SECTION: SDI ===== -->
             <section class="section-content" id="sdi-section">
-                <div class="coming-soon-wrapper">
-                    <div class="coming-soon-icon">🔧</div>
-                    <h2>SDI — Consultas Técnicas</h2>
-                    <p>Esta sección está en desarrollo. Próximamente podrás consultar, gestionar y referenciar todas las
-                        SDI del proyecto vinculadas a líneas, isométricos y spools.</p>
-                    <div class="coming-soon-tags">
-                        <span class="badge badge-emplantillado">LOG_SDI_MS</span>
-                        <span class="badge badge-corte">Vinculación a Líneas / ISOs</span>
-                        <span class="badge badge-pending">Estado de resolución</span>
+                <!-- KPI Row: SDI Stats -->
+                <div class="kpi-row">
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#ef444420"><i class="fas fa-question-circle"
+                                style="color:#ef4444"></i></div>
+                        <div>
+                            <p class="kpi-label">Total Consultas</p>
+                            <p class="kpi-value" id="sdi-total">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#f59e0b20"><i class="fas fa-clock"
+                                style="color:#f59e0b"></i></div>
+                        <div>
+                            <p class="kpi-label">Pendientes</p>
+                            <p class="kpi-value" id="sdi-pendientes">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-check-double"
+                                style="color:#10b981"></i></div>
+                        <div>
+                            <p class="kpi-label">Respondidas</p>
+                            <p class="kpi-value" id="sdi-respondidas">--</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Table: SDI Detailed List -->
+                <div class="chart-card glass" style="margin-top:1rem">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+                        <h3>Listado Oficial de SDIs</h3>
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="sdi-search" placeholder="Buscar por código o descripción..."
+                                onkeyup="filterSDI()">
+                        </div>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Código DAND</th>
+                                    <th>Descripción / Nombre</th>
+                                    <th>Estado</th>
+                                    <th>Fecha Envío</th>
+                                    <th>Isométricos Relacionados</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sdi-tbody">
+                                <tr>
+                                    <td colspan="5" class="empty-msg">Cargando consultas...</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </section>

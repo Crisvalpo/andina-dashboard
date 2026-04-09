@@ -33,6 +33,7 @@ const state = {
     juntas: [],
     ejecuciones: [],   // REG_EjecucionJuntas_MS
     sdis: [],
+    relSdiIso: [],     // REL_SDIIso_MS
     inspecciones: [],  // REG_InspeccionVisual_MS
     dimensional: [],   // REG_DimensionalSpool_MS
     catUniones: [],    // CAT_TipoUnion_MS
@@ -177,8 +178,65 @@ function renderCurrentSection() {
         case 'juntas': renderJuntas(); break;
         case 'spools': renderSpools(); break;
         case 'qc': renderQC(); break;
-        case 'sdi': break; // Próximamente
+        case 'sdi': renderSDI(); break;
     }
+}
+
+// ============ RENDER: SDI (RFI) ============
+function renderSDI() {
+    const { sdis, relSdiIso } = state;
+
+    const total = sdis.length;
+    const respondidas = sdis.filter(s => getVal(s, 'ESTADO').toUpperCase().includes('RESPONDID')).length;
+    const pendientes = total - respondidas;
+
+    setText('sdi-total', total);
+    setText('sdi-pendientes', pendientes);
+    setText('sdi-respondidas', respondidas);
+
+    const tbody = document.getElementById('sdi-tbody');
+    if (!tbody) return;
+
+    if (!total) {
+        tbody.innerHTML = `<tr><td colspan="5" class="empty-msg">Sin consultas registradas</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = sdis.map(s => {
+        const fullCodigo = getVal(s, 'CODIGO DAND');
+        const displayCodigo = fullCodigo.length > 5 ? fullCodigo.slice(-5) : fullCodigo;
+
+        const relacionados = relSdiIso.filter(r => getVal(r, 'CODIGO_DAND') === fullCodigo)
+            .map(r => `<span class="badge badge-emplantillado">${getVal(r, 'ID_ISO')}</span>`)
+            .join(' ');
+
+        const estado = getVal(s, 'ESTADO').toUpperCase();
+        const isRespondida = estado.includes('RESPONDID');
+        const statusIcon = isRespondida ?
+            '<i class="fas fa-check-circle" style="color:var(--accent)" title="Respondida"></i>' :
+            '<i class="fas fa-dot-circle" style="color:var(--danger)" title="Pendiente"></i>';
+
+        return `<tr>
+            <td style="font-weight:700;color:var(--primary-light);white-space:nowrap;font-size:0.9rem" title="${fullCodigo}">...${displayCodigo}</td>
+            <td style="min-width:300px">
+                <div style="font-weight:600;margin-bottom:8px">${getVal(s, 'NOMBRE Sdis')}</div>
+                <div class="sdi-text-box query"><strong>Consulta:</strong> ${getVal(s, 'Descricpión')}</div>
+                <div class="sdi-text-box response" style="margin-top:10px"><strong>Respuesta Técnica:</strong> ${getVal(s, 'Descripcion de Respuesta') || '<span class="text-dim">Pendiente de revisión...</span>'}</div>
+            </td>
+            <td style="text-align:center">${statusIcon}</td>
+            <td style="white-space:nowrap">${formatDate(getVal(s, 'FECHA ENVÍO'))}</td>
+            <td>${relacionados || '<span class="text-dim">—</span>'}</td>
+        </tr>`;
+    }).join('');
+}
+
+function filterSDI() {
+    const q = document.getElementById('sdi-search').value.toLowerCase();
+    const rows = document.querySelectorAll('#sdi-tbody tr');
+    rows.forEach(row => {
+        const text = row.innerText.toLowerCase();
+        row.style.display = text.includes(q) ? '' : 'none';
+    });
 }
 
 // ============ API FETCH ============
@@ -213,6 +271,7 @@ async function refreshData() {
         fetchTable('LIST_Juntas_MS'),
         fetchTable('REG_EjecucionJuntas_MS'),
         fetchTable('LOG_SDI_MS'),
+        fetchTable('REL_SDIIso_MS'),
         fetchTable('REG_InspeccionVisual_MS'),
         fetchTable('REG_DimensionalSpool_MS'),
         fetchTable('CAT_TipoUnion_MS'),
@@ -225,6 +284,7 @@ async function refreshData() {
     state.juntas = juntas;
     state.ejecuciones = ejecuciones;
     state.sdis = sdis;
+    state.relSdiIso = relSdiIso || [];
     state.inspecciones = inspecciones;
     state.dimensional = dimensional || [];
     state.catUniones = catUniones || [];
@@ -243,7 +303,7 @@ async function refreshData() {
 
     updateTime();
     renderCurrentSection();
-    console.log(`[Dashboard] Datos cargados: ${lineas.length} líneas | ${isos.length} ISOs | ${spools.length} spools | ${juntas.length} juntas | ${ejecuciones.length} ejecuciones`);
+    console.log(`[Dashboard] Datos cargados: ${lineas.length} líneas | ${isos.length} ISOs | ${spools.length} spools | ${sdis.length} SDIs`);
 }
 
 // ============ ETAPA HELPER ============
@@ -327,14 +387,17 @@ function renderOverview() {
         return et.includes('EMPLANTILL') || et.includes('CORTE');
     }).map(e => getJuntaId(e)).filter((v, i, a) => v && a.indexOf(v) === i).length;
 
-    const sdiAbiertas = sdis.filter(s => (s.ESTADO || '').toUpperCase() !== 'CERRADA').length;
+    const sdiPendientes = sdis.filter(s => {
+        const est = getVal(s, 'ESTADO').toUpperCase();
+        return !est.includes('RESPONDID') && !est.includes('CERRAD');
+    }).length;
 
     // Semana actual
     const semanaActual = ejecuciones.filter(e => getWeekOfDate(e.FECHA_EJECUCION) === state.currentWeek).length;
 
     setText('kpi-ejecutadas', ejecutadas);
     setText('kpi-en-proceso', enProceso);
-    setText('kpi-sdi', sdiAbiertas);
+    setText('kpi-sdi', sdiPendientes);
     setText('kpi-semana', semanaActual);
 
     const tag = document.getElementById('week-tag');

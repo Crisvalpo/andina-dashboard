@@ -1023,3 +1023,69 @@ tr:hover td {
         grid-template-columns: repeat(2, 1fr);
     }
 }
+
+/* ============ SDI STYLES ============ */
+.sdi-text-box {
+    font-size: 0.85rem;
+    color: var(--text);
+    line-height: 1.4;
+    max-height: 250px;
+    overflow-y: auto;
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sdi-text-box.query {
+    background: rgba(99, 102, 241, 0.08);
+    border-left: 4px solid var(--primary-light);
+}
+
+.sdi-text-box.response {
+    background: rgba(16, 185, 129, 0.08);
+    border-left: 4px solid var(--accent);
+}
+
+.sdi-text-box strong {
+    color: var(--text);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    opacity: 0.8;
+}
+
+
+/* ============ SDI STYLES ============ */
+.sdi-text-box {
+    font-size: 0.85rem;
+    color: var(--text);
+    line-height: 1.4;
+    max-height: 250px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.25);
+    padding: 12px;
+    border-radius: 8px;
+    border-left: 4px solid var(--primary-light);
+    margin-bottom: 8px;
+}
+
+.sdi-text-box.response {
+    border-left-color: var(--accent);
+    background: rgba(16, 185, 129, 0.05);
+}
+
+.sdi-text-box strong {
+    color: var(--primary-light);
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.sdi-text-box.response strong {
+    color: var(--accent);
+}
