@@ -365,46 +365,34 @@
                     </div>
                 </div>
                 <!-- Detalle de Inspección -->
-                <div class="kpi-section-label">📋 Detalles de Inspección</div>
-                <div class="charts-grid">
-                    <div class="chart-card glass">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-                            <h3>Últimas Inspecciones Visuales</h3>
-                            <span class="badge badge-done" id="qc-aprobado-badge">--</span>
-                        </div>
-                        <div class="table-wrap">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Junta</th>
-                                        <th>Estado</th>
-                                        <th>Fecha</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="qc-inspecciones-tbody">
-                                    <tr><td colspan="3" class="empty-msg">Cargando inspecciones...</td></tr>
-                                </tbody>
-                            </table>
+                <div class="kpi-section-label">📋 Detalles de Inspección (Desglose)</div>
+                <div class="kpi-row">
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#6366f120"><i class="fas fa-warehouse" style="color:#818cf8"></i></div>
+                        <div>
+                            <p class="kpi-label">Pendiente VT Taller</p>
+                            <p class="kpi-value" id="qc-pend-taller">--</p>
                         </div>
                     </div>
-                    <div class="chart-card glass">
-                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
-                            <h3>Pendiente Inspección Visual (VT)</h3>
-                            <span class="badge badge-pending" id="qc-pendiente-badge">--</span>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#f59e0b20"><i class="fas fa-mountain" style="color:#f59e0b"></i></div>
+                        <div>
+                            <p class="kpi-label">Pendiente VT Terreno</p>
+                            <p class="kpi-value" id="qc-pend-terreno">--</p>
                         </div>
-                        <div class="table-wrap">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Junta</th>
-                                        <th>Spool</th>
-                                        <th>Etapa</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="qc-pendientes-tbody">
-                                    <tr><td colspan="3" class="empty-msg">Sin juntas pendientes</td></tr>
-                                </tbody>
-                            </table>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-percentage" style="color:#10b981"></i></div>
+                        <div>
+                            <p class="kpi-label">% Aprobación</p>
+                            <p class="kpi-value" id="qc-perc-vt">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#a78bfa20"><i class="fas fa-radiation" style="color:#a78bfa"></i></div>
+                        <div>
+                            <p class="kpi-label">Solicitado NDE</p>
+                            <p class="kpi-value" id="qc-nde-sol">--</p>
                         </div>
                     </div>
                 </div>

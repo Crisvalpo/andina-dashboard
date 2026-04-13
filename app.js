@@ -847,12 +847,13 @@ function renderSpools() {
 
 // ============ RENDER: QC ============
 function renderQC() {
-    const { inspecciones, ejecuciones } = state;
+    const { inspecciones, ejecuciones, juntas } = state;
 
     // "Pendiente VT" = juntas EJECUTADA que NO tienen registro de inspección visual
     const inspeccionIds = new Set(
         inspecciones.map(i => (i.ID_JUNTA || i['ID_JUNTA '] || '').trim()).filter(Boolean)
     );
+    
     // Obtener juntas ejecutadas únicas
     const ejecutadasIds = ejecuciones
         .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'))
@@ -861,73 +862,49 @@ function renderQC() {
 
     const pendienteVT = ejecutadasIds.filter(id => !inspeccionIds.has(id));
 
-    // Para la tabla de pendientes, necesitamos los registros completos
-    const pendienteRegs = [];
-    const seenPend = new Set();
-    [...ejecuciones]
-        .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD') && !inspeccionIds.has(getJuntaId(e)))
-        .sort((a,b) => parseDate(getVal(b, 'FECHA_EJECUCION')) - parseDate(getVal(a, 'FECHA_EJECUCION')))
-        .forEach(e => {
-            const id = getJuntaId(e);
-            if (id && !seenPend.has(id)) {
-                pendienteRegs.push(e);
-                seenPend.add(id);
-            }
-        });
+    // Desglose Pendientes Taller vs Terreno
+    let pendTaller = 0, pendTerreno = 0;
+    const juntasMap = {};
+    juntas.forEach(j => juntasMap[(j.ID_JUNTA || j['ID_JUNTA '] || '').trim()] = j);
 
-    // "VT Aprobado" = tienen inspección con ESTADO = APROBADO
+    pendienteVT.forEach(id => {
+        const j = juntasMap[id];
+        if (j) {
+            const cat = (j.CATEGORIA_JUNTA || j['CATEGORIA_JUNTA '] || '').toUpperCase().trim();
+            const isShop = cat === 'S' || cat === 'SHOP' || cat === 'TALLER';
+            if (isShop) pendTaller++; else pendTerreno++;
+        } else {
+            pendTerreno++; // Fallback a Terreno
+        }
+    });
+
+    // "VT Aprobado" e Inspecciones
     const aprobadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('APROBADO'));
+    const rechazadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('RECHAZA'));
+    
+    // El porcentaje se calcula sobre el total de inspecciones finalizadas (Aprobadas + Rechazadas)
+    const totalVAFinalizado = aprobadas.length + rechazadas.length;
+    const percAprobacion = totalVAFinalizado > 0 ? Math.round((aprobadas.length / totalVAFinalizado) * 100) : 100;
 
-    // "NDE Solicitado" = tienen inspección pendiente de NDE
+    // "NDE Solicitado"
     const ndeList = inspecciones.filter(i => (i.PROXIMA_ETAPA || i['PROXIMA_ETAPA '] || i.ESTADO || '').toUpperCase().includes('NDE'));
 
     setText('qc-aprobado', aprobadas.length);
-    setText('qc-rechazado', inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('RECHAZA')).length);
+    setText('qc-rechazado', rechazadas.length);
     setText('qc-nde', ndeList.length);
 
-    // Badges en las nuevas tablas
-    setText('qc-aprobado-badge', inspecciones.length);
-    setText('qc-pendiente-badge', pendienteVT.length);
-
-    // Tabla: Últimas Inspecciones
-    const tbodyIns = document.getElementById('qc-inspecciones-tbody');
-    if (tbodyIns) {
-        const data = [...inspecciones].sort((a,b) => parseDate(getVal(b, 'FECHA_INSPECCION')) - parseDate(getVal(a, 'FECHA_INSPECCION'))).slice(0,10);
-        tbodyIns.innerHTML = data.map(i => {
-            const est = (i.ESTADO || i['ESTADO '] || '').toUpperCase();
-            let bClass = 'badge-pending';
-            if (est.includes('APROBADO')) bClass = 'badge-done';
-            if (est.includes('RECHAZA')) bClass = 'badge-rejection';
-            return `<tr>
-                <td style="font-weight:600;color:var(--primary-light);font-size:0.85rem">${getJuntaId(i)}</td>
-                <td><span class="badge ${bClass}">${est}</span></td>
-                <td>${formatDate(getVal(i, 'FECHA_INSPECCION'))}</td>
-            </tr>`;
-        }).join('') || '<tr><td colspan="3" class="empty-msg">Sin registros</td></tr>';
-    }
-
-    // Tabla: Pendientes VT
-    const tbodyPend = document.getElementById('qc-pendientes-tbody');
-    if (tbodyPend) {
-        tbodyPend.innerHTML = pendienteRegs.slice(0, 10).map(e => {
-            const spool = getVal(e, 'ID_SPOOL') || getVal(e, 'ID_ISO') || '--';
-            return `<tr>
-                <td style="font-weight:600;color:var(--warning);font-size:0.85rem">${getJuntaId(e)}</td>
-                <td>${spool}</td>
-                <td><span class="badge badge-done">EJECUTADA</span></td>
-            </tr>`;
-        }).join('') || '<tr><td colspan="3" class="empty-msg">Sin juntas pendientes</td></tr>';
-    }
+    // Actualizar Tarjetas de Detalle
+    setText('qc-pend-taller', pendTaller);
+    setText('qc-pend-terreno', pendTerreno);
+    setText('qc-perc-vt', `${percAprobacion}%`);
+    setText('qc-nde-sol', ndeList.length);
 
     // ============ Métrica Dimensional (Spools) ============
     const spoolsFabricados = state.spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FABRICADO')).length;
 
-    // Contar spools únicos con DCC emitido
     const dccEmitidos = new Set();
     state.dimensional.forEach(d => {
         const id = (d.ID_SPOOL || d['ID_SPOOL '] || '').trim();
-        const resultado = (d.RESULTADO || d['RESULTADO '] || '').toUpperCase();
-        // Solo contamos si fue aprobado (o si el mero reporte ya cuenta, aquí validamos que no esté vacío)
         if (id) dccEmitidos.add(id);
     });
     const dimCount = dccEmitidos.size;
