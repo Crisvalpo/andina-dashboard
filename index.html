@@ -364,22 +364,47 @@
                         </div>
                     </div>
                 </div>
-                <div class="kpi-section-label">📋 Detalle de Inspección</div>
-                <div class="kpi-row" id="qc-detail-cards">
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#64748b20"><i class="fas fa-history"
-                                style="color:#94a3b8"></i></div>
-                        <div>
-                            <p class="kpi-label">Pendiente VT</p>
-                            <p class="kpi-value" id="qc-pendiente">--</p>
+                <!-- Detalle de Inspección -->
+                <div class="kpi-section-label">📋 Detalles de Inspección</div>
+                <div class="charts-grid">
+                    <div class="chart-card glass">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+                            <h3>Últimas Inspecciones Visuales</h3>
+                            <span class="badge badge-done" id="qc-aprobado-badge">--</span>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Junta</th>
+                                        <th>Estado</th>
+                                        <th>Fecha</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="qc-inspecciones-tbody">
+                                    <tr><td colspan="3" class="empty-msg">Cargando inspecciones...</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#a78bfa20"><i class="fas fa-microscope"
-                                style="color:#a78bfa"></i></div>
-                        <div>
-                            <p class="kpi-label">Solicitado NDE</p>
-                            <p class="kpi-value" id="qc-nde-sol">--</p>
+                    <div class="chart-card glass">
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+                            <h3>Pendiente Inspección Visual (VT)</h3>
+                            <span class="badge badge-pending" id="qc-pendiente-badge">--</span>
+                        </div>
+                        <div class="table-wrap">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Junta</th>
+                                        <th>Spool</th>
+                                        <th>Etapa</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="qc-pendientes-tbody">
+                                    <tr><td colspan="3" class="empty-msg">Sin juntas pendientes</td></tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>

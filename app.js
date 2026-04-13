@@ -270,7 +270,7 @@ async function refreshData() {
     console.log('[Dashboard] Cargando datos...');
     const dot = document.getElementById('api-dot');
 
-    const [lineas, isos, spools, juntas, ejecuciones, sdis, inspecciones, dimensional, catUniones, catFluidos] = await Promise.all([
+    const [lineas, isos, spools, juntas, ejecuciones, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos] = await Promise.all([
         fetchTable('LIST_Lineas_MS'),
         fetchTable('LIST_Iso_MS'),
         fetchTable('LIST_Spools_MS'),
@@ -853,12 +853,27 @@ function renderQC() {
     const inspeccionIds = new Set(
         inspecciones.map(i => (i.ID_JUNTA || i['ID_JUNTA '] || '').trim()).filter(Boolean)
     );
+    // Obtener juntas ejecutadas únicas
     const ejecutadasIds = ejecuciones
         .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'))
         .map(e => getJuntaId(e))
         .filter((v, i, a) => v && a.indexOf(v) === i);
 
     const pendienteVT = ejecutadasIds.filter(id => !inspeccionIds.has(id));
+
+    // Para la tabla de pendientes, necesitamos los registros completos
+    const pendienteRegs = [];
+    const seenPend = new Set();
+    [...ejecuciones]
+        .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD') && !inspeccionIds.has(getJuntaId(e)))
+        .sort((a,b) => parseDate(getVal(b, 'FECHA_EJECUCION')) - parseDate(getVal(a, 'FECHA_EJECUCION')))
+        .forEach(e => {
+            const id = getJuntaId(e);
+            if (id && !seenPend.has(id)) {
+                pendienteRegs.push(e);
+                seenPend.add(id);
+            }
+        });
 
     // "VT Aprobado" = tienen inspección con ESTADO = APROBADO
     const aprobadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('APROBADO'));
@@ -870,9 +885,39 @@ function renderQC() {
     setText('qc-rechazado', inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('RECHAZA')).length);
     setText('qc-nde', ndeList.length);
 
-    // New Detail Cards
-    setText('qc-pendiente', pendienteVT.length);
-    setText('qc-nde-sol', ndeList.length);
+    // Badges en las nuevas tablas
+    setText('qc-aprobado-badge', inspecciones.length);
+    setText('qc-pendiente-badge', pendienteVT.length);
+
+    // Tabla: Últimas Inspecciones
+    const tbodyIns = document.getElementById('qc-inspecciones-tbody');
+    if (tbodyIns) {
+        const data = [...inspecciones].sort((a,b) => parseDate(getVal(b, 'FECHA_INSPECCION')) - parseDate(getVal(a, 'FECHA_INSPECCION'))).slice(0,10);
+        tbodyIns.innerHTML = data.map(i => {
+            const est = (i.ESTADO || i['ESTADO '] || '').toUpperCase();
+            let bClass = 'badge-pending';
+            if (est.includes('APROBADO')) bClass = 'badge-done';
+            if (est.includes('RECHAZA')) bClass = 'badge-rejection';
+            return `<tr>
+                <td style="font-weight:600;color:var(--primary-light);font-size:0.85rem">${getJuntaId(i)}</td>
+                <td><span class="badge ${bClass}">${est}</span></td>
+                <td>${formatDate(getVal(i, 'FECHA_INSPECCION'))}</td>
+            </tr>`;
+        }).join('') || '<tr><td colspan="3" class="empty-msg">Sin registros</td></tr>';
+    }
+
+    // Tabla: Pendientes VT
+    const tbodyPend = document.getElementById('qc-pendientes-tbody');
+    if (tbodyPend) {
+        tbodyPend.innerHTML = pendienteRegs.slice(0, 10).map(e => {
+            const spool = getVal(e, 'ID_SPOOL') || getVal(e, 'ID_ISO') || '--';
+            return `<tr>
+                <td style="font-weight:600;color:var(--warning);font-size:0.85rem">${getJuntaId(e)}</td>
+                <td>${spool}</td>
+                <td><span class="badge badge-done">EJECUTADA</span></td>
+            </tr>`;
+        }).join('') || '<tr><td colspan="3" class="empty-msg">Sin juntas pendientes</td></tr>';
+    }
 
     // ============ Métrica Dimensional (Spools) ============
     const spoolsFabricados = state.spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FABRICADO')).length;
