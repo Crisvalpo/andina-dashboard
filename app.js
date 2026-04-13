@@ -207,7 +207,13 @@ function renderSDI() {
         const displayCodigo = fullCodigo.length > 5 ? fullCodigo.slice(-5) : fullCodigo;
 
         const relacionados = relSdiIso.filter(r => getVal(r, 'CODIGO_DAND') === fullCodigo)
-            .map(r => `<span class="badge badge-emplantillado">${getVal(r, 'ID_ISO')}</span>`)
+            .flatMap(r => {
+                const list = getVal(r, 'ISOS_VINCULADOS');
+                if (!list) return [];
+                // Soportar tanto coma como punto y coma (AppSheet usa , por defecto en EnumList)
+                return list.split(/[,;]/).map(iso => iso.trim()).filter(iso => iso);
+            })
+            .map(iso => `<span class="badge badge-emplantillado">${iso}</span>`)
             .join(' ');
 
         const estado = getVal(s, 'ESTADO').toUpperCase();
