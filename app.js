@@ -186,12 +186,13 @@ function renderCurrentSection() {
 // ============ RENDER: WELDER PERFORMANCE (DI) ============
 function renderWelderChart() {
     const { ejecuciones, personal, currentWeek } = state;
+    console.log(`[KPI] Rendering DI charts for S${currentWeek}. Executions: ${ejecuciones.length}, Personal: ${personal.length}`);
 
     // 1. Personal Map (ESTAMPA -> FullName)
     const personalMap = {};
     personal.forEach(p => {
-        const estampa = (p.ESTAMPA || p['ESTAMPA '] || '').trim();
-        const fullName = `${p.NOMBRES || ''} ${p.APELLIDOS || ''}`.trim() || estampa;
+        const estampa = getVal(p, 'ESTAMPA');
+        const fullName = `${getVal(p, 'NOMBRES')} ${getVal(p, 'APELLIDOS')}`.trim() || estampa;
         if (estampa) personalMap[estampa] = fullName;
     });
 
@@ -199,31 +200,36 @@ function renderWelderChart() {
     const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
     const weekExec = ejecuciones.filter(e => {
         const status = getEstado(e).toUpperCase();
-        return status.includes('EJECUTAD') && getWeekOfDate(e.FECHA_EJECUCION) === currentWeek;
+        return status.includes('EJECUTAD') && getWeekOfDate(getVal(e, 'FECHA_EJECUCION')) === currentWeek;
     });
 
     const welderData = {}; // { welder: [0,0,0,0,0] }
     let totalWeekDI = 0;
 
     weekExec.forEach(e => {
-        const estampa = (e.ESTAMPA_EJECUTOR || e['ESTAMPA_EJECUTOR '] || e.RESPONSABLE || '').trim();
+        const estampa = (getVal(e, 'ESTAMPA_EJECUTOR') || getVal(e, 'RESPONSABLE'));
         if (!estampa) return;
 
         const name = personalMap[estampa] || estampa;
-        const nps = parseFloat(e.NPS || e['NPS'] || 0);
+        // Try NPS first, then DIAMETRO_WDI
+        const npsVal = getVal(e, 'NPS') || getVal(e, 'DIAMETRO_WDI') || 0;
+        const nps = parseFloat(npsVal);
+        
+        if (isNaN(nps)) return;
+
         totalWeekDI += nps;
 
-        const date = parseDate(e.FECHA_EJECUCION);
+        const date = parseDate(getVal(e, 'FECHA_EJECUCION'));
         if (!date) return;
         
-        // Day index (0=Sunday, 1=Monday... 5=Friday)
         let dIdx = date.getDay();
-        if (dIdx === 0 || dIdx > 5) return; // Skip Sat/Sun for this simplified view
+        if (dIdx === 0 || dIdx > 5) return; 
         
         if (!welderData[name]) welderData[name] = [0, 0, 0, 0, 0];
         welderData[name][dIdx - 1] += nps;
     });
 
+    console.log(`[KPI] Total Week DI: ${totalWeekDI}. Welders:`, Object.keys(welderData));
     setText('kpi-di-semana', totalWeekDI.toFixed(1));
 
     // Render Weekly Chart
@@ -247,7 +253,7 @@ function renderWelderChart() {
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' }, title: { display: true, text: 'DI (Diameter Inches)', color: '#64748b' } },
+                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' }, title: { display: true, text: 'DI (Pulgadas Diámetro)', color: '#64748b' } },
                     x: { grid: { display: false }, ticks: { color: '#64748b' } }
                 },
                 plugins: { legend: { position: 'bottom', labels: { color: '#64748b', boxWidth: 12 } } }
@@ -261,8 +267,12 @@ function renderWelderChart() {
     let totalHistDI = 0;
 
     histExec.forEach(e => {
-        const estampa = (e.ESTAMPA_EJECUTOR || e['ESTAMPA_EJECUTOR '] || e.RESPONSABLE || '').trim();
-        const nps = parseFloat(e.NPS || e['NPS'] || 0);
+        const estampa = (getVal(e, 'ESTAMPA_EJECUTOR') || getVal(e, 'RESPONSABLE'));
+        const npsVal = getVal(e, 'NPS') || getVal(e, 'DIAMETRO_WDI') || 0;
+        const nps = parseFloat(npsVal);
+        
+        if (isNaN(nps)) return;
+
         totalHistDI += nps;
         if (!estampa) return;
 
@@ -270,7 +280,7 @@ function renderWelderChart() {
         histMap[name] = (histMap[name] || 0) + nps;
     });
 
-    setText('kpi-di-total', totalHistDI.toFixed(0));
+    setText('kpi-di-total', totalHistDI.toLocaleString('es-CL', { maximumFractionDigits: 1 }));
 
     // Render History Chart
     const ctxHist = document.getElementById('welderHistoryChart');
@@ -284,7 +294,7 @@ function renderWelderChart() {
             data: {
                 labels,
                 datasets: [{
-                    label: 'Total DI',
+                    label: 'Total Pulgadas (DI)',
                     data,
                     backgroundColor: '#10b981',
                     borderRadius: 4
