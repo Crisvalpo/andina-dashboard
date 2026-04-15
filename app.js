@@ -191,8 +191,12 @@ function renderWelderChart() {
     // 1. Personal Map (ESTAMPA -> FullName)
     const personalMap = {};
     personal.forEach(p => {
-        const estampa = getVal(p, 'ESTAMPA');
-        const fullName = `${getVal(p, 'NOMBRES')} ${getVal(p, 'APELLIDOS')}`.trim() || estampa;
+        const estampa = getVal(p, 'ESTAMPA') || getVal(p, 'ID_PERSONAL');
+        const firstName = getVal(p, 'NOMBRES');
+        const lastName = getVal(p, 'APELLIDOS');
+        const combined = getVal(p, 'NOMBRES APELLIDOS');
+        
+        const fullName = combined || `${firstName} ${lastName}`.trim() || estampa;
         if (estampa) personalMap[estampa] = fullName;
     });
 
@@ -445,8 +449,13 @@ async function refreshData() {
 function getVal(row, key) {
     if (!row) return '';
     // Handle both "KEY" and "KEY " (trailing space)
-    const v = row[key] || row[key.trim()] || row[key.trim() + ' '] || '';
-    return typeof v === 'string' ? v.trim() : v;
+    let v = row[key] || row[key.trim()] || row[key.trim() + ' '] || '';
+    if (typeof v === 'string') {
+        v = v.trim();
+        // Handle decimal comma: "4,00" -> "4.00"
+        if (/^\d+,\d+$/.test(v)) v = v.replace(',', '.');
+    }
+    return v;
 }
 
 function getEstado(row) {
