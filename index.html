@@ -71,10 +71,16 @@
             <div class="top-bar">
                 <h2 class="section-title" id="section-title">Dashboard Overview</h2>
                 <div class="week-nav title-mode">
+                    <button class="week-btn" onclick="changeWeek(-1)" title="Semana Anterior">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
                     <div class="week-display">
                         <span class="week-label">SEMANA</span>
-                        <span class="week-number" id="week-number">--</span>
+                        <span class="week-number" id="week-number">30</span>
                     </div>
+                    <button class="week-btn" onclick="changeWeek(1)" title="Siguiente Semana">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
                 </div>
             </div>
 

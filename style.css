@@ -124,10 +124,26 @@ body {
     height: 34px;
     border-radius: 10px;
     border: 1px solid var(--border);
-    background: rgba(99, 102, 241, 0.1);
+    background: rgba(255, 255, 255, 0.05);
     color: var(--text-dim);
     cursor: pointer;
     display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+}
+
+.week-btn:hover {
+    background: var(--primary);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    border-color: transparent;
+}
+
+.week-btn:active {
+    transform: translateY(0);
+}
     align-items: center;
     justify-content: center;
     transition: all 0.2s;

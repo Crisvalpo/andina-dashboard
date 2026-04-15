@@ -133,11 +133,14 @@ function getWeekOfDate(str) {
 }
 
 function setWeekDisplay(w) {
-    document.getElementById('week-number').textContent = w;
+    const el = document.getElementById('week-number');
+    if (el) el.textContent = w;
+    const tag = document.getElementById('week-tag');
+    if (tag) tag.textContent = `S${w}`;
 }
 
 function changeWeek(delta) {
-    state.currentWeek = Math.max(1, Math.min(53, state.currentWeek + delta));
+    state.currentWeek = Math.max(1, Math.min(150, state.currentWeek + delta));
     setWeekDisplay(state.currentWeek);
     renderCurrentSection();
 }
