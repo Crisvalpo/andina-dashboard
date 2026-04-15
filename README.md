@@ -25,7 +25,7 @@ Sigue estos pasos para aplicar cualquier nueva actualización en vivo:
 *   **Proceso PM2**: `andina-dashboard` (ID: 3).
 *   **Ruta**: `/home/cristian/andina-dashboard`.
 *   **Entry Point**: `index.js` (Express Server).
-*   **Puerto**: `3000` (interno).
+*   **Puerto**: `3005` (interno).
 
 ### Desarrollo Local
 *   **Repositorio**: `https://github.com/Crisvalpo/andina-dashboard`

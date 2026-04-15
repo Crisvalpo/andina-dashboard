@@ -296,13 +296,6 @@ async function refreshData() {
     state.catUniones = catUniones || [];
     state.catFluidos = catFluidos || [];
 
-    // 🔍 DEBUG: Log raw date format from API (remove after fixing)
-    const sampleDates = ejecuciones.slice(0, 3).map(e => ({
-        raw: e.FECHA_EJECUCION || e['FECHA_EJECUCION '],
-        parsed: parseDate(e.FECHA_EJECUCION || e['FECHA_EJECUCION ']),
-        week: getWeekOfDate(e.FECHA_EJECUCION || e['FECHA_EJECUCION '])
-    }));
-    console.log('[DEBUG] FECHA_EJECUCION samples:', sampleDates);
 
     const ok = juntas.length > 0 || lineas.length > 0;
     dot.className = 'api-dot' + (ok ? '' : ' error');
