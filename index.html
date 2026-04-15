@@ -214,6 +214,43 @@
                     </div>
                 </div>
 
+                <!-- KPI Row: Rendimiento DI -->
+                <div class="kpi-section-label" style="margin-top:0.5rem">📉 Rendimiento por Soldador (DI)</div>
+                <div class="kpi-row" style="margin-bottom:1rem">
+                    <div class="kpi-card glass kpi-primary">
+                        <div class="kpi-icon" style="background:#0ea5e920"><i class="fas fa-chart-line"
+                                style="color:#0ea5e9"></i></div>
+                        <div>
+                            <p class="kpi-label">DI Producción (Semana)</p>
+                            <p class="kpi-value" id="kpi-di-semana">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass kpi-primary">
+                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-history"
+                                style="color:#10b981"></i></div>
+                        <div>
+                            <p class="kpi-label">DI Producción (Histórico)</p>
+                            <p class="kpi-value" id="kpi-di-total">--</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Welder Charts -->
+                <div class="charts-grid" style="margin-bottom:1.5rem">
+                    <div class="chart-card glass">
+                        <h3>Producción Semanal (DI x Día)</h3>
+                        <div class="chart-body">
+                            <canvas id="welderChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card glass">
+                        <h3>Total Acumulado x Soldador (DI)</h3>
+                        <div class="chart-body">
+                            <canvas id="welderHistoryChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- KPI Row: Desglose Juntas -->
                 <div class="kpi-section-label" style="margin-top:0.5rem">🛠️ Distribución de Juntas (Taller vs Terreno)
                 </div>

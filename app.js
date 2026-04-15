@@ -36,6 +36,7 @@ const state = {
     relSdiIso: [],     // REL_SDIIso_MS
     inspecciones: [],  // REG_InspeccionVisual_MS
     dimensional: [],   // REG_DimensionalSpool_MS
+    personal: [],      // CAT_Personal_MS
     catUniones: [],    // CAT_TipoUnion_MS
     catFluidos: [],    // CAT_FluidoServicio_MS
     currentWeek: getProjectWeek(),
@@ -182,6 +183,126 @@ function renderCurrentSection() {
     }
 }
 
+// ============ RENDER: WELDER PERFORMANCE (DI) ============
+function renderWelderChart() {
+    const { ejecuciones, personal, currentWeek } = state;
+
+    // 1. Personal Map (ESTAMPA -> FullName)
+    const personalMap = {};
+    personal.forEach(p => {
+        const estampa = (p.ESTAMPA || p['ESTAMPA '] || '').trim();
+        const fullName = `${p.NOMBRES || ''} ${p.APELLIDOS || ''}`.trim() || estampa;
+        if (estampa) personalMap[estampa] = fullName;
+    });
+
+    // 2. Weekly Production (Daily)
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+    const weekExec = ejecuciones.filter(e => {
+        const status = getEstado(e).toUpperCase();
+        return status.includes('EJECUTAD') && getWeekOfDate(e.FECHA_EJECUCION) === currentWeek;
+    });
+
+    const welderData = {}; // { welder: [0,0,0,0,0] }
+    let totalWeekDI = 0;
+
+    weekExec.forEach(e => {
+        const estampa = (e.ESTAMPA_EJECUTOR || e['ESTAMPA_EJECUTOR '] || e.RESPONSABLE || '').trim();
+        if (!estampa) return;
+
+        const name = personalMap[estampa] || estampa;
+        const nps = parseFloat(e.NPS || e['NPS'] || 0);
+        totalWeekDI += nps;
+
+        const date = parseDate(e.FECHA_EJECUCION);
+        if (!date) return;
+        
+        // Day index (0=Sunday, 1=Monday... 5=Friday)
+        let dIdx = date.getDay();
+        if (dIdx === 0 || dIdx > 5) return; // Skip Sat/Sun for this simplified view
+        
+        if (!welderData[name]) welderData[name] = [0, 0, 0, 0, 0];
+        welderData[name][dIdx - 1] += nps;
+    });
+
+    setText('kpi-di-semana', totalWeekDI.toFixed(1));
+
+    // Render Weekly Chart
+    const ctxWeekly = document.getElementById('welderChart');
+    if (ctxWeekly) {
+        if (charts.welder) charts.welder.destroy();
+        const welders = Object.keys(welderData);
+        const colors = ['#0ea5e9', '#f59e0b', '#10b981', '#a78bfa', '#ef4444', '#38bdf8'];
+
+        charts.welder = new Chart(ctxWeekly, {
+            type: 'bar',
+            data: {
+                labels: days,
+                datasets: welders.map((w, i) => ({
+                    label: w,
+                    data: welderData[w],
+                    backgroundColor: colors[i % colors.length],
+                    borderRadius: 4
+                }))
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' }, title: { display: true, text: 'DI (Diameter Inches)', color: '#64748b' } },
+                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { position: 'bottom', labels: { color: '#64748b', boxWidth: 12 } } }
+            }
+        });
+    }
+
+    // 3. Historic Production
+    const histExec = ejecuciones.filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'));
+    const histMap = {};
+    let totalHistDI = 0;
+
+    histExec.forEach(e => {
+        const estampa = (e.ESTAMPA_EJECUTOR || e['ESTAMPA_EJECUTOR '] || e.RESPONSABLE || '').trim();
+        const nps = parseFloat(e.NPS || e['NPS'] || 0);
+        totalHistDI += nps;
+        if (!estampa) return;
+
+        const name = personalMap[estampa] || estampa;
+        histMap[name] = (histMap[name] || 0) + nps;
+    });
+
+    setText('kpi-di-total', totalHistDI.toFixed(0));
+
+    // Render History Chart
+    const ctxHist = document.getElementById('welderHistoryChart');
+    if (ctxHist) {
+        if (charts.welderHist) charts.welderHist.destroy();
+        const labels = Object.keys(histMap).sort((a,b) => histMap[b] - histMap[a]);
+        const data = labels.map(l => histMap[l]);
+
+        charts.welderHist = new Chart(ctxHist, {
+            type: 'bar', // Horizontal bar is set via indexAxis
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Total DI',
+                    data,
+                    backgroundColor: '#10b981',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { grid: { display: false }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+}
+
 // ============ RENDER: SDI (RFI) ============
 function renderSDI() {
     const { sdis, relSdiIso } = state;
@@ -270,7 +391,7 @@ async function refreshData() {
     console.log('[Dashboard] Cargando datos...');
     const dot = document.getElementById('api-dot');
 
-    const [lineas, isos, spools, juntas, ejecuciones, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos] = await Promise.all([
+    const [lineas, isos, spools, juntas, ejecuciones, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos, personal] = await Promise.all([
         fetchTable('LIST_Lineas_MS'),
         fetchTable('LIST_Iso_MS'),
         fetchTable('LIST_Spools_MS'),
@@ -281,7 +402,8 @@ async function refreshData() {
         fetchTable('REG_InspeccionVisual_MS'),
         fetchTable('REG_DimensionalSpool_MS'),
         fetchTable('CAT_TipoUnion_MS'),
-        fetchTable('CAT_FluidoServicio_MS')
+        fetchTable('CAT_FluidoServicio_MS'),
+        fetchTable('CAT_Personal_MS')
     ]);
 
     state.lineas = lineas;
@@ -295,6 +417,7 @@ async function refreshData() {
     state.dimensional = dimensional || [];
     state.catUniones = catUniones || [];
     state.catFluidos = catFluidos || [];
+    state.personal = personal || [];
 
 
     const ok = juntas.length > 0 || lineas.length > 0;
@@ -630,6 +753,9 @@ function renderJuntas() {
     setText('j-emplantillado', emplantillado);
     setText('j-corte', corte);
     setText('j-pendiente', pendiente);
+
+    // Welder DI charts
+    renderWelderChart();
 
     // Desglose Taller vs Terreno
     renderJuntasBreakdown();
