@@ -33,17 +33,24 @@ Sigue estos pasos para aplicar cualquier nueva actualización en vivo:
 
 ---
 
-## 🔑 Gestión de Credenciales (AppSheet)
-Actualmente, el `AppID` y la `AccessKey` de AppSheet están configurados de forma estática en el objeto `API` al inicio de `app.js`.
+## 🔑 Gestión de Credenciales y Seguridad (AppSheet)
+Las credenciales de AppSheet (`appId` y `accessKey`) se configuran y protegen de forma exclusiva en el backend del servidor (`index.js`). **Nunca** deben agregarse al archivo del frontend `app.js` para evitar la exposición pública de llaves en el navegador.
 
-Para cambiar de proyecto o actualizar las llaves:
-1.  Abre `app.js`.
-2.  Modifica los valores de `appId` y `appKey`.
-3.  Guarda y haz `git push` para desplegar el cambio.
+Para cambiar las credenciales o el proyecto:
+1. Abre `index.js`.
+2. Modifica los valores en `APPSHEET_CONFIG`.
+3. Guarda y haz `git push` para desplegar el cambio de manera automática.
+
+## ⚡ Capa de Caché y Proxy
+El backend en `index.js` expone un proxy en `/api/data/:tableName` con una **caché en memoria de 30 segundos**.
+- Las llamadas desde el cliente a `fetchTable('NOMBRE_TABLA')` se redirigen localmente a `/api/data/NOMBRE_TABLA`.
+- Si el servidor Express tiene los datos cargados en el último intervalo de 30 segundos, los sirve directamente desde caché, acelerando las cargas de página subsecuentes a milisegundos y reduciendo el consumo de cuota de la API de AppSheet.
 
 ## 📊 Orígenes de Datos (AppSheet APIREST)
-El dashboard se alimenta actualmente de:
-*   `REG_EjecucionJuntas_MS` / `REG_InspeccionVisual_MS`: Conteos de juntas emplantilladas, ejecutadas y liberadas.
-*   `LIST_Spools_MS`: Seguimiento del KPI de Fabricación y Despacho.
-*   `CAT_FluidoServicio_MS`: Catálogo dinámico de fluidos.
-*   `CAT_TipoUnion_MS`: Desglose de juntas Taller vs Terreno.
+El dashboard se alimenta actualmente de los siguientes modelos de AppSheet:
+*   `LIST_Lineas_MS` / `LIST_Iso_MS`: Catálogo maestro de líneas e isométricos.
+*   `LIST_Juntas_MS` / `REG_EjecucionJuntas_MS`: Control del total de juntas y su avance físico (Corte, Emplantillado, Ejecución).
+*   `LIST_Spools_MS` / `REG_DimensionalSpool_MS` / `REG_InspeccionVisual_MS`: Trazabilidad física de spools, control dimensional y calidad (VT/NDE).
+*   `CAT_FluidoServicio_MS` / `CAT_TipoUnion_MS`: Catálogos dinámicos auxiliares de fluidos y uniones.
+*   `CAT_Personal_MS`: Catálogo de personal del proyecto.
+*   `LOG_SDI_MS` / `REL_SDIIso_MS`: Listado de consultas técnicas (RFI) e isométricos relacionados.
