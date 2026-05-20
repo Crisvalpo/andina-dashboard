@@ -32,6 +32,7 @@ const state = {
     relSdiIso: [],     // REL_SDIIso_MS
     inspecciones: [],  // REG_InspeccionVisual_MS
     dimensional: [],   // REG_DimensionalSpool_MS
+    personal: [],      // CAT_Personal_MS
     catUniones: [],    // CAT_TipoUnion_MS
     catFluidos: [],    // CAT_FluidoServicio_MS
     currentWeek: getProjectWeek(),
@@ -128,11 +129,14 @@ function getWeekOfDate(str) {
 }
 
 function setWeekDisplay(w) {
-    document.getElementById('week-number').textContent = w;
+    const el = document.getElementById('week-number');
+    if (el) el.textContent = w;
+    const tag = document.getElementById('week-tag');
+    if (tag) tag.textContent = `S${w}`;
 }
 
 function changeWeek(delta) {
-    state.currentWeek = Math.max(1, Math.min(53, state.currentWeek + delta));
+    state.currentWeek = Math.max(1, Math.min(150, state.currentWeek + delta));
     setWeekDisplay(state.currentWeek);
     renderCurrentSection();
 }
@@ -175,6 +179,140 @@ function renderCurrentSection() {
         case 'spools': renderSpools(); break;
         case 'qc': renderQC(); break;
         case 'sdi': renderSDI(); break;
+    }
+}
+
+// ============ RENDER: WELDER PERFORMANCE (DI) ============
+function renderWelderChart() {
+    const { ejecuciones, personal, currentWeek } = state;
+    console.log(`[KPI] Rendering DI charts for S${currentWeek}. Executions: ${ejecuciones.length}, Personal: ${personal.length}`);
+
+    // 1. Personal Map (ESTAMPA -> FullName)
+    const personalMap = {};
+    personal.forEach(p => {
+        const estampa = getVal(p, 'ESTAMPA') || getVal(p, 'ID_PERSONAL');
+        const firstName = getVal(p, 'NOMBRES');
+        const lastName = getVal(p, 'APELLIDOS');
+        const combined = getVal(p, 'NOMBRES APELLIDOS');
+        
+        const fullName = combined || `${firstName} ${lastName}`.trim() || estampa;
+        if (estampa) personalMap[estampa] = fullName;
+    });
+
+    // 2. Weekly Production (Daily)
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+    const weekExec = ejecuciones.filter(e => {
+        const status = getEstado(e).toUpperCase();
+        return status.includes('EJECUTAD') && getWeekOfDate(getVal(e, 'FECHA_EJECUCION')) === currentWeek;
+    });
+
+    const welderData = {}; // { welder: [0,0,0,0,0] }
+    let totalWeekDI = 0;
+
+    weekExec.forEach(e => {
+        const estampa = (getVal(e, 'ESTAMPA_EJECUTOR') || getVal(e, 'RESPONSABLE'));
+        if (!estampa) return;
+
+        const name = personalMap[estampa] || estampa;
+        // Try NPS first, then DIAMETRO_WDI
+        const npsVal = getVal(e, 'NPS') || getVal(e, 'DIAMETRO_WDI') || 0;
+        const nps = parseFloat(npsVal);
+        
+        if (isNaN(nps)) return;
+
+        totalWeekDI += nps;
+
+        const date = parseDate(getVal(e, 'FECHA_EJECUCION'));
+        if (!date) return;
+        
+        let dIdx = date.getDay();
+        if (dIdx === 0 || dIdx > 5) return; 
+        
+        if (!welderData[name]) welderData[name] = [0, 0, 0, 0, 0];
+        welderData[name][dIdx - 1] += nps;
+    });
+
+    console.log(`[KPI] Total Week DI: ${totalWeekDI}. Welders:`, Object.keys(welderData));
+    setText('kpi-di-semana', totalWeekDI.toFixed(1));
+
+    // Render Weekly Chart
+    const ctxWeekly = document.getElementById('welderChart');
+    if (ctxWeekly) {
+        if (charts.welder) charts.welder.destroy();
+        const welders = Object.keys(welderData);
+        const colors = ['#0ea5e9', '#f59e0b', '#10b981', '#a78bfa', '#ef4444', '#38bdf8'];
+
+        charts.welder = new Chart(ctxWeekly, {
+            type: 'bar',
+            data: {
+                labels: days,
+                datasets: welders.map((w, i) => ({
+                    label: w,
+                    data: welderData[w],
+                    backgroundColor: colors[i % colors.length],
+                    borderRadius: 4
+                }))
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' }, title: { display: true, text: 'DI (Pulgadas Diámetro)', color: '#64748b' } },
+                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { position: 'bottom', labels: { color: '#64748b', boxWidth: 12 } } }
+            }
+        });
+    }
+
+    // 3. Historic Production
+    const histExec = ejecuciones.filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'));
+    const histMap = {};
+    let totalHistDI = 0;
+
+    histExec.forEach(e => {
+        const estampa = (getVal(e, 'ESTAMPA_EJECUTOR') || getVal(e, 'RESPONSABLE'));
+        const npsVal = getVal(e, 'NPS') || getVal(e, 'DIAMETRO_WDI') || 0;
+        const nps = parseFloat(npsVal);
+        
+        if (isNaN(nps)) return;
+
+        totalHistDI += nps;
+        if (!estampa) return;
+
+        const name = personalMap[estampa] || estampa;
+        histMap[name] = (histMap[name] || 0) + nps;
+    });
+
+    setText('kpi-di-total', totalHistDI.toLocaleString('es-CL', { maximumFractionDigits: 1 }));
+
+    // Render History Chart
+    const ctxHist = document.getElementById('welderHistoryChart');
+    if (ctxHist) {
+        if (charts.welderHist) charts.welderHist.destroy();
+        const labels = Object.keys(histMap).sort((a,b) => histMap[b] - histMap[a]);
+        const data = labels.map(l => histMap[l]);
+
+        charts.welderHist = new Chart(ctxHist, {
+            type: 'bar', // Horizontal bar is set via indexAxis
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Total Pulgadas (DI)',
+                    data,
+                    backgroundColor: '#10b981',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    x: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { grid: { display: false }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
     }
 }
 
@@ -259,7 +397,7 @@ async function refreshData() {
     console.log('[Dashboard] Cargando datos...');
     const dot = document.getElementById('api-dot');
 
-    const [lineas, isos, spools, juntas, ejecuciones, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos] = await Promise.all([
+    const [lineas, isos, spools, juntas, ejecuciones, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos, personal] = await Promise.all([
         fetchTable('LIST_Lineas_MS'),
         fetchTable('LIST_Iso_MS'),
         fetchTable('LIST_Spools_MS'),
@@ -270,7 +408,8 @@ async function refreshData() {
         fetchTable('REG_InspeccionVisual_MS'),
         fetchTable('REG_DimensionalSpool_MS'),
         fetchTable('CAT_TipoUnion_MS'),
-        fetchTable('CAT_FluidoServicio_MS')
+        fetchTable('CAT_FluidoServicio_MS'),
+        fetchTable('CAT_Personal_MS')
     ]);
 
     state.lineas = lineas;
@@ -284,14 +423,8 @@ async function refreshData() {
     state.dimensional = dimensional || [];
     state.catUniones = catUniones || [];
     state.catFluidos = catFluidos || [];
+    state.personal = personal || [];
 
-    // 🔍 DEBUG: Log raw date format from API (remove after fixing)
-    const sampleDates = ejecuciones.slice(0, 3).map(e => ({
-        raw: e.FECHA_EJECUCION || e['FECHA_EJECUCION '],
-        parsed: parseDate(e.FECHA_EJECUCION || e['FECHA_EJECUCION ']),
-        week: getWeekOfDate(e.FECHA_EJECUCION || e['FECHA_EJECUCION '])
-    }));
-    console.log('[DEBUG] FECHA_EJECUCION samples:', sampleDates);
 
     const ok = juntas.length > 0 || lineas.length > 0;
     dot.className = 'api-dot' + (ok ? '' : ' error');
@@ -308,8 +441,13 @@ async function refreshData() {
 function getVal(row, key) {
     if (!row) return '';
     // Handle both "KEY" and "KEY " (trailing space)
-    const v = row[key] || row[key.trim()] || row[key.trim() + ' '] || '';
-    return typeof v === 'string' ? v.trim() : v;
+    let v = row[key] || row[key.trim()] || row[key.trim() + ' '] || '';
+    if (typeof v === 'string') {
+        v = v.trim();
+        // Handle decimal comma: "4,00" -> "4.00"
+        if (/^\d+,\d+$/.test(v)) v = v.replace(',', '.');
+    }
+    return v;
 }
 
 function getEstado(row) {
@@ -627,6 +765,9 @@ function renderJuntas() {
     setText('j-corte', corte);
     setText('j-pendiente', pendiente);
 
+    // Welder DI charts
+    renderWelderChart();
+
     // Desglose Taller vs Terreno
     renderJuntasBreakdown();
 
@@ -836,12 +977,14 @@ function renderSpools() {
 
 // ============ RENDER: QC ============
 function renderQC() {
-    const { inspecciones, ejecuciones } = state;
+    const { inspecciones, ejecuciones, juntas } = state;
 
     // "Pendiente VT" = juntas EJECUTADA que NO tienen registro de inspección visual
     const inspeccionIds = new Set(
         inspecciones.map(i => (i.ID_JUNTA || i['ID_JUNTA '] || '').trim()).filter(Boolean)
     );
+    
+    // Obtener juntas ejecutadas únicas
     const ejecutadasIds = ejecuciones
         .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'))
         .map(e => getJuntaId(e))
@@ -849,29 +992,49 @@ function renderQC() {
 
     const pendienteVT = ejecutadasIds.filter(id => !inspeccionIds.has(id));
 
-    // "VT Aprobado" = tienen inspección con ESTADO = APROBADO
-    const aprobadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('APROBADO'));
+    // Desglose Pendientes Taller vs Terreno
+    let pendTaller = 0, pendTerreno = 0;
+    const juntasMap = {};
+    juntas.forEach(j => juntasMap[(j.ID_JUNTA || j['ID_JUNTA '] || '').trim()] = j);
 
-    // "NDE Solicitado" = tienen inspección pendiente de NDE
+    pendienteVT.forEach(id => {
+        const j = juntasMap[id];
+        if (j) {
+            const cat = (j.CATEGORIA_JUNTA || j['CATEGORIA_JUNTA '] || '').toUpperCase().trim();
+            const isShop = cat === 'S' || cat === 'SHOP' || cat === 'TALLER';
+            if (isShop) pendTaller++; else pendTerreno++;
+        } else {
+            pendTerreno++; // Fallback a Terreno
+        }
+    });
+
+    // "VT Aprobado" e Inspecciones
+    const aprobadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('APROBADO'));
+    const rechazadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('RECHAZA'));
+    
+    // El porcentaje se calcula sobre el total de inspecciones finalizadas (Aprobadas + Rechazadas)
+    const totalVAFinalizado = aprobadas.length + rechazadas.length;
+    const percAprobacion = totalVAFinalizado > 0 ? Math.round((aprobadas.length / totalVAFinalizado) * 100) : 100;
+
+    // "NDE Solicitado"
     const ndeList = inspecciones.filter(i => (i.PROXIMA_ETAPA || i['PROXIMA_ETAPA '] || i.ESTADO || '').toUpperCase().includes('NDE'));
 
     setText('qc-aprobado', aprobadas.length);
-    setText('qc-rechazado', inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('RECHAZA')).length);
+    setText('qc-rechazado', rechazadas.length);
     setText('qc-nde', ndeList.length);
 
-    // New Detail Cards
-    setText('qc-pendiente', pendienteVT.length);
+    // Actualizar Tarjetas de Detalle
+    setText('qc-pend-taller', pendTaller);
+    setText('qc-pend-terreno', pendTerreno);
+    setText('qc-perc-vt', `${percAprobacion}%`);
     setText('qc-nde-sol', ndeList.length);
 
     // ============ Métrica Dimensional (Spools) ============
     const spoolsFabricados = state.spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FABRICADO')).length;
 
-    // Contar spools únicos con DCC emitido
     const dccEmitidos = new Set();
     state.dimensional.forEach(d => {
         const id = (d.ID_SPOOL || d['ID_SPOOL '] || '').trim();
-        const resultado = (d.RESULTADO || d['RESULTADO '] || '').toUpperCase();
-        // Solo contamos si fue aprobado (o si el mero reporte ya cuenta, aquí validamos que no esté vacío)
         if (id) dccEmitidos.add(id);
     });
     const dimCount = dccEmitidos.size;

@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <!-- Version: 1.1.0 (Auto-Deployed via GitHub Webhook) -->
+    <!-- Version: 1.2.0 (Auto-Deployed via GitHub Webhook) -->
     <title>Dashboard Piping | Andina PRY-413</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -71,10 +71,16 @@
             <div class="top-bar">
                 <h2 class="section-title" id="section-title">Dashboard Overview</h2>
                 <div class="week-nav title-mode">
+                    <button class="week-btn" onclick="changeWeek(-1)" title="Semana Anterior">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
                     <div class="week-display">
                         <span class="week-label">SEMANA</span>
-                        <span class="week-number" id="week-number">--</span>
+                        <span class="week-number" id="week-number">30</span>
                     </div>
+                    <button class="week-btn" onclick="changeWeek(1)" title="Siguiente Semana">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
                 </div>
             </div>
 
@@ -210,6 +216,43 @@
                         <div>
                             <p class="kpi-label">Sin Iniciar ⏳</p>
                             <p class="kpi-value" id="j-pendiente">--</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- KPI Row: Rendimiento DI -->
+                <div class="kpi-section-label" style="margin-top:0.5rem">📉 Rendimiento por Soldador (DI)</div>
+                <div class="kpi-row" style="margin-bottom:1rem">
+                    <div class="kpi-card glass kpi-primary">
+                        <div class="kpi-icon" style="background:#0ea5e920"><i class="fas fa-chart-line"
+                                style="color:#0ea5e9"></i></div>
+                        <div>
+                            <p class="kpi-label">DI Producción (Semana)</p>
+                            <p class="kpi-value" id="kpi-di-semana">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass kpi-primary">
+                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-history"
+                                style="color:#10b981"></i></div>
+                        <div>
+                            <p class="kpi-label">DI Producción (Histórico)</p>
+                            <p class="kpi-value" id="kpi-di-total">--</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Welder Charts -->
+                <div class="charts-grid" style="margin-bottom:1.5rem">
+                    <div class="chart-card glass">
+                        <h3>Producción Semanal (DI x Día)</h3>
+                        <div class="chart-body">
+                            <canvas id="welderChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card glass">
+                        <h3>Total Acumulado x Soldador (DI)</h3>
+                        <div class="chart-body">
+                            <canvas id="welderHistoryChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -364,19 +407,32 @@
                         </div>
                     </div>
                 </div>
-                <div class="kpi-section-label">📋 Detalle de Inspección</div>
-                <div class="kpi-row" id="qc-detail-cards">
+                <!-- Detalle de Inspección -->
+                <div class="kpi-section-label">📋 Detalles de Inspección (Desglose)</div>
+                <div class="kpi-row">
                     <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#64748b20"><i class="fas fa-history"
-                                style="color:#94a3b8"></i></div>
+                        <div class="kpi-icon" style="background:#6366f120"><i class="fas fa-warehouse" style="color:#818cf8"></i></div>
                         <div>
-                            <p class="kpi-label">Pendiente VT</p>
-                            <p class="kpi-value" id="qc-pendiente">--</p>
+                            <p class="kpi-label">Pendiente VT Taller</p>
+                            <p class="kpi-value" id="qc-pend-taller">--</p>
                         </div>
                     </div>
                     <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#a78bfa20"><i class="fas fa-microscope"
-                                style="color:#a78bfa"></i></div>
+                        <div class="kpi-icon" style="background:#f59e0b20"><i class="fas fa-mountain" style="color:#f59e0b"></i></div>
+                        <div>
+                            <p class="kpi-label">Pendiente VT Terreno</p>
+                            <p class="kpi-value" id="qc-pend-terreno">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-percentage" style="color:#10b981"></i></div>
+                        <div>
+                            <p class="kpi-label">% Aprobación</p>
+                            <p class="kpi-value" id="qc-perc-vt">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#a78bfa20"><i class="fas fa-radiation" style="color:#a78bfa"></i></div>
                         <div>
                             <p class="kpi-label">Solicitado NDE</p>
                             <p class="kpi-value" id="qc-nde-sol">--</p>
