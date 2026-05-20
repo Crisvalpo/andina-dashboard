@@ -32,6 +32,38 @@ async function fetchAppSheet(tableName, action = "Find", rows = []) {
     return await response.json();
 }
 
+// Caché en memoria para optimizar peticiones y consumo de cuota
+const cache = {};
+const CACHE_TTL = 30 * 1000; // 30 segundos
+
+// Endpoint proxy genérico para las tablas de AppSheet
+app.get('/api/data/:tableName', async (req, res) => {
+    const { tableName } = req.params;
+    const now = Date.now();
+
+    if (cache[tableName] && (now - cache[tableName].timestamp < CACHE_TTL)) {
+        console.log(`[Cache Hit] Sirviendo ${tableName} desde caché`);
+        return res.json(cache[tableName].data);
+    }
+
+    try {
+        console.log(`[Cache Miss] Consultando ${tableName} directamente a AppSheet`);
+        const data = await fetchAppSheet(tableName);
+        cache[tableName] = {
+            timestamp: now,
+            data: data
+        };
+        res.json(data);
+    } catch (error) {
+        console.error(`[Error Proxy] Error al consultar ${tableName}:`, error.message);
+        if (cache[tableName]) {
+            console.log(`[Cache Fallback] Retornando datos expirados de ${tableName} debido al error`);
+            return res.json(cache[tableName].data);
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // API Proxy para datos de la Guía
 app.get('/api/guia/:id', async (req, res) => {
     const guiaId = req.params.id;
