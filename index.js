@@ -33,29 +33,40 @@ async function fetchAppSheet(tableName, action = "Find", rows = []) {
 }
 
 // API Proxy para datos de la Guía
+app.get('/api/guias', async (req, res) => {
+    try {
+        const guias = await fetchAppSheet('LOG_Guia_MS');
+        res.json(guias);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/guia/:id', async (req, res) => {
     const guiaId = req.params.id;
     try {
-        // 1. Obtener datos de la guía
+        // 1. Obtener datos de la guía (Cabecera)
         const guias = await fetchAppSheet('LOG_Guia_MS');
         const guia = guias.find(g => String(g.ID_GUIA) === guiaId || String(g.NUM_GUIA) === guiaId);
 
         if (!guia) return res.status(404).json({ error: "Guía no encontrada" });
 
-        // 2. Obtener spools vinculados (de la tabla logística)
-        const eventos = await fetchAppSheet('REG_Logistica_Spool_MS');
+        // 2. Obtener spools vinculados (de la tabla logística REAL)
+        const eventos = await fetchAppSheet('LOG_Spool_MS');
         const spoolsEnGuia = eventos.filter(e => String(e.ID_GUIA) === String(guia.ID_GUIA));
 
         // 3. Obtener detalles técnicos de los spools (NPS, Peso)
-        const maestroSpools = await fetchAppSheet('LIST_Spools_MS');
+        const maestroSpools = await fetchAppSheet('LIST_Spools_MS_');
 
         const spoolsDetallados = spoolsEnGuia.map(e => {
             const master = maestroSpools.find(m => m.ID_SPOOL === e.ID_SPOOL) || {};
             return {
                 ...e,
-                TAG_SPOOL: master.TAG_SPOOL || e.TAG_SPOOL,
-                DIAMETRO: master.DIAMETRO || master.MAX_NPS_SPOOL,
-                PESO_KG: master.PESO_KG
+                TAG_SPOOL: master.SPOOL || master['TAG GESTION'] || e.TAG_SPOOL,
+                MAX_NPS_SPOOL: master.NPS || master.MAX_NPS_SPOOL,
+                METROS_LINEALES: master.METROS_LINEALES || 0,
+                ID_ISO: master.ID_ISO || e.ID_ISO,
+                ID_LINEA: master.ID_LINEA
             };
         });
 

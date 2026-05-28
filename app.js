@@ -161,18 +161,34 @@ function showSection(name) {
     document.querySelectorAll('.section-content').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 
-    document.getElementById(`${name}-section`).classList.add('active');
-    document.getElementById(`nav-${name}`).classList.add('active');
+    const sectionEl = document.getElementById(`${name}-section`);
+    const navEl = document.getElementById(`nav-${name}`);
+
+    if (sectionEl) sectionEl.classList.add('active');
+    if (navEl) navEl.classList.add('active');
 
     const titles = {
         overview: 'Dashboard Overview',
         juntas: 'Avance de Juntas',
         spools: 'Fabricación de Spools',
         qc: 'Control de Calidad',
+        logistica: 'Logística y Despacho',
         sdi: 'SDI — Consultas Técnicas'
     };
-    document.getElementById('section-title').textContent = titles[name] || name;
+    
+    const titleEl = document.getElementById('section-title');
+    if (titleEl) titleEl.textContent = titles[name] || name;
+    
     state.currentSection = name;
+
+    // Ocultar filtro de semana en secciones estáticas
+    const weekNav = document.getElementById('week-nav-container');
+    if (['spools', 'qc', 'sdi', 'logistica'].includes(name)) {
+        if (weekNav) weekNav.style.display = 'none';
+    } else {
+        if (weekNav) weekNav.style.display = 'flex';
+    }
+
     renderCurrentSection();
 }
 
@@ -183,6 +199,7 @@ function renderCurrentSection() {
         case 'spools': renderSpools(); break;
         case 'qc': renderQC(); break;
         case 'sdi': renderSDI(); break;
+        case 'logistica': loadLogistica(); break;
     }
 }
 
@@ -409,10 +426,10 @@ async function refreshData() {
     const dot = document.getElementById('api-dot');
 
     const [lineas, isos, spools, juntas, ejecuciones, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos, personal] = await Promise.all([
-        fetchTable('LIST_Lineas_MS'),
-        fetchTable('LIST_Iso_MS'),
-        fetchTable('LIST_Spools_MS'),
-        fetchTable('LIST_Juntas_MS'),
+        fetchTable('LIST_Lineas_MS_'),
+        fetchTable('LIST_Isos_MS_'),
+        fetchTable('LIST_Spools_MS_'),
+        fetchTable('LIST_Juntas_MS_'),
         fetchTable('REG_EjecucionJuntas_MS'),
         fetchTable('LOG_SDI_MS'),
         fetchTable('REL_SDIIso_MS'),
@@ -423,10 +440,82 @@ async function refreshData() {
         fetchTable('CAT_Personal_MS')
     ]);
 
-    state.lineas = lineas;
-    state.isos = isos;
-    state.spools = spools;
-    state.juntas = juntas;
+    // Helper to check if a value is truthy in the new AppSheet format
+    const isTrueStr = (val) => {
+        if (!val) return false;
+        const v = String(val).toUpperCase().trim();
+        return v !== 'NO' && v !== '0' && v !== '';
+    };
+
+    // Adapt Lineas
+    const mappedLineas = lineas.map(l => ({
+        ...l,
+        CLASE_PIPING: l.CLASE || l.CLASE_PIPING || '',
+        NPS_SIZE: l.NPS || l.NPS_SIZE || '',
+        FLUIDO_SERVICIO: l.SERVICIO || l.FLUIDO_SERVICIO || '',
+        MATERIAL_BASE: l['TIPO MATERIAL'] || l.MATERIAL_BASE || '',
+        N_PID: l.PLANO_CODELCO || l.N_PID || '',
+        TEMP_DISENO_C: l.TEMP_DISEÑO_C || l.TEMP_DISENO_C || '',
+        PRESION_DISENO_KG: l.PRESION_DISEÑO_KG || l.PRESION_DISENO_KG || '',
+        ESQUEMA_PINTURA: l.ESQUEMA || l.ESQUEMA_PINTURA || '',
+        COLOR_PINTURA: l.RAL || l.COLOR_PINTURA || '',
+        REVESTIMIENTO_INT: l['REVESTIMIENTO INTERIOR'] || l.REVESTIMIENTO_INT || '',
+        AISLACION_EXT: l.AISLACION || l.AISLACION_EXT || ''
+    }));
+
+    // Adapt Isos
+    const mappedIsos = isos.map(i => ({
+        ...i,
+        REV_VIGENTE: i.REV || i.REV_VIGENTE || '0',
+        ESTADO_VIGENTE: i.ESTATUS || i.ESTADO_VIGENTE || 'Vigente'
+    }));
+
+    // Adapt Spools
+    const mappedSpools = spools.map(s => {
+        const proceso = (s.Proceso || '').trim();
+        let estadoFab = s.ESTADO_FABRICACION || proceso || 'PENDIENTE';
+        let cicloVida = s.ESTADO_CICLO_VIDA || '';
+        
+        if (isTrueStr(s.Montaje)) {
+            cicloVida = 'MONTADO';
+            estadoFab = '🟢 FABRICADO';
+        } else if (isTrueStr(s.Posicionado)) {
+            cicloVida = 'POSICIONADO';
+            estadoFab = '🟢 FABRICADO';
+        } else if (isTrueStr(s.Recibido)) {
+            cicloVida = 'EN TERRENO';
+            estadoFab = '🟢 FABRICADO';
+        } else if (isTrueStr(s['Pintura / Revestimiento'])) {
+            cicloVida = 'EN PINTURA';
+            estadoFab = '🟢 FABRICADO';
+        } else if (String(estadoFab).toUpperCase().includes('EJECUTADO') || String(estadoFab).toUpperCase().includes('N/A')) {
+            cicloVida = 'FABRICADO';
+            estadoFab = '🟢 FABRICADO';
+        }
+
+        return {
+            ...s,
+            Proceso: proceso,
+            TAG_SPOOL: s.SPOOL || s['TAG GESTION'] || s.TAG_SPOOL || '',
+            ESTADO_FABRICACION: estadoFab,
+            ESTADO_CICLO_VIDA: cicloVida,
+            UBICACION_ACTUAL: s.Ubicación || s.UBICACION_ACTUAL || ''
+        };
+    });
+
+    // Adapt Juntas
+    const mappedJuntas = juntas.map(j => ({
+        ...j,
+        CATEGORIA_JUNTA: j.DESTINATION || j.CATEGORIA_JUNTA || '',
+        ID_TIPO_UNION: j['TIPO UNION'] || j.ID_TIPO_UNION || '',
+        NUM_JUNTA: j['N° UNION'] || j.NUM_JUNTA || '',
+        NPS_JUNTA: j.NPS || j.NPS_JUNTA || 0
+    }));
+
+    state.lineas = mappedLineas;
+    state.isos = mappedIsos;
+    state.spools = mappedSpools;
+    state.juntas = mappedJuntas;
     state.ejecuciones = ejecuciones;
     state.sdis = sdis;
     state.relSdiIso = relSdiIso || [];
@@ -437,12 +526,12 @@ async function refreshData() {
     state.personal = personal || [];
 
 
-    const ok = juntas.length > 0 || lineas.length > 0;
+    const ok = mappedJuntas.length > 0 || mappedLineas.length > 0;
     dot.className = 'api-dot' + (ok ? '' : ' error');
 
     updateTime();
     renderCurrentSection();
-    console.log(`[Dashboard] Datos cargados: ${lineas.length} líneas | ${isos.length} ISOs | ${spools.length} spools | ${sdis.length} SDIs`);
+    console.log(`[Dashboard] Datos cargados: ${mappedLineas.length} líneas | ${mappedIsos.length} ISOs | ${mappedSpools.length} spools | ${sdis.length} SDIs`);
 }
 
 // ============ ETAPA HELPER ============
@@ -505,7 +594,8 @@ function renderOverview() {
     // Totales del proyecto
     setText('kpi-lineas', lineas.length);
     setText('kpi-isos', isos.length);
-    setText('kpi-spools-total', spools.length);
+    const activeSpools = spools.filter(s => !String(s.Proceso || '').trim().startsWith('00.'));
+    setText('kpi-spools-total', activeSpools.length);
     setText('kpi-total-juntas', juntas.length);
 
     // Líneas sin isométrico — excluye TIE-IN (no requieren cubicación)
@@ -861,35 +951,36 @@ function renderJuntas() {
 function renderSpools() {
     const { spools } = state;
 
-    // Lógica refinada de estados
-    const fab = spools.filter(s => {
-        const st = (s.ESTADO_FABRICACION || '').toUpperCase();
-        return st.includes('EN FABRICACION') && !st.includes('FABRICADO');
-    }).length;
+    // Filtrar spools activos (excluyendo 00. ELIMINADO)
+    const activeSpools = spools.filter(s => {
+        const proc = (s.Proceso || '').trim().toUpperCase();
+        return !proc.startsWith('00.');
+    });
 
-    const pintura = spools.filter(s => {
-        const cv = (s.ESTADO_CICLO_VIDA || '').toUpperCase();
-        return cv.includes('PINTURA');
-    }).length;
+    // Conteo según columna Proceso (de todos los spools en el caso de eliminados y retirar, o de los activos según corresponda)
+    const c00 = spools.filter(s => (s.Proceso || '').trim().startsWith('00.')).length;
+    const c01 = spools.filter(s => (s.Proceso || '').trim().startsWith('01.')).length;
+    const c02 = spools.filter(s => (s.Proceso || '').trim().startsWith('02.')).length;
+    const c03 = spools.filter(s => (s.Proceso || '').trim().startsWith('03.')).length;
+    const c04 = spools.filter(s => (s.Proceso || '').trim().startsWith('04.')).length;
+    const c05 = spools.filter(s => (s.Proceso || '').trim().startsWith('05.')).length;
+    const c06 = spools.filter(s => (s.Proceso || '').trim().startsWith('06.')).length;
+    const c07 = spools.filter(s => (s.Proceso || '').trim().startsWith('07.')).length;
 
-    const despachados = spools.filter(s => {
-        const cv = (s.ESTADO_CICLO_VIDA || '').toUpperCase();
-        return cv.includes('DESPACH') || cv.includes('LLEGADA') || cv.includes('TERRENO');
-    }).length;
+    // Sin Proceso (Spools activos que tienen la columna Proceso vacía)
+    const cSinProceso = activeSpools.filter(s => !(s.Proceso || '').trim()).length;
+    const cTotalActivos = activeSpools.length;
 
-    const montados = spools.filter(s => {
-        const cv = (s.ESTADO_CICLO_VIDA || '').toUpperCase();
-        return cv.includes('MONTADO') || cv.includes('MONTAJE') || cv.includes('INSTALADO');
-    }).length;
-
-    const fabCount = spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FABRICADO')).length;
-
-    setText('s-total', spools.length);
-    setText('s-fab', fab);
-    setText('s-fabricados', fabCount);
-    setText('s-pintura', pintura);
-    setText('s-despachados', despachados);
-    setText('s-montados', montados);
+    setText('s-eliminado', c00);
+    setText('s-fabricacion', c01);
+    setText('s-qaqc', c02);
+    setText('s-pintura', c03);
+    setText('s-retirar', c04);
+    setText('s-pormontar', c05);
+    setText('s-posicionado', c06);
+    setText('s-montado', c07);
+    setText('s-sinproceso', cSinProceso);
+    setText('s-total', cTotalActivos);
 
     // Gráficos Spools
 
@@ -899,9 +990,8 @@ function renderSpools() {
         if (charts.spoolsEstado) charts.spoolsEstado.destroy();
 
         const estadosMap = {};
-        spools.forEach(s => {
-            let e = (s.ESTADO_FABRICACION || 'PENDIENTE').trim();
-            e = e.replace(/^[^\w\s]+/, '').trim(); // Remove emojis
+        activeSpools.forEach(s => {
+            let e = (s.Proceso || 'SIN INICIAR').trim();
             estadosMap[e] = (estadosMap[e] || 0) + 1;
         });
 
@@ -915,12 +1005,14 @@ function renderSpools() {
                 datasets: [{
                     data,
                     backgroundColor: [
-                        '#64748b', // Pendiente
-                        '#6366f1', // Fab
-                        '#f59e0b', // Pintura
-                        '#10b981', // Despachado
-                        '#0ea5e9', // Otro
-                        '#ec4899'
+                        '#64748b', // SIN INICIAR / Pendiente
+                        '#6366f1', // 01. EN FABRICACION
+                        '#38bdf8', // 02. QAQC
+                        '#f59e0b', // 03. EN PINT/REVEST.
+                        '#ec4899', // 04. RETIRAR
+                        '#10b981', // 05. POR MONTAR
+                        '#0ea5e9', // 06. POSICIONADO
+                        '#8b5cf6'  // 07. MONTADO
                     ],
                     borderWidth: 0
                 }]
@@ -1079,4 +1171,103 @@ function fillKanban(containerId, items, label) {
 function setText(id, val) {
     const el = document.getElementById(id);
     if (el) el.textContent = val;
+}
+
+// ============ LOGÍSTICA MODULE ============
+async function loadLogistica() {
+    const selector = document.getElementById('guide-select');
+    if (!selector) return;
+    
+    // Si ya tiene opciones cargadas, no recargar automáticamente para mayor estabilidad
+    if (selector.options.length > 2) return;
+
+    selector.innerHTML = '<option value="">-- Cargando guías... --</option>';
+
+    try {
+        const guias = await fetchData('/api/guias');
+        selector.innerHTML = '<option value="">-- Seleccione una Guía --</option>';
+        
+        guias.sort((a,b) => b._RowNumber - a._RowNumber).forEach(g => {
+            const opt = document.createElement('option');
+            opt.value = g.ID_GUIA || g.NUM_GUIA;
+            opt.textContent = `Guía: ${g.NUM_GUIA || g.ID_GUIA} - ${g.CLIENTE || 'Emitida'}`;
+            selector.appendChild(opt);
+        });
+    } catch (e) {
+        console.error("Error cargando guías:", e);
+        selector.innerHTML = '<option value="">Error al cargar</option>';
+    }
+}
+
+async function loadLogisticaDetail(guiaId) {
+    const tbody = document.getElementById('body-logistica');
+    const metaRow = document.getElementById('guide-meta-cards');
+
+    if (!guiaId) {
+        if (metaRow) metaRow.style.display = 'none';
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.6;"><i class="fas fa-info-circle"></i> Seleccione una guía para ver el detalle</td></tr>';
+        return;
+    }
+
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;"><i class="fas fa-spinner fa-spin"></i> Cargando spools...</td></tr>';
+
+    try {
+        const data = await fetchData(`/api/guia/${guiaId}`);
+        const { guia, spools } = data;
+
+        // Mostrar meta data
+        if (metaRow) metaRow.style.display = 'grid';
+        setText('info-origen', guia.ORIGEN || '-');
+        setText('info-destino', guia.DESTINO || '-');
+        setText('info-count', spools.length);
+
+        // Render tabla
+        if (spools.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.6;">No hay spools vinculados a esta guía.</td></tr>';
+        } else {
+            tbody.innerHTML = spools.map(s => `
+                <tr>
+                    <td><strong style="color:var(--primary-light)">${s.ID_SPOOL || '-'}</strong></td>
+                    <td>${s.TAG_SPOOL || '-'}</td>
+                    <td>${s.MAX_NPS_SPOOL || '-'}</td>
+                    <td>${s.METROS_LINEALES || '0'} m</td>
+                    <td>${s.ID_ISO || '-'}</td>
+                    <td><span class="badge ${s.STATUS === 'RECIBIDO' ? 'badge-done' : 'badge-pending'}">${s.STATUS || 'EN TRANSITO'}</span></td>
+                </tr>
+            `).join('');
+        }
+    } catch (e) {
+        console.error("Error cargando detalle de guía:", e);
+        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--error);">Error al cargar datos.</td></tr>';
+    }
+}
+
+function copyLogisticaTable() {
+    const table = document.getElementById('table-logistica');
+    if (!table) return;
+    
+    const rows = table.querySelectorAll('tr');
+    let textToCopy = "";
+
+    rows.forEach(row => {
+        const cols = row.querySelectorAll('th, td');
+        const rowData = [];
+        cols.forEach(col => rowData.push(col.innerText.trim()));
+        textToCopy += rowData.join("\t") + "\n";
+    });
+
+    navigator.clipboard.writeText(textToCopy).then(() => {
+        const btn = document.querySelector('.btn-copy-excel');
+        if (!btn) return;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-check"></i> ¡Copiado!';
+        btn.style.background = '#059669';
+        
+        setTimeout(() => {
+            btn.innerHTML = originalHTML;
+            btn.style.background = '';
+        }, 2000);
+    }).catch(err => {
+        alert("Error al copiar: " + err);
+    });
 }

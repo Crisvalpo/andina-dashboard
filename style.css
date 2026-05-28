@@ -1098,3 +1098,19 @@ tr:hover td {
 .sdi-text-box.response strong {
     color: var(--accent);
 }
+
+/* Logística */
+.logistics-controls-row { display: flex; gap: 15px; margin-bottom: 20px; align-items: flex-end; }
+.guide-selector-wrapper { flex: 1; padding: 15px; display: flex; flex-direction: column; gap: 8px; }
+.guide-selector-wrapper select { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); color: white; padding: 10px; border-radius: 8px; outline: none; }
+.btn-copy-excel { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; padding: 12px 20px; border-radius: 12px; cursor: pointer; border: none; font-weight: 600; display:flex; align-items:center; gap:8px; height: 48px; }
+.btn-copy-excel:hover { transform: translateY(-2px); box-shadow: 0 4px 15px rgba(16,185,129,0.3); }
+.guide-meta-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.25rem; margin-bottom: 25px; }
+.meta-card { padding: 1.25rem; display: flex; flex-direction: column; }
+.meta-label { font-size: 0.7rem; text-transform: uppercase; color: var(--text-dim); letter-spacing: 1px; }
+.meta-value { font-size: 1.2rem; font-weight: 700; color: var(--primary-light); }
+.logistics-table-wrapper { padding: 1.25rem; overflow-x: auto; }
+.premium-table { width: 100%; border-collapse: collapse; }
+.premium-table th { text-align: left; padding: 12px 15px; border-bottom: 2px solid rgba(255,255,255,0.1); font-size: 0.8rem; text-transform: uppercase; color: var(--text-dim); }
+.premium-table td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9rem; }
+.premium-table tr:hover td { background: rgba(255,255,255,0.03); }

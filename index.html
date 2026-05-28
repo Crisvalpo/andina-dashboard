@@ -50,6 +50,9 @@
                 <button class="nav-btn" onclick="showSection('qc')" id="nav-qc">
                     <i class="fas fa-shield-alt"></i><span>Calidad QC</span>
                 </button>
+                <button class="nav-btn" onclick="showSection('logistica')" id="nav-logistica">
+                    <i class="fas fa-truck-loading"></i><span>Logística</span>
+                </button>
                 <button class="nav-btn" onclick="showSection('sdi')" id="nav-sdi">
                     <i class="fas fa-question-circle"></i><span>SDI</span>
                 </button>
@@ -312,54 +315,95 @@
 
             <!-- ===== SECTION: SPOOLS ===== -->
             <section class="section-content" id="spools-section">
-                <div class="kpi-row kpi-row-compact">
+                <div class="kpi-row">
+                    <!-- 00. ELIMINADO -->
                     <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-industry"
-                                style="color:#10b981"></i></div>
+                        <div class="kpi-icon" style="background:rgba(239, 68, 68, 0.15)"><i class="fas fa-trash-alt"
+                                style="color:#ef4444"></i></div>
                         <div>
-                            <p class="kpi-label">Total Spools</p>
-                            <p class="kpi-value" id="s-total">--</p>
+                            <p class="kpi-label">00. Eliminado</p>
+                            <p class="kpi-value" id="s-eliminado">--</p>
                         </div>
                     </div>
+                    <!-- 01. EN FABRICACION -->
                     <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#6366f120"><i class="fas fa-tools"
-                                style="color:#818cf8"></i></div>
+                        <div class="kpi-icon" style="background:rgba(99, 102, 241, 0.15)"><i class="fas fa-tools"
+                                style="color:#6366f1"></i></div>
                         <div>
-                            <p class="kpi-label">En Fabricación</p>
-                            <p class="kpi-value" id="s-fab">--</p>
+                            <p class="kpi-label">01. En Fabricación</p>
+                            <p class="kpi-value" id="s-fabricacion">--</p>
                         </div>
                     </div>
+                    <!-- 02. QAQC -->
                     <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-check-double"
-                                style="color:#10b981"></i></div>
+                        <div class="kpi-icon" style="background:rgba(56, 189, 248, 0.15)"><i class="fas fa-clipboard-check"
+                                style="color:#38bdf8"></i></div>
                         <div>
-                            <p class="kpi-label">Fabricados</p>
-                            <p class="kpi-value" id="s-fabricados">--</p>
+                            <p class="kpi-label">02. QAQC</p>
+                            <p class="kpi-value" id="s-qaqc">--</p>
                         </div>
                     </div>
+                    <!-- 03. EN PINT/REVEST. -->
                     <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#f59e0b20"><i class="fas fa-paint-roller"
+                        <div class="kpi-icon" style="background:rgba(245, 158, 11, 0.15)"><i class="fas fa-paint-roller"
                                 style="color:#f59e0b"></i></div>
                         <div>
-                            <p class="kpi-label">En Pintura</p>
+                            <p class="kpi-label">03. En Pint/Revest.</p>
                             <p class="kpi-value" id="s-pintura">--</p>
                         </div>
                     </div>
+                    <!-- 04. RETIRAR -->
                     <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-truck"
-                                style="color:#10b981"></i></div>
+                        <div class="kpi-icon" style="background:rgba(236, 72, 153, 0.15)"><i class="fas fa-exclamation-triangle"
+                                style="color:#ec4899"></i></div>
                         <div>
-                            <p class="kpi-label">Despachados</p>
-                            <p class="kpi-value" id="s-despachados">--</p>
+                            <p class="kpi-label">04. Retirar</p>
+                            <p class="kpi-value" id="s-retirar">--</p>
                         </div>
                     </div>
-                    <!-- Nuevo: Montados -->
+                    <!-- 05. POR MONTAR -->
                     <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#8b5cf620"><i class="fas fa-check-circle"
-                                style="color:#a78bfa"></i></div>
+                        <div class="kpi-icon" style="background:rgba(16, 185, 129, 0.15)"><i class="fas fa-truck"
+                                style="color:#10b981"></i></div>
                         <div>
-                            <p class="kpi-label">Montados</p>
-                            <p class="kpi-value" id="s-montados">--</p>
+                            <p class="kpi-label">05. Por Montar</p>
+                            <p class="kpi-value" id="s-pormontar">--</p>
+                        </div>
+                    </div>
+                    <!-- 06. POSICIONADO -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:rgba(14, 165, 233, 0.15)"><i class="fas fa-map-marker-alt"
+                                style="color:#0ea5e9"></i></div>
+                        <div>
+                            <p class="kpi-label">06. Posicionado</p>
+                            <p class="kpi-value" id="s-posicionado">--</p>
+                        </div>
+                    </div>
+                    <!-- 07. MONTADO -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:rgba(139, 92, 246, 0.15)"><i class="fas fa-check-circle"
+                                style="color:#8b5cf6"></i></div>
+                        <div>
+                            <p class="kpi-label">07. Montado</p>
+                            <p class="kpi-value" id="s-montado">--</p>
+                        </div>
+                    </div>
+                    <!-- SIN PROCESO -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:rgba(100, 116, 139, 0.15)"><i class="fas fa-question-circle"
+                                style="color:#64748b"></i></div>
+                        <div>
+                            <p class="kpi-label">Sin Proceso</p>
+                            <p class="kpi-value" id="s-sinproceso">--</p>
+                        </div>
+                    </div>
+                    <!-- TOTAL SPOOLS -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:rgba(56, 189, 248, 0.15)"><i class="fas fa-industry"
+                                style="color:#38bdf8"></i></div>
+                        <div>
+                            <p class="kpi-label">Total Activos</p>
+                            <p class="kpi-value" id="s-total">--</p>
                         </div>
                     </div>
                 </div>
@@ -527,6 +571,65 @@
                             </tbody>
                         </table>
                     </div>
+                </div>
+            </section>
+
+            <!-- SECCIÓN LOGÍSTICA -->
+            <section class="section-content" id="logistica-section" style="display:none;">
+                <div class="section-header">
+                    <div>
+                        <h2 class="section-title">Logística y Despacho</h2>
+                        <p class="section-subtitle">Gestión de Guías de Despacho y Trazabilidad</p>
+                    </div>
+                </div>
+
+                <div class="logistics-controls-row">
+                    <div class="guide-selector-wrapper glass">
+                        <label for="guide-select"><i class="fas fa-list-ol"></i> Seleccionar Guía:</label>
+                        <select id="guide-select" onchange="loadLogisticaDetail(this.value)">
+                            <option value="">-- Seleccione una Guía --</option>
+                        </select>
+                    </div>
+                    <button class="btn-copy-excel glass" onclick="copyLogisticaTable()">
+                        <i class="fas fa-file-export"></i> Copiar para Excel
+                    </button>
+                </div>
+
+                <div class="guide-meta-cards" id="guide-meta-cards" style="display:none;">
+                    <div class="meta-card glass">
+                        <span class="meta-label">Origen</span>
+                        <span class="meta-value" id="info-origen">-</span>
+                    </div>
+                    <div class="meta-card glass">
+                        <span class="meta-label">Destino</span>
+                        <span class="meta-value" id="info-destino">-</span>
+                    </div>
+                    <div class="meta-card glass">
+                        <span class="meta-label">Spools</span>
+                        <span class="meta-value" id="info-count">0</span>
+                    </div>
+                </div>
+
+                <div class="logistics-table-wrapper glass">
+                    <table class="premium-table" id="table-logistica">
+                        <thead>
+                            <tr>
+                                <th>ID Spool</th>
+                                <th>Tag Spool</th>
+                                <th>NPS</th>
+                                <th>Metros</th>
+                                <th>ISO</th>
+                                <th>Estado</th>
+                            </tr>
+                        </thead>
+                        <tbody id="body-logistica">
+                            <tr>
+                                <td colspan="6" style="text-align:center;padding:40px;opacity:0.6;">
+                                    <i class="fas fa-info-circle"></i> Seleccione una guía para ver el detalle
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
                 </div>
             </section>
 
