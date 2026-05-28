@@ -5,11 +5,7 @@
  */
 
 // ============ CONFIG ============
-const API = {
-    appId: 'eb4713b6-0828-4993-b5e1-935eec83cf4e',
-    appKey: 'V2-b9qXt-SY9es-eDDQb-L2lXN-NIInJ-U0DvZ-5fa2N-4huez',
-    base: 'https://api.appsheet.com/api/v2/apps'
-};
+// (Las credenciales de AppSheet ahora se administran de forma segura en el backend)
 
 // Fecha de inicio del proyecto (Local 00:00:00)
 const PROJECT_START_DATE = new Date(2025, 8, 15); // Septiembre 15, 2025
@@ -402,16 +398,9 @@ function filterSDI() {
 
 // ============ API FETCH ============
 async function fetchTable(tableName) {
-    const url = `${API.base}/${API.appId}/tables/${tableName}/Action`;
+    const url = `/api/data/${tableName}`;
     try {
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'ApplicationAccessKey': API.appKey,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ Action: 'Find', Properties: { Locale: 'es-CL' }, Rows: [] })
-        });
+        const res = await fetch(url);
         if (!res.ok) { console.error(`[API] ${tableName} → HTTP ${res.status}`); return []; }
         const data = await res.json();
         return Array.isArray(data) ? data : [];
