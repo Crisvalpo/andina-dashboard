@@ -197,22 +197,7 @@
                             <p class="kpi-value" id="j-ejecutadas">--</p>
                         </div>
                     </div>
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#6366f120"><i class="fas fa-drafting-compass"
-                                style="color:#818cf8"></i></div>
-                        <div>
-                            <p class="kpi-label">Emplantillado 📐</p>
-                            <p class="kpi-value" id="j-emplantillado">--</p>
-                        </div>
-                    </div>
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#f59e0b20"><i class="fas fa-ruler"
-                                style="color:#f59e0b"></i></div>
-                        <div>
-                            <p class="kpi-label">Corte 📏</p>
-                            <p class="kpi-value" id="j-corte">--</p>
-                        </div>
-                    </div>
+
                     <div class="kpi-card glass">
                         <div class="kpi-icon" style="background:#33415520"><i class="fas fa-clock"
                                 style="color:#64748b"></i></div>
@@ -407,6 +392,44 @@
                         </div>
                     </div>
                 </div>
+
+                <!-- KPI Row: Spools por Área -->
+                <div class="kpi-section-label">📍 Spools por Área</div>
+                <div class="kpi-row">
+                    <!-- TORRE TRANSFERENCIA -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:rgba(99,102,241,0.15)"><i class="fas fa-broadcast-tower" style="color:#6366f1"></i></div>
+                        <div>
+                            <p class="kpi-label">Torre Transferencia</p>
+                            <p class="kpi-value" id="s-area-torre">--</p>
+                        </div>
+                    </div>
+                    <!-- PIPE RACK -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:rgba(16,185,129,0.15)"><i class="fas fa-grip-lines" style="color:#10b981"></i></div>
+                        <div>
+                            <p class="kpi-label">Pipe Rack</p>
+                            <p class="kpi-value" id="s-area-rack">--</p>
+                        </div>
+                    </div>
+                    <!-- BAJO ESPESADOR -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:rgba(14,165,233,0.15)"><i class="fas fa-layer-group" style="color:#0ea5e9"></i></div>
+                        <div>
+                            <p class="kpi-label">Bajo Espesador</p>
+                            <p class="kpi-value" id="s-area-bajo">--</p>
+                        </div>
+                    </div>
+                    <!-- POR DEFINIR -->
+                    <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:rgba(100,116,139,0.15)"><i class="fas fa-question-circle" style="color:#64748b"></i></div>
+                        <div>
+                            <p class="kpi-label">Por Definir</p>
+                            <p class="kpi-value" id="s-area-def">--</p>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="charts-grid">
                     <div class="chart-card glass">
                         <h3>Distribución por Estado</h3>
@@ -415,6 +438,14 @@
                         </div>
                     </div>
                     <div class="chart-card glass">
+                        <h3>Spools por Área</h3>
+                        <div class="chart-body">
+                            <canvas id="spools-area-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <div class="charts-grid" style="margin-top:1rem">
+                    <div class="chart-card glass">
                         <h3>Spools por Fluido</h3>
                         <div class="chart-body">
                             <canvas id="spools-fluido-chart"></canvas>
@@ -422,6 +453,7 @@
                     </div>
                 </div>
             </section>
+
 
             <!-- ===== SECTION: CALIDAD QC ===== -->
             <section class="section-content" id="qc-section">

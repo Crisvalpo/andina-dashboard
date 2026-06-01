@@ -28,6 +28,7 @@ const state = {
     spools: [],
     juntas: [],
     ejecuciones: [],   // REG_EjecucionJuntas_MS
+    logSpools: [],     // LOG_Spool_MS
     sdis: [],
     relSdiIso: [],     // REL_SDIIso_MS
     inspecciones: [],  // REG_InspeccionVisual_MS
@@ -414,12 +415,13 @@ async function refreshData() {
     console.log('[Dashboard] Cargando datos...');
     const dot = document.getElementById('api-dot');
 
-    const [lineas, isos, spools, juntas, ejecuciones, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos, personal] = await Promise.all([
+    const [lineas, isos, spools, juntas, ejecuciones, logSpools, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos, personal] = await Promise.all([
         fetchTable('LIST_Lineas_MS_'),
         fetchTable('LIST_Isos_MS_'),
         fetchTable('LIST_Spools_MS_'),
         fetchTable('LIST_Juntas_MS_'),
         fetchTable('REG_EjecucionJuntas_MS'),
+        fetchTable('LOG_Spool_MS'),
         fetchTable('LOG_SDI_MS'),
         fetchTable('REL_SDIIso_MS'),
         fetchTable('REG_InspeccionVisual_MS'),
@@ -506,6 +508,7 @@ async function refreshData() {
     state.spools = mappedSpools;
     state.juntas = mappedJuntas;
     state.ejecuciones = ejecuciones;
+    state.logSpools = logSpools || [];
     state.sdis = sdis;
     state.relSdiIso = relSdiIso || [];
     state.inspecciones = inspecciones;
@@ -551,7 +554,7 @@ function getEtapaBadge(estado) {
     if (!estado) return '<span class="badge badge-pending">Sin Registro</span>';
     const e = estado.toUpperCase();
     if (e.includes('EJECUTAD')) return `<span class="badge badge-done">EJECUTADA</span>`;
-    if (e.includes('EMPLANTILL')) return `<span class="badge badge-emplantillado">EMPLANTILLADO</span>`;
+    if (e.includes('EMPLANTILL') || e.includes('PREARMAD')) return `<span class="badge badge-emplantillado">EMPLANTILLADO</span>`;
     if (e.includes('CORTE')) return `<span class="badge badge-corte">CORTE</span>`;
     return `<span class="badge badge-pending">${estado}</span>`;
 }
@@ -560,7 +563,7 @@ function getEtapaWeight(estado) {
     if (!estado) return 0;
     const e = estado.toUpperCase();
     if (e.includes('EJECUTAD')) return 3;
-    if (e.includes('EMPLANTILL')) return 2;
+    if (e.includes('EMPLANTILL') || e.includes('PREARMAD')) return 2;
     if (e.includes('CORTE')) return 1;
     return 0;
 }
@@ -836,23 +839,24 @@ function renderLogTable() {
 function renderJuntas() {
     const { juntas, ejecuciones } = state;
 
-    // Count by max etapa per junta
-    let ejecutadas = 0, emplantillado = 0, corte = 0, pendiente = 0;
+    // Construir un Set de IDs de juntas que tienen al menos un registro EJECUTADA
+    const ejecutadasSet = new Set(
+        ejecuciones
+            .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'))
+            .map(e => getJuntaId(e).trim())
+            .filter(Boolean)
+    );
+
+    // Count por estado: ejecutadas vs sin iniciar
+    let ejecutadas = 0, pendiente = 0;
 
     juntas.forEach(j => {
         const id = (j.ID_JUNTA || j['ID_JUNTA '] || '').trim();
-        const etapa = getMaxEtapa(id);
-        if (!etapa) { pendiente++; return; }
-        const e = etapa.toUpperCase();
-        if (e.includes('EJECUTAD')) ejecutadas++;
-        else if (e.includes('EMPLANTILL')) emplantillado++;
-        else if (e.includes('CORTE')) corte++;
-        else pendiente++;
+        if (ejecutadasSet.has(id)) { ejecutadas++; }
+        else { pendiente++; }
     });
 
     setText('j-ejecutadas', ejecutadas);
-    setText('j-emplantillado', emplantillado);
-    setText('j-corte', corte);
     setText('j-pendiente', pendiente);
 
     // Welder DI charts
@@ -868,10 +872,10 @@ function renderJuntas() {
         charts.donut = new Chart(dCtx, {
             type: 'doughnut',
             data: {
-                labels: ['Ejecutadas', 'Emplantillado', 'Corte', 'Sin Iniciar'],
+                labels: ['Ejecutadas', 'Sin Iniciar'],
                 datasets: [{
-                    data: [ejecutadas, emplantillado, corte, pendiente],
-                    backgroundColor: ['#10b981', '#6366f1', '#f59e0b', '#334155'],
+                    data: [ejecutadas, pendiente],
+                    backgroundColor: ['#10b981', '#334155'],
                     borderWidth: 0
                 }]
             },
@@ -936,29 +940,85 @@ function renderJuntas() {
     }).join('') || `<tr><td colspan="5" class="empty-msg">Sin registros en S${state.currentWeek}</td></tr>`;
 }
 
+// ============ SPOOL STATUS: jerarquía desde LOG_Spool_MS ============
+// Orden de mayor a menor prioridad (el último en la lista gana)
+const SPOOL_STATUS_WEIGHT = {
+    'EN FABRICACIÓN': 1, 'EN FABRICACION': 1,
+    'QAQC': 2,
+    'EN PINT/REVEST.': 3, 'EN PINT': 3,
+    'RETIRAR': 4,
+    'POR MONTAR': 5,
+    'POSICIONADO': 6,
+    'MONTADO': 7,
+    'ELIMINADO': 8
+};
+
+function getSpoolStatusWeight(status) {
+    if (!status) return 0;
+    const s = status.toUpperCase().trim();
+    // Exact match first
+    if (SPOOL_STATUS_WEIGHT[s] !== undefined) return SPOOL_STATUS_WEIGHT[s];
+    // Partial match
+    for (const [key, w] of Object.entries(SPOOL_STATUS_WEIGHT)) {
+        if (s.includes(key)) return w;
+    }
+    return 0;
+}
+
+/**
+ * Resuelve el status más avanzado de cada spool desde LOG_Spool_MS.
+ * Retorna un Map<ID_SPOOL, statusString>.
+ */
+function resolveSpoolStatuses() {
+    const statusMap = new Map(); // ID_SPOOL -> { status, weight }
+    state.logSpools.forEach(r => {
+        const id = (r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
+        const st = (r.STATUS || r['STATUS '] || '').trim();
+        if (!id || !st) return;
+        const w = getSpoolStatusWeight(st);
+        const prev = statusMap.get(id);
+        if (!prev || w > prev.weight) {
+            statusMap.set(id, { status: st, weight: w });
+        }
+    });
+    // Return Map<ID_SPOOL, statusString>
+    const result = new Map();
+    statusMap.forEach((v, k) => result.set(k, v.status));
+    return result;
+}
+
 // ============ RENDER: SPOOLS ============
 function renderSpools() {
     const { spools } = state;
 
-    // Filtrar spools activos (excluyendo 00. ELIMINADO)
-    const activeSpools = spools.filter(s => {
-        const proc = (s.Proceso || '').trim().toUpperCase();
-        return !proc.startsWith('00.');
-    });
+    // --- JERARQUÍA POR STATUS (LOG_Spool_MS) ---
+    const statusMap = resolveSpoolStatuses();
 
-    // Conteo según columna Proceso (de todos los spools en el caso de eliminados y retirar, o de los activos según corresponda)
-    const c00 = spools.filter(s => (s.Proceso || '').trim().startsWith('00.')).length;
-    const c01 = spools.filter(s => (s.Proceso || '').trim().startsWith('01.')).length;
-    const c02 = spools.filter(s => (s.Proceso || '').trim().startsWith('02.')).length;
-    const c03 = spools.filter(s => (s.Proceso || '').trim().startsWith('03.')).length;
-    const c04 = spools.filter(s => (s.Proceso || '').trim().startsWith('04.')).length;
-    const c05 = spools.filter(s => (s.Proceso || '').trim().startsWith('05.')).length;
-    const c06 = spools.filter(s => (s.Proceso || '').trim().startsWith('06.')).length;
-    const c07 = spools.filter(s => (s.Proceso || '').trim().startsWith('07.')).length;
+    // Conteo por status (usando jerarquía LOG_Spool_MS)
+    const statusKeys = {
+        fabricacion: (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'EN FABRICACIÓN'; },
+        qaqc:        (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'QAQC'; },
+        pintura:     (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'EN PINT/REVEST.'; },
+        retirar:     (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'RETIRAR'; },
+        pormontar:   (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'POR MONTAR'; },
+        posicionado: (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'POSICIONADO'; },
+        montado:     (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'MONTADO'; },
+        eliminado:   (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'ELIMINADO'; },
+    };
 
-    // Sin Proceso (Spools activos que tienen la columna Proceso vacía)
-    const cSinProceso = activeSpools.filter(s => !(s.Proceso || '').trim()).length;
-    const cTotalActivos = activeSpools.length;
+    const c00 = spools.filter(statusKeys.eliminado).length;
+    const c01 = spools.filter(statusKeys.fabricacion).length;
+    const c02 = spools.filter(statusKeys.qaqc).length;
+    const c03 = spools.filter(statusKeys.pintura).length;
+    const c04 = spools.filter(statusKeys.retirar).length;
+    const c05 = spools.filter(statusKeys.pormontar).length;
+    const c06 = spools.filter(statusKeys.posicionado).length;
+    const c07 = spools.filter(statusKeys.montado).length;
+    const cSinRegistro = spools.filter(s => !statusMap.has(resolveSpoolId(s))).length;
+    const cTotalActivos = spools.filter(s => {
+        const st = statusMap.get(resolveSpoolId(s));
+        return !st || normalizeStatus(st) !== 'ELIMINADO';
+    }).length;
 
     setText('s-eliminado', c00);
     setText('s-fabricacion', c01);
@@ -968,61 +1028,93 @@ function renderSpools() {
     setText('s-pormontar', c05);
     setText('s-posicionado', c06);
     setText('s-montado', c07);
-    setText('s-sinproceso', cSinProceso);
+    setText('s-sinproceso', cSinRegistro);
     setText('s-total', cTotalActivos);
 
-    // Gráficos Spools
+    // --- CONTEO POR ÁREA (LIST_Spools_MS_ columna AREA) ---
+    const AREAS_VALIDAS = ['TORRE TRANSFERENCIA', 'TORRE TRASFERENCIA', 'PIPE RACK', 'BAJO ESPESADOR'];
+    const areaCount = { 'TORRE TRANSFERENCIA': 0, 'PIPE RACK': 0, 'BAJO ESPESADOR': 0, 'POR DEFINIR': 0 };
 
-    // 1. Distribución por Estado
+    spools.forEach(s => {
+        const area = (s.AREA || s['AREA '] || '').trim().toUpperCase();
+        if (area.includes('TORRE')) {
+            areaCount['TORRE TRANSFERENCIA']++;
+        } else if (area.includes('PIPE RACK') || area.includes('RACK')) {
+            areaCount['PIPE RACK']++;
+        } else if (area.includes('BAJO ESPESADOR') || area.includes('ESPESADOR')) {
+            areaCount['BAJO ESPESADOR']++;
+        } else {
+            areaCount['POR DEFINIR']++;
+        }
+    });
+
+    setText('s-area-torre', areaCount['TORRE TRANSFERENCIA']);
+    setText('s-area-rack',  areaCount['PIPE RACK']);
+    setText('s-area-bajo',  areaCount['BAJO ESPESADOR']);
+    setText('s-area-def',   areaCount['POR DEFINIR']);
+
+    // --- Gráfico: Distribución por Estado (LOG_Spool_MS) ---
     const ctxEstado = document.getElementById('spools-estado-chart');
     if (ctxEstado) {
         if (charts.spoolsEstado) charts.spoolsEstado.destroy();
 
-        const estadosMap = {};
-        activeSpools.forEach(s => {
-            let e = (s.Proceso || 'SIN INICIAR').trim();
-            estadosMap[e] = (estadosMap[e] || 0) + 1;
-        });
+        const estadosOrden = ['En Fabricación', 'QAQC', 'En Pint/Revest.', 'Retirar', 'Por Montar', 'Posicionado', 'Montado', 'Eliminado', 'Sin Registro'];
+        const colores = ['#6366f1','#38bdf8','#f59e0b','#ec4899','#10b981','#0ea5e9','#8b5cf6','#ef4444','#64748b'];
+        const data = [c01, c02, c03, c04, c05, c06, c07, c00, cSinRegistro];
 
-        const labels = Object.keys(estadosMap);
-        const data = Object.values(estadosMap);
+        // Solo mostrar los que tienen datos
+        const filtered = estadosOrden.map((l, i) => ({ label: l, val: data[i], color: colores[i] })).filter(x => x.val > 0);
 
         charts.spoolsEstado = new Chart(ctxEstado, {
             type: 'doughnut',
             data: {
-                labels,
+                labels: filtered.map(x => x.label),
                 datasets: [{
-                    data,
-                    backgroundColor: [
-                        '#64748b', // SIN INICIAR / Pendiente
-                        '#6366f1', // 01. EN FABRICACION
-                        '#38bdf8', // 02. QAQC
-                        '#f59e0b', // 03. EN PINT/REVEST.
-                        '#ec4899', // 04. RETIRAR
-                        '#10b981', // 05. POR MONTAR
-                        '#0ea5e9', // 06. POSICIONADO
-                        '#8b5cf6'  // 07. MONTADO
-                    ],
+                    data: filtered.map(x => x.val),
+                    backgroundColor: filtered.map(x => x.color),
                     borderWidth: 0
                 }]
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 cutout: '70%',
-                plugins: {
-                    legend: { position: 'right', labels: { color: '#64748b', boxWidth: 12 } }
-                }
+                plugins: { legend: { position: 'right', labels: { color: '#64748b', boxWidth: 12 } } }
             }
         });
     }
 
-    // 2. Spools por Fluido
+    // --- Gráfico: Spools por Área ---
+    const ctxArea = document.getElementById('spools-area-chart');
+    if (ctxArea) {
+        if (charts.spoolsArea) charts.spoolsArea.destroy();
+        const aLabels = ['Torre Transf.', 'Pipe Rack', 'Bajo Espesador', 'Por Definir'];
+        const aData   = [areaCount['TORRE TRANSFERENCIA'], areaCount['PIPE RACK'], areaCount['BAJO ESPESADOR'], areaCount['POR DEFINIR']];
+        charts.spoolsArea = new Chart(ctxArea, {
+            type: 'bar',
+            data: {
+                labels: aLabels,
+                datasets: [{ label: 'Spools', data: aData,
+                    backgroundColor: ['#6366f1','#10b981','#0ea5e9','#64748b'],
+                    borderRadius: 6 }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+
+    // --- Gráfico: Spools por Fluido ---
     const ctxFluido = document.getElementById('spools-fluido-chart');
     if (ctxFluido) {
         if (charts.spoolsFluido) charts.spoolsFluido.destroy();
 
         let fluidList = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
-        if (!fluidList.length) fluidList = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW']; // fallback
+        if (!fluidList.length) fluidList = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW'];
 
         const fluidosMap = {};
         fluidList.forEach(f => fluidosMap[f] = 0);
@@ -1031,40 +1123,43 @@ function renderSpools() {
         spools.forEach(s => {
             const val = (s.ID_ISO || s['ID_ISO '] || s.LINEA || '').toUpperCase();
             const fl = fluidList.find(f => val.includes(`-${f}-`) || val.includes(`/${f}/`));
-            if (fl) {
-                fluidosMap[fl]++;
-            } else {
-                fluidosMap['OTROS']++;
-            }
+            if (fl) { fluidosMap[fl]++; } else { fluidosMap['OTROS']++; }
         });
 
-        // Solo mostrar los que tienen datos
         const labels = Object.keys(fluidosMap).filter(l => fluidosMap[l] > 0).sort((a, b) => fluidosMap[b] - fluidosMap[a]).slice(0, 6);
         const data = labels.map(l => fluidosMap[l]);
 
         charts.spoolsFluido = new Chart(ctxFluido, {
             type: 'bar',
-            data: {
-                labels,
-                datasets: [{
-                    label: 'Spools',
-                    data,
-                    backgroundColor: '#0ea5e9',
-                    borderRadius: 4
-                }]
-            },
+            data: { labels, datasets: [{ label: 'Spools', data, backgroundColor: '#0ea5e9', borderRadius: 4 }] },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
                     y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
                     x: { grid: { display: false }, ticks: { color: '#64748b' } }
                 },
-                plugins: {
-                    legend: { display: false }
-                }
+                plugins: { legend: { display: false } }
             }
         });
     }
+}
+
+// Helpers para resolveSpoolStatuses
+function resolveSpoolId(s) {
+    return (s.ID_SPOOL || s['ID_SPOOL '] || '').trim();
+}
+function normalizeStatus(st) {
+    if (!st) return '';
+    const s = st.trim().toUpperCase();
+    if (s.includes('FABRICAC')) return 'EN FABRICACIÓN';
+    if (s === 'QAQC')          return 'QAQC';
+    if (s.includes('PINT'))    return 'EN PINT/REVEST.';
+    if (s.includes('RETIR'))   return 'RETIRAR';
+    if (s.includes('MONTAR'))  return 'POR MONTAR';
+    if (s.includes('POSICION')) return 'POSICIONADO';
+    if (s.includes('MONTAD'))  return 'MONTADO';
+    if (s.includes('ELIMIN'))  return 'ELIMINADO';
+    return st.trim();
 }
 
 // ============ RENDER: QC ============
