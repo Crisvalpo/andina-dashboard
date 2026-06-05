@@ -90,21 +90,15 @@ function parseDate(str) {
         // If d1 > 12, it must be the day (DD/MM/YYYY)
         // If both <= 12, we check if month=d2 (DD/MM) results in a week closer to now
         // Current month is April (3), so if one date gives Jan and other gives April, we pick April.
-        if (d2 > 12) { // MM/DD/YYYY
+        if (d2 > 12) { // MM/DD/YYYY (el día no puede ser >12 en primer posición)
             month = d1 - 1; day = d2;
         } else if (d1 > 12) { // DD/MM/YYYY
             month = d2 - 1; day = d1;
         } else {
-            // Ambiguous (e.g. 01/04/2026). Check which one gives Week 28 vs Week 15
-            const test1 = new Date(year, d2 - 1, d1); // Assume DD/MM
-            const w1 = getProjectWeek(test1);
-            const todayW = getProjectWeek(new Date());
-
-            if (Math.abs((w1 || 0) - todayW) < 5) {
-                month = d2 - 1; day = d1;
-            } else {
-                month = d1 - 1; day = d2;
-            }
+            // Ambiguous (e.g. 06/04/2026): AppSheet siempre usa DD/MM/YYYY en locale español.
+            // SIEMPRE interpretar como DD/MM para evitar que fechas históricas
+            // (como 06/04 = 6 Abril) se mapeen al futuro o semana actual (4 Junio).
+            month = d2 - 1; day = d1;
         }
     }
 
