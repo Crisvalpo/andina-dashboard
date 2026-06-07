@@ -90,15 +90,12 @@ function parseDate(str) {
         // If d1 > 12, it must be the day (DD/MM/YYYY)
         // If both <= 12, we check if month=d2 (DD/MM) results in a week closer to now
         // Current month is April (3), so if one date gives Jan and other gives April, we pick April.
-        if (d2 > 12) { // MM/DD/YYYY (el día no puede ser >12 en primer posición)
+        if (d1 > 12) { 
+            // DD/MM/YYYY (Salvaguarda en caso de que venga algún registro en formato español)
+            month = d2 - 1; day = d1;
+        } else { 
+            // MM/DD/YYYY (Estándar entregado por la API de AppSheet)
             month = d1 - 1; day = d2;
-        } else if (d1 > 12) { // DD/MM/YYYY
-            month = d2 - 1; day = d1;
-        } else {
-            // Ambiguous (e.g. 06/04/2026): AppSheet siempre usa DD/MM/YYYY en locale español.
-            // SIEMPRE interpretar como DD/MM para evitar que fechas históricas
-            // (como 06/04 = 6 Abril) se mapeen al futuro o semana actual (4 Junio).
-            month = d2 - 1; day = d1;
         }
     }
 
