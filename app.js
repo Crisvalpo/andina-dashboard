@@ -209,13 +209,13 @@ function renderWelderChart() {
     });
 
     // 2. Weekly Production (Daily)
-    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'];
+    const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
     const weekExec = ejecuciones.filter(e => {
         const status = getEstado(e).toUpperCase();
         return status.includes('EJECUTAD') && getWeekOfDate(getVal(e, 'FECHA_EJECUCION')) === currentWeek;
     });
 
-    const welderData = {}; // { welder: [0,0,0,0,0] }
+    const welderData = {}; // { welder: [0,0,0,0,0,0,0] }
     let totalWeekDI = 0;
 
     weekExec.forEach(e => {
@@ -234,11 +234,14 @@ function renderWelderChart() {
         const date = parseDate(getVal(e, 'FECHA_EJECUCION'));
         if (!date) return;
         
-        let dIdx = date.getDay();
-        if (dIdx === 0 || dIdx > 5) return; 
+        let dIdx = date.getDay(); // 0=Domingo, 1=Lunes, ..., 6=Sábado
+        // Mapear: Lunes=0, Martes=1, ..., Sábado=5, Domingo=6
+        let arrIdx = dIdx === 0 ? 6 : dIdx - 1;
         
-        if (!welderData[name]) welderData[name] = [0, 0, 0, 0, 0];
-        welderData[name][dIdx - 1] += nps;
+        if (arrIdx < 0 || arrIdx > 6) return;
+        
+        if (!welderData[name]) welderData[name] = [0, 0, 0, 0, 0, 0, 0];
+        welderData[name][arrIdx] += nps;
     });
 
     console.log(`[KPI] Total Week DI: ${totalWeekDI}. Welders:`, Object.keys(welderData));
