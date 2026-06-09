@@ -620,7 +620,13 @@ function renderOverview() {
     setText('kpi-isos', isos.length);
     const activeSpools = spools.filter(s => !String(s.Proceso || '').trim().startsWith('00.'));
     setText('kpi-spools-total', activeSpools.length);
-    setText('kpi-total-juntas', juntas.length);
+    
+    const totalPulgadas = juntas.reduce((sum, j) => {
+        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
+        const nps = parseFloat(npsVal);
+        return sum + (isNaN(nps) ? 0 : nps);
+    }, 0);
+    setText('kpi-total-juntas', `${juntas.length} / ${totalPulgadas.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
 
     // Líneas sin isométrico — excluye TIE-IN (no requieren cubicación)
     const isoLineSet = new Set(
