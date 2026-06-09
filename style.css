@@ -588,9 +588,15 @@ tr:hover td {
 /* ============ JUNTAS BREAKDOWN ============ */
 .juntas-breakdown-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
     gap: 1.25rem;
     margin-bottom: 1.5rem;
+}
+
+.jc-materials-list {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
 }
 
 .jc-col {
@@ -690,6 +696,53 @@ tr:hover td {
 .jc-header-stats span {
     color: var(--accent);
     font-weight: 700;
+}
+
+.jc-material-group {
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid rgba(255, 255, 255, 0.03);
+    border-radius: 10px;
+    padding: 0.85rem;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.jc-material-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+    padding-bottom: 0.5rem;
+}
+
+.jc-material-title {
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: var(--primary-light);
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+}
+
+.jc-material-metrics {
+    display: flex;
+    gap: 0.75rem;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+}
+
+.jc-material-metric span {
+    font-weight: 700;
+    color: var(--text);
+}
+
+.jc-material-metric span.done {
+    color: var(--accent);
+}
+
+.jc-material-metric.perc span {
+    color: var(--accent);
 }
 
 .jc-cards {
@@ -861,6 +914,34 @@ tr:hover td {
     flex-wrap: wrap;
     justify-content: center;
     margin-top: 0.5rem;
+}
+
+/* ============ CONSTRUCTION ALERT ============ */
+.construction-alert {
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px dashed rgba(245, 158, 11, 0.3);
+    border-radius: var(--radius);
+    padding: 0.75rem 1.25rem;
+    margin-bottom: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    backdrop-filter: blur(8px);
+}
+
+.construction-alert .badge {
+    font-size: 0.72rem;
+    padding: 4px 10px;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+
+.construction-alert .alert-desc {
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    font-weight: 500;
 }
 
 /* ============ KPI SUBLABEL ============ */

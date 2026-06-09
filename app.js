@@ -42,6 +42,79 @@ const state = {
 
 let charts = {};
 
+// Plugins globales para mostrar etiquetas en los gráficos
+const barLabelsPlugin = {
+    id: 'barLabels',
+    afterDatasetsDraw(chart) {
+        const { ctx } = chart;
+        ctx.save();
+        ctx.font = 'bold 10px Outfit, sans-serif';
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+
+        chart.data.datasets.forEach((dataset, datasetIndex) => {
+            const meta = chart.getDatasetMeta(datasetIndex);
+            meta.data.forEach((bar, index) => {
+                const val = dataset.data[index];
+                if (val === 0 || val === null || val === undefined) return;
+                
+                const displayVal = typeof val === 'number' ? val.toLocaleString('es-CL', { maximumFractionDigits: 1 }) : val;
+                const xPos = bar.x;
+                const yPos = bar.y - 4; // 4px arriba de la barra
+                
+                ctx.fillText(displayVal, xPos, yPos);
+            });
+        });
+        ctx.restore();
+    }
+};
+
+const doughnutLabelsPlugin = {
+    id: 'doughnutLabels',
+    afterDatasetsDraw(chart) {
+        const { ctx, data } = chart;
+        ctx.save();
+        ctx.font = 'bold 11px Outfit, sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        chart.getDatasetMeta(0).data.forEach((slice, index) => {
+            const val = data.datasets[0].data[index];
+            if (val === 0 || val === null || val === undefined) return;
+            
+            const pos = typeof slice.tooltipPosition === 'function' ? slice.tooltipPosition() : null;
+            if (pos) {
+                ctx.fillText(val, pos.x, pos.y);
+            }
+        });
+        ctx.restore();
+    }
+};
+
+const lineLabelsPlugin = {
+    id: 'lineLabels',
+    afterDatasetsDraw(chart) {
+        const { ctx, data } = chart;
+        ctx.save();
+        ctx.font = 'bold 10px Outfit, sans-serif';
+        ctx.fillStyle = '#cbd5e1';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+
+        chart.getDatasetMeta(0).data.forEach((point, index) => {
+            const val = data.datasets[0].data[index];
+            if (val === null || val === undefined) return;
+            
+            const xPos = point.x;
+            const yPos = point.y - 6; // 6px arriba del punto
+            ctx.fillText(val, xPos, yPos);
+        });
+        ctx.restore();
+    }
+};
+
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', () => {
     setWeekDisplay(state.currentWeek);
@@ -289,11 +362,18 @@ function renderWelderChart() {
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' }, title: { display: true, text: 'DI (Pulgadas Diámetro)', color: '#64748b' } },
+                    y: { 
+                        beginAtZero: true, 
+                        grid: { color: '#1e293b' }, 
+                        ticks: { color: '#64748b' }, 
+                        title: { display: true, text: 'DI (Pulgadas Diámetro)', color: '#64748b' },
+                        grace: '12%'
+                    },
                     x: { grid: { display: false }, ticks: { color: '#64748b' } }
                 },
                 plugins: { legend: { position: 'bottom', labels: { color: '#64748b', boxWidth: 12 } } }
-            }
+            },
+            plugins: [barLabelsPlugin]
         });
     }
 
@@ -734,6 +814,15 @@ function renderOverview() {
     renderLogTable();
 }
 
+function getMaterialLabel(material) {
+    if (!material) return 'Sin Material (S/M)';
+    const m = material.trim().toUpperCase();
+    if (m === 'AG') return 'Acero Galvanizado (AG)';
+    if (m === 'CS') return 'Acero Carbono (CS)';
+    if (m === 'HDPE') return 'HDPE';
+    return material.trim();
+}
+
 function renderJuntasBreakdown() {
     const { juntas, catUniones } = state;
 
@@ -743,8 +832,8 @@ function renderJuntasBreakdown() {
         catMap[(c.ID_TIPO_UNION || c['ID_TIPO_UNION '] || '').trim()] = (c.NMB_UNION || c['NMB_UNION '] || '').trim();
     });
 
-    const shop = { total: 0, ejec: 0, types: {} };
-    const field = { total: 0, ejec: 0, types: {} };
+    const shop = { total: 0, ejec: 0, materials: {} };
+    const field = { total: 0, ejec: 0, materials: {} };
 
     juntas.forEach(j => {
         const cat = (j.CATEGORIA_JUNTA || j['CATEGORIA_JUNTA '] || '').toUpperCase().trim();
@@ -758,9 +847,29 @@ function renderJuntasBreakdown() {
         target.total++;
         if (isEjecutada) target.ejec++;
 
-        if (!target.types[tipo]) target.types[tipo] = { total: 0, ejec: 0, name: catMap[tipo] || 'S/D' };
-        target.types[tipo].total++;
-        if (isEjecutada) target.types[tipo].ejec++;
+        // Obtener material y clave
+        const rawMat = getVal(j, 'MATERIAL');
+        const matKey = rawMat ? rawMat.trim().toUpperCase() : 'S/M';
+        const matLabel = getMaterialLabel(rawMat);
+
+        if (!target.materials[matKey]) {
+            target.materials[matKey] = {
+                label: matLabel,
+                total: 0,
+                ejec: 0,
+                types: {}
+            };
+        }
+
+        const matObj = target.materials[matKey];
+        matObj.total++;
+        if (isEjecutada) matObj.ejec++;
+
+        if (!matObj.types[tipo]) {
+            matObj.types[tipo] = { total: 0, ejec: 0, name: catMap[tipo] || 'S/D' };
+        }
+        matObj.types[tipo].total++;
+        if (isEjecutada) matObj.types[tipo].ejec++;
     });
 
     // Render Metrics Cards
@@ -788,28 +897,54 @@ function renderJuntasBreakdown() {
     const fieldMetrics = document.getElementById('field-metrics');
     if (fieldMetrics) fieldMetrics.innerHTML = renderMetrics(field);
 
-    // Render Cards
-    const renderCards = (typeObj) => {
-        const types = Object.keys(typeObj).sort((a, b) => typeObj[b].total - typeObj[a].total);
-        if (!types.length) return `<div class="empty-msg" style="padding:1rem">Sin registros</div>`;
-        return types.map(t => {
-            const data = typeObj[t];
-            return `<div class="jc-card">
-                <div class="jc-card-title">${t}</div>
-                <div class="jc-card-subtitle" title="${data.name}">${data.name}</div>
-                <div class="jc-card-stats">
-                    <div><span class="label">TOTAL</span><span class="val">${data.total}</span></div>
-                    <div><span class="label">EJEC</span><span class="val done">${data.ejec}</span></div>
+    // Render Materials Groups and their internal cards
+    const renderMaterials = (materialsObj) => {
+        const materialsKeys = Object.keys(materialsObj).sort((a, b) => materialsObj[b].total - materialsObj[a].total);
+        if (!materialsKeys.length) return `<div class="empty-msg" style="padding:1rem">Sin registros</div>`;
+
+        return materialsKeys.map(mKey => {
+            const mat = materialsObj[mKey];
+            const perc = mat.total > 0 ? Math.round((mat.ejec / mat.total) * 100) : 0;
+            
+            // Ordenar los tipos de unión por total descendente
+            const typesKeys = Object.keys(mat.types).sort((a, b) => mat.types[b].total - mat.types[a].total);
+            const cardsHtml = typesKeys.map(t => {
+                const data = mat.types[t];
+                return `
+                    <div class="jc-card">
+                        <div class="jc-card-title">${t}</div>
+                        <div class="jc-card-subtitle" title="${data.name}">${data.name}</div>
+                        <div class="jc-card-stats">
+                            <div><span class="label">TOTAL</span><span class="val">${data.total}</span></div>
+                            <div><span class="label">EJEC</span><span class="val done">${data.ejec}</span></div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            return `
+                <div class="jc-material-group">
+                    <div class="jc-material-header">
+                        <div class="jc-material-title">💿 ${mat.label}</div>
+                        <div class="jc-material-metrics">
+                            <div class="jc-material-metric">TOTAL: <span>${mat.total}</span></div>
+                            <div class="jc-material-metric">EJEC: <span class="done">${mat.ejec}</span></div>
+                            <div class="jc-material-metric perc"><span>${perc}%</span></div>
+                        </div>
+                    </div>
+                    <div class="jc-cards">
+                        ${cardsHtml}
+                    </div>
                 </div>
-            </div>`;
+            `;
         }).join('');
     };
 
     const sCards = document.getElementById('shop-cards');
-    if (sCards) sCards.innerHTML = renderCards(shop.types);
+    if (sCards) sCards.innerHTML = renderMaterials(shop.materials);
 
     const fCards = document.getElementById('field-cards');
-    if (fCards) fCards.innerHTML = renderCards(field.types);
+    if (fCards) fCards.innerHTML = renderMaterials(field.materials);
 }
 
 function toggleJuntaCol(type) {
@@ -866,11 +1001,17 @@ function renderSCurve() {
         options: {
             responsive: true, maintainAspectRatio: false,
             scales: {
-                y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                y: { 
+                    beginAtZero: true, 
+                    grid: { color: '#1e293b' }, 
+                    ticks: { color: '#64748b' },
+                    grace: '10%'
+                },
                 x: { grid: { display: false }, ticks: { color: '#64748b' } }
             },
             plugins: { legend: { display: false } }
-        }
+        },
+        plugins: [lineLabelsPlugin]
     });
 }
 
@@ -901,11 +1042,17 @@ function renderBarChart() {
         options: {
             responsive: true, maintainAspectRatio: false,
             scales: {
-                y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                y: { 
+                    beginAtZero: true, 
+                    grid: { color: '#1e293b' }, 
+                    ticks: { color: '#64748b' },
+                    grace: '12%'
+                },
                 x: { grid: { display: false }, ticks: { color: '#64748b' } }
             },
             plugins: { legend: { display: false } }
-        }
+        },
+        plugins: [barLabelsPlugin]
     });
 }
 
@@ -988,7 +1135,8 @@ function renderJuntas() {
                 responsive: true, maintainAspectRatio: false,
                 cutout: '60%',
                 plugins: { legend: { position: 'bottom', labels: { color: '#64748b', boxWidth: 12 } } }
-            }
+            },
+            plugins: [doughnutLabelsPlugin]
         });
     }
 
@@ -1020,11 +1168,17 @@ function renderJuntas() {
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { 
+                        beginAtZero: true, 
+                        grid: { color: '#1e293b' }, 
+                        ticks: { color: '#64748b' },
+                        grace: '12%'
+                    },
                     x: { grid: { display: false }, ticks: { color: '#64748b' } }
                 },
                 plugins: { legend: { labels: { color: '#64748b', boxWidth: 12 } } }
-            }
+            },
+            plugins: [barLabelsPlugin]
         });
     }
 
@@ -1184,7 +1338,8 @@ function renderSpools() {
                 responsive: true, maintainAspectRatio: false,
                 cutout: '70%',
                 plugins: { legend: { position: 'right', labels: { color: '#64748b', boxWidth: 12 } } }
-            }
+            },
+            plugins: [doughnutLabelsPlugin]
         });
     }
 
@@ -1205,11 +1360,17 @@ function renderSpools() {
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { 
+                        beginAtZero: true, 
+                        grid: { color: '#1e293b' }, 
+                        ticks: { color: '#64748b' },
+                        grace: '12%'
+                    },
                     x: { grid: { display: false }, ticks: { color: '#64748b' } }
                 },
                 plugins: { legend: { display: false } }
-            }
+            },
+            plugins: [barLabelsPlugin]
         });
     }
 
@@ -1240,11 +1401,17 @@ function renderSpools() {
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    y: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    y: { 
+                        beginAtZero: true, 
+                        grid: { color: '#1e293b' }, 
+                        ticks: { color: '#64748b' },
+                        grace: '12%'
+                    },
                     x: { grid: { display: false }, ticks: { color: '#64748b' } }
                 },
                 plugins: { legend: { display: false } }
-            }
+            },
+            plugins: [barLabelsPlugin]
         });
     }
 }
