@@ -55,6 +55,7 @@
                 </button>
                 <button class="nav-btn" onclick="showSection('sdi')" id="nav-sdi">
                     <i class="fas fa-question-circle"></i><span>SDI</span>
+                    <span class="badge-sidebar" id="badge-sdi" style="display: none;">0</span>
                 </button>
             </nav>
 
@@ -156,14 +157,7 @@
                             <p class="kpi-value" id="kpi-en-proceso">--</p>
                         </div>
                     </div>
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#ef444420"><i class="fas fa-exclamation-triangle"
-                                style="color:#ef4444"></i></div>
-                        <div>
-                            <p class="kpi-label">SDI Abiertas</p>
-                            <p class="kpi-value" id="kpi-sdi">--</p>
-                        </div>
-                    </div>
+                    <!-- SDI Abiertas card removed -->
                 </div>
 
 
@@ -193,7 +187,7 @@
                         <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-check-circle"
                                 style="color:#10b981"></i></div>
                         <div>
-                            <p class="kpi-label">Ejecutadas ✅</p>
+                            <p class="kpi-label">Ejecutadas / Pulgadas ✅</p>
                             <p class="kpi-value" id="j-ejecutadas">--</p>
                         </div>
                     </div>
@@ -202,7 +196,7 @@
                         <div class="kpi-icon" style="background:#33415520"><i class="fas fa-clock"
                                 style="color:#64748b"></i></div>
                         <div>
-                            <p class="kpi-label">Sin Iniciar ⏳</p>
+                            <p class="kpi-label">Sin Iniciar / Pulgadas ⏳</p>
                             <p class="kpi-value" id="j-pendiente">--</p>
                         </div>
                     </div>

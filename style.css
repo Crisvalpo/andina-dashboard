@@ -1113,4 +1113,40 @@ tr:hover td {
 .premium-table { width: 100%; border-collapse: collapse; }
 .premium-table th { text-align: left; padding: 12px 15px; border-bottom: 2px solid rgba(255,255,255,0.1); font-size: 0.8rem; text-transform: uppercase; color: var(--text-dim); }
 .premium-table td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9rem; }
-.premium-table tr:hover td { background: rgba(255,255,255,0.03); }
+.premium-table tr:hover td { background: rgba(255,255,255,0.03); }
+
+/* Sidebar Badge for SDI */
+.nav-btn {
+    position: relative;
+}
+
+.badge-sidebar {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #ef4444;
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 700;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    line-height: 1;
+}
+
+@media (max-width: 640px) {
+    .badge-sidebar {
+        right: 4px;
+        top: 4px;
+        transform: none;
+        min-width: 14px;
+        height: 14px;
+        font-size: 0.6rem;
+        border-radius: 7px;
+    }
+}

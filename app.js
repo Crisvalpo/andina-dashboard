@@ -340,11 +340,36 @@ function renderWelderChart() {
                 indexAxis: 'y',
                 responsive: true, maintainAspectRatio: false,
                 scales: {
-                    x: { beginAtZero: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } },
+                    x: { 
+                        beginAtZero: true, 
+                        grid: { color: '#1e293b' }, 
+                        ticks: { color: '#64748b' },
+                        grace: '12%'
+                    },
                     y: { grid: { display: false }, ticks: { color: '#64748b' } }
                 },
                 plugins: { legend: { display: false } }
-            }
+            },
+            plugins: [{
+                id: 'barLabels',
+                afterDatasetsDraw(chart) {
+                    const { ctx, data } = chart;
+                    ctx.save();
+                    ctx.font = 'bold 11px Outfit, sans-serif';
+                    ctx.fillStyle = '#cbd5e1';
+                    ctx.textAlign = 'left';
+                    ctx.textBaseline = 'middle';
+
+                    chart.getDatasetMeta(0).data.forEach((bar, index) => {
+                        const val = data.datasets[0].data[index];
+                        const displayVal = val.toLocaleString('es-CL', { maximumFractionDigits: 1 }) + ' DI';
+                        const xPos = bar.x + 8;
+                        const yPos = bar.y;
+                        ctx.fillText(displayVal, xPos, yPos);
+                    });
+                    ctx.restore();
+                }
+            }]
         });
     }
 }
@@ -553,6 +578,18 @@ async function refreshData() {
     const ok = mappedJuntas.length > 0 || mappedLineas.length > 0;
     dot.className = 'api-dot' + (ok ? '' : ' error');
 
+    // Actualizar badge de SDI en el menú lateral
+    const sdiPendientes = (sdis || []).filter(s => {
+        const est = getVal(s, 'ESTADO').toUpperCase();
+        return !est.includes('RESPONDID') && !est.includes('CERRAD');
+    }).length;
+
+    const badgeSdi = document.getElementById('badge-sdi');
+    if (badgeSdi) {
+        badgeSdi.textContent = sdiPendientes;
+        badgeSdi.style.display = sdiPendientes > 0 ? 'flex' : 'none';
+    }
+
     updateTime();
     renderCurrentSection();
     console.log(`[Dashboard] Datos cargados: ${mappedLineas.length} líneas | ${mappedIsos.length} ISOs | ${mappedSpools.length} spools | ${sdis.length} SDIs`);
@@ -682,7 +719,6 @@ function renderOverview() {
 
     setText('kpi-ejecutadas', `${ejecutadasCant} / ${ejecutadasPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
     setText('kpi-en-proceso', `${enProcesoCant} / ${enProcesoPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
-    setText('kpi-sdi', sdiPendientes);
     setText('kpi-semana', `${semanaActualCant} / ${semanaActualPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
 
     const tag = document.getElementById('week-tag');
@@ -908,15 +944,25 @@ function renderJuntas() {
 
     // Count por estado: ejecutadas vs sin iniciar
     let ejecutadas = 0, pendiente = 0;
+    let ejecutadasPulg = 0, pendientePulg = 0;
 
     juntas.forEach(j => {
         const id = (j.ID_JUNTA || j['ID_JUNTA '] || '').trim();
-        if (ejecutadasSet.has(id)) { ejecutadas++; }
-        else { pendiente++; }
+        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
+        const nps = parseFloat(npsVal);
+        const validNps = isNaN(nps) ? 0 : nps;
+        
+        if (ejecutadasSet.has(id)) { 
+            ejecutadas++; 
+            ejecutadasPulg += validNps;
+        } else { 
+            pendiente++; 
+            pendientePulg += validNps;
+        }
     });
 
-    setText('j-ejecutadas', ejecutadas);
-    setText('j-pendiente', pendiente);
+    setText('j-ejecutadas', `${ejecutadas} / ${ejecutadasPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
+    setText('j-pendiente', `${pendiente} / ${pendientePulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
 
     // Welder DI charts
     renderWelderChart();
