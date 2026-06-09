@@ -497,11 +497,28 @@ async function refreshData() {
         NPS_JUNTA: j.NPS || j.NPS_JUNTA || 0
     }));
 
+    // Crear mapa para obtener el tipo de unión desde el maestro
+    const juntaUnionMap = new Map();
+    mappedJuntas.forEach(j => {
+        const id = (j.ID_JUNTA || j['ID_JUNTA '] || '').trim();
+        if (id) juntaUnionMap.set(id, j.ID_TIPO_UNION);
+    });
+
+    // Adapt Ejecuciones para usar el tipo de unión del maestro (evita discrepancias de digitación)
+    const mappedEjecuciones = ejecuciones.map(e => {
+        const idJunta = (e.ID_JUNTA || e['ID_JUNTA '] || '').trim();
+        const tipoUnionMaster = juntaUnionMap.get(idJunta);
+        return {
+            ...e,
+            ID_TIPO_UNION: tipoUnionMaster || e.ID_TIPO_UNION || e['ID_TIPO_UNION '] || ''
+        };
+    });
+
     state.lineas = mappedLineas;
     state.isos = mappedIsos;
     state.spools = mappedSpools;
     state.juntas = mappedJuntas;
-    state.ejecuciones = ejecuciones;
+    state.ejecuciones = mappedEjecuciones;
     state.logSpools = logSpools || [];
     state.sdis = sdis;
     state.relSdiIso = relSdiIso || [];
