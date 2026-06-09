@@ -208,6 +208,28 @@ function renderWelderChart() {
         if (estampa) personalMap[estampa] = fullName;
     });
 
+    // Obtenemos ejecuciones históricas ejecutadas
+    const histExec = ejecuciones.filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'));
+
+    // Crear mapa de colores consistentes para cada soldador
+    const colors = ['#0ea5e9', '#f59e0b', '#10b981', '#a78bfa', '#ef4444', '#38bdf8', '#fb7185', '#14b8a6', '#f43f5e', '#8b5cf6'];
+    const welderColorMap = {};
+    const allUniqueWelders = new Set();
+    
+    histExec.forEach(e => {
+        const estampa = (getVal(e, 'ESTAMPA_EJECUTOR') || getVal(e, 'RESPONSABLE'));
+        if (estampa) {
+            const name = personalMap[estampa] || estampa;
+            allUniqueWelders.add(name);
+        }
+    });
+
+    // Ordenar alfabéticamente para asegurar un mapeo de color determinista
+    const sortedAllWelders = Array.from(allUniqueWelders).sort();
+    sortedAllWelders.forEach((name, i) => {
+        welderColorMap[name] = colors[i % colors.length];
+    });
+
     // 2. Weekly Production (Daily)
     const days = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
     const weekExec = ejecuciones.filter(e => {
@@ -252,7 +274,6 @@ function renderWelderChart() {
     if (ctxWeekly) {
         if (charts.welder) charts.welder.destroy();
         const welders = Object.keys(welderData);
-        const colors = ['#0ea5e9', '#f59e0b', '#10b981', '#a78bfa', '#ef4444', '#38bdf8'];
 
         charts.welder = new Chart(ctxWeekly, {
             type: 'bar',
@@ -261,7 +282,7 @@ function renderWelderChart() {
                 datasets: welders.map((w, i) => ({
                     label: w,
                     data: welderData[w],
-                    backgroundColor: colors[i % colors.length],
+                    backgroundColor: welderColorMap[w] || '#64748b',
                     borderRadius: 4
                 }))
             },
@@ -277,7 +298,6 @@ function renderWelderChart() {
     }
 
     // 3. Historic Production
-    const histExec = ejecuciones.filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'));
     const histMap = {};
     let totalHistDI = 0;
 
@@ -303,6 +323,7 @@ function renderWelderChart() {
         if (charts.welderHist) charts.welderHist.destroy();
         const labels = Object.keys(histMap).sort((a,b) => histMap[b] - histMap[a]);
         const data = labels.map(l => histMap[l]);
+        const backgroundColors = labels.map(l => welderColorMap[l] || '#64748b');
 
         charts.welderHist = new Chart(ctxHist, {
             type: 'bar', // Horizontal bar is set via indexAxis
@@ -311,7 +332,7 @@ function renderWelderChart() {
                 datasets: [{
                     label: 'Total Pulgadas (DI)',
                     data,
-                    backgroundColor: '#10b981',
+                    backgroundColor: backgroundColors,
                     borderRadius: 4
                 }]
             },
@@ -619,10 +640,10 @@ function renderOverview() {
         return et && et.toUpperCase().includes('EJECUTAD');
     }).length;
 
-    const enProceso = ejecuciones.filter(e => {
-        const et = getEstado(e).toUpperCase();
-        return et.includes('EMPLANTILL') || et.includes('CORTE');
-    }).map(e => getJuntaId(e)).filter((v, i, a) => v && a.indexOf(v) === i).length;
+    const enProceso = juntas.filter(j => {
+        const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
+        return et && (et.toUpperCase().includes('PREARMAD') || et.toUpperCase().includes('EMPLANTILL') || et.toUpperCase().includes('CORTE'));
+    }).length;
 
     const sdiPendientes = sdis.filter(s => {
         const est = getVal(s, 'ESTADO').toUpperCase();

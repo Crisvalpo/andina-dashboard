@@ -50,7 +50,7 @@
                 <button class="nav-btn" onclick="showSection('qc')" id="nav-qc">
                     <i class="fas fa-shield-alt"></i><span>Calidad QC</span>
                 </button>
-                <button class="nav-btn" onclick="showSection('logistica')" id="nav-logistica">
+                <button class="nav-btn" onclick="showSection('logistica')" id="nav-logistica" style="display: none;">
                     <i class="fas fa-truck-loading"></i><span>Logística</span>
                 </button>
                 <button class="nav-btn" onclick="showSection('sdi')" id="nav-sdi">
@@ -141,6 +141,14 @@
                         </div>
                     </div>
                     <div class="kpi-card glass">
+                        <div class="kpi-icon" style="background:#8b5cf620"><i class="fas fa-calendar-week"
+                                style="color:#a78bfa"></i></div>
+                        <div>
+                            <p class="kpi-label">Esta Semana</p>
+                            <p class="kpi-value" id="kpi-semana">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass">
                         <div class="kpi-icon" style="background:#f59e0b20"><i class="fas fa-hammer"
                                 style="color:#f59e0b"></i></div>
                         <div>
@@ -154,14 +162,6 @@
                         <div>
                             <p class="kpi-label">SDI Abiertas</p>
                             <p class="kpi-value" id="kpi-sdi">--</p>
-                        </div>
-                    </div>
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#8b5cf620"><i class="fas fa-calendar-week"
-                                style="color:#a78bfa"></i></div>
-                        <div>
-                            <p class="kpi-label">Esta Semana</p>
-                            <p class="kpi-value" id="kpi-semana">--</p>
                         </div>
                     </div>
                 </div>
