@@ -847,6 +847,11 @@ function renderJuntasBreakdown() {
         target.total++;
         if (isEjecutada) target.ejec++;
 
+        // Obtener pulgadas de diámetro
+        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
+        const nps = parseFloat(npsVal);
+        const validNps = isNaN(nps) ? 0 : nps;
+
         // Obtener material y clave
         const rawMat = getVal(j, 'MATERIAL');
         const matKey = rawMat ? rawMat.trim().toUpperCase() : 'S/M';
@@ -856,14 +861,20 @@ function renderJuntasBreakdown() {
             target.materials[matKey] = {
                 label: matLabel,
                 total: 0,
+                totalPulg: 0,
                 ejec: 0,
+                ejecPulg: 0,
                 types: {}
             };
         }
 
         const matObj = target.materials[matKey];
         matObj.total++;
-        if (isEjecutada) matObj.ejec++;
+        matObj.totalPulg += validNps;
+        if (isEjecutada) {
+            matObj.ejec++;
+            matObj.ejecPulg += validNps;
+        }
 
         if (!matObj.types[tipo]) {
             matObj.types[tipo] = { total: 0, ejec: 0, name: catMap[tipo] || 'S/D' };
@@ -905,6 +916,8 @@ function renderJuntasBreakdown() {
         return materialsKeys.map(mKey => {
             const mat = materialsObj[mKey];
             const perc = mat.total > 0 ? Math.round((mat.ejec / mat.total) * 100) : 0;
+            const totalPulgStr = mat.totalPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 }) + '"';
+            const ejecPulgStr = mat.ejecPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 }) + '"';
             
             // Ordenar los tipos de unión por total descendente
             const typesKeys = Object.keys(mat.types).sort((a, b) => mat.types[b].total - mat.types[a].total);
@@ -927,8 +940,8 @@ function renderJuntasBreakdown() {
                     <div class="jc-material-header">
                         <div class="jc-material-title">💿 ${mat.label}</div>
                         <div class="jc-material-metrics">
-                            <div class="jc-material-metric">TOTAL: <span>${mat.total}</span></div>
-                            <div class="jc-material-metric">EJEC: <span class="done">${mat.ejec}</span></div>
+                            <div class="jc-material-metric">TOTAL: <span>${mat.total} / ${totalPulgStr}</span></div>
+                            <div class="jc-material-metric">EJEC: <span class="done">${mat.ejec} / ${ejecPulgStr}</span></div>
                             <div class="jc-material-metric perc"><span>${perc}%</span></div>
                         </div>
                     </div>
