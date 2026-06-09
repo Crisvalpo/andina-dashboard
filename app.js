@@ -641,28 +641,49 @@ function renderOverview() {
 
     // Estado de avance
     // Count juntas by max state reached in REG_EjecucionJuntas_MS
-    const ejecutadas = juntas.filter(j => {
+    const ejecutadasJuntas = juntas.filter(j => {
         const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
         return et && et.toUpperCase().includes('EJECUTAD');
-    }).length;
+    });
+    const ejecutadasCant = ejecutadasJuntas.length;
+    const ejecutadasPulg = ejecutadasJuntas.reduce((sum, j) => {
+        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
+        const nps = parseFloat(npsVal);
+        return sum + (isNaN(nps) ? 0 : nps);
+    }, 0);
 
-    const enProceso = juntas.filter(j => {
+    const enProcesoJuntas = juntas.filter(j => {
         const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
         return et && (et.toUpperCase().includes('PREARMAD') || et.toUpperCase().includes('EMPLANTILL') || et.toUpperCase().includes('CORTE'));
-    }).length;
+    });
+    const enProcesoCant = enProcesoJuntas.length;
+    const enProcesoPulg = enProcesoJuntas.reduce((sum, j) => {
+        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
+        const nps = parseFloat(npsVal);
+        return sum + (isNaN(nps) ? 0 : nps);
+    }, 0);
 
     const sdiPendientes = sdis.filter(s => {
         const est = getVal(s, 'ESTADO').toUpperCase();
         return !est.includes('RESPONDID') && !est.includes('CERRAD');
     }).length;
 
-    // Semana actual
-    const semanaActual = ejecuciones.filter(e => getWeekOfDate(e.FECHA_EJECUCION) === state.currentWeek).length;
+    // Semana actual (filtrando por ejecuciones ejecutadas)
+    const weekExec = ejecuciones.filter(e => {
+        const status = getEstado(e).toUpperCase();
+        return status.includes('EJECUTAD') && getWeekOfDate(e.FECHA_EJECUCION) === state.currentWeek;
+    });
+    const semanaActualCant = weekExec.length;
+    const semanaActualPulg = weekExec.reduce((sum, e) => {
+        const npsVal = getVal(e, 'NPS') || getVal(e, 'DIAMETRO_WDI') || 0;
+        const nps = parseFloat(npsVal);
+        return sum + (isNaN(nps) ? 0 : nps);
+    }, 0);
 
-    setText('kpi-ejecutadas', ejecutadas);
-    setText('kpi-en-proceso', enProceso);
+    setText('kpi-ejecutadas', `${ejecutadasCant} / ${ejecutadasPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
+    setText('kpi-en-proceso', `${enProcesoCant} / ${enProcesoPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
     setText('kpi-sdi', sdiPendientes);
-    setText('kpi-semana', semanaActual);
+    setText('kpi-semana', `${semanaActualCant} / ${semanaActualPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
 
     const tag = document.getElementById('week-tag');
     if (tag) tag.textContent = `S${state.currentWeek}`;
