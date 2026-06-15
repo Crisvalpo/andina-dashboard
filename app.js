@@ -218,6 +218,18 @@ function updateTime() {
 }
 
 // ============ NAVIGATION ============
+function toggleWelderHistory() {
+    const container = document.getElementById('welder-history-container');
+    const icon = document.getElementById('hist-toggle-icon');
+    if(container.style.display === 'none' || container.style.display === '') {
+        container.style.display = 'block';
+        icon.style.transform = 'rotate(180deg)';
+    } else {
+        container.style.display = 'none';
+        icon.style.transform = 'rotate(0deg)';
+    }
+}
+
 function showSection(name) {
     document.querySelectorAll('.section-content').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
@@ -311,6 +323,7 @@ function renderWelderChart() {
     });
 
     const welderData = {}; // { welder: [0,0,0,0,0,0,0] }
+    const dailyTotals = [0, 0, 0, 0, 0, 0, 0];
     let totalWeekDI = 0;
 
     weekExec.forEach(e => {
@@ -337,6 +350,7 @@ function renderWelderChart() {
         
         if (!welderData[name]) welderData[name] = [0, 0, 0, 0, 0, 0, 0];
         welderData[name][arrIdx] += nps;
+        dailyTotals[arrIdx] += nps;
     });
 
     console.log(`[KPI] Total Week DI: ${totalWeekDI}. Welders:`, Object.keys(welderData));
@@ -372,6 +386,39 @@ function renderWelderChart() {
                     x: { grid: { display: false }, ticks: { color: '#64748b' } }
                 },
                 plugins: { legend: { position: 'bottom', labels: { color: '#64748b', boxWidth: 12 } } }
+            },
+            plugins: [barLabelsPlugin]
+        });
+    }
+
+    // Render Daily Total Chart
+    const ctxDailyTotal = document.getElementById('dailyTotalChart');
+    if (ctxDailyTotal) {
+        if (charts.dailyTotal) charts.dailyTotal.destroy();
+        charts.dailyTotal = new Chart(ctxDailyTotal, {
+            type: 'bar',
+            data: {
+                labels: days,
+                datasets: [{
+                    label: 'Total Producción Diaria (DI)',
+                    data: dailyTotals,
+                    backgroundColor: '#10b981',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                scales: {
+                    y: { 
+                        beginAtZero: true, 
+                        grid: { color: '#1e293b' }, 
+                        ticks: { color: '#64748b' }, 
+                        title: { display: true, text: 'DI (Pulgadas Diámetro)', color: '#64748b' },
+                        grace: '12%'
+                    },
+                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                },
+                plugins: { legend: { display: false } }
             },
             plugins: [barLabelsPlugin]
         });

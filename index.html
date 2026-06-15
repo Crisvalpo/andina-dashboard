@@ -213,12 +213,26 @@
                             <p class="kpi-value" id="kpi-di-semana">--</p>
                         </div>
                     </div>
-                    <div class="kpi-card glass kpi-primary">
-                        <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-history"
-                                style="color:#10b981"></i></div>
-                        <div>
-                            <p class="kpi-label">DI Producción (Histórico)</p>
-                            <p class="kpi-value" id="kpi-di-total">--</p>
+                    <div class="kpi-card glass kpi-primary" style="cursor: pointer; transition: background 0.3s;" onclick="toggleWelderHistory()" onmouseover="this.style.background='rgba(16,185,129,0.15)'" onmouseout="this.style.background=''">
+                        <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                            <div style="display:flex; align-items:center; gap:1rem;">
+                                <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-history"
+                                        style="color:#10b981"></i></div>
+                                <div>
+                                    <p class="kpi-label">DI Producción (Histórico) <i id="hist-toggle-icon" class="fas fa-chevron-down" style="font-size:0.8rem; margin-left:0.5rem; transition: transform 0.3s;"></i></p>
+                                    <p class="kpi-value" id="kpi-di-total">--</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contenedor Colapsable para Histórico -->
+                <div id="welder-history-container" style="display:none; margin-bottom:1.5rem; animation: fadeIn 0.3s;">
+                    <div class="chart-card glass">
+                        <h3>Total Acumulado x Soldador (DI)</h3>
+                        <div class="chart-body">
+                            <canvas id="welderHistoryChart"></canvas>
                         </div>
                     </div>
                 </div>
@@ -226,15 +240,15 @@
                 <!-- Welder Charts -->
                 <div class="charts-grid" style="margin-bottom:1.5rem">
                     <div class="chart-card glass">
-                        <h3>Producción Semanal (DI x Día)</h3>
+                        <h3>Producción Diaria Total (DI)</h3>
                         <div class="chart-body">
-                            <canvas id="welderChart"></canvas>
+                            <canvas id="dailyTotalChart"></canvas>
                         </div>
                     </div>
                     <div class="chart-card glass">
-                        <h3>Total Acumulado x Soldador (DI)</h3>
+                        <h3>Producción Semanal (DI x Día)</h3>
                         <div class="chart-body">
-                            <canvas id="welderHistoryChart"></canvas>
+                            <canvas id="welderChart"></canvas>
                         </div>
                     </div>
                 </div>
