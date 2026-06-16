@@ -53,19 +53,44 @@ const barLabelsPlugin = {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'bottom';
 
-        chart.data.datasets.forEach((dataset, datasetIndex) => {
-            const meta = chart.getDatasetMeta(datasetIndex);
-            meta.data.forEach((bar, index) => {
-                const val = dataset.data[index];
-                if (val === 0 || val === null || val === undefined) return;
-                
-                const displayVal = typeof val === 'number' ? val.toLocaleString('es-CL', { maximumFractionDigits: 1 }) : val;
-                const xPos = bar.x;
-                const yPos = bar.y - 4; // 4px arriba de la barra
-                
-                ctx.fillText(displayVal, xPos, yPos);
+        const isStacked = chart.options.scales?.y?.stacked || chart.options.scales?.x?.stacked;
+
+        if (isStacked) {
+            // Para gráficos apilados, dibujamos una sola etiqueta en la parte superior de la pila
+            const datasets = chart.data.datasets;
+            if (datasets.length >= 2) {
+                const metaLast = chart.getDatasetMeta(datasets.length - 1);
+                metaLast.data.forEach((bar, index) => {
+                    const montados = datasets[0].data[index] || 0;
+                    const pendientes = datasets[1].data[index] || 0;
+                    const total = montados + pendientes;
+                    
+                    if (total === 0) return;
+
+                    // Formato: "Montados/Total"
+                    const displayVal = `${montados}/${total}`;
+                    const xPos = bar.x;
+                    const yPos = bar.y - 4; // 4px arriba de la barra total
+
+                    ctx.fillText(displayVal, xPos, yPos);
+                });
+            }
+        } else {
+            // Comportamiento original para gráficos no apilados
+            chart.data.datasets.forEach((dataset, datasetIndex) => {
+                const meta = chart.getDatasetMeta(datasetIndex);
+                meta.data.forEach((bar, index) => {
+                    const val = dataset.data[index];
+                    if (val === 0 || val === null || val === undefined) return;
+                    
+                    const displayVal = typeof val === 'number' ? val.toLocaleString('es-CL', { maximumFractionDigits: 1 }) : val;
+                    const xPos = bar.x;
+                    const yPos = bar.y - 4; // 4px arriba de la barra
+                    
+                    ctx.fillText(displayVal, xPos, yPos);
+                });
             });
-        });
+        }
         ctx.restore();
     }
 };
@@ -1353,17 +1378,29 @@ function renderSpools() {
     // --- CONTEO POR ÁREA (LIST_Spools_MS_ columna AREA) ---
     const AREAS_VALIDAS = ['TORRE TRANSFERENCIA', 'TORRE TRASFERENCIA', 'PIPE RACK', 'BAJO ESPESADOR'];
     const areaCount = { 'TORRE TRANSFERENCIA': 0, 'PIPE RACK': 0, 'BAJO ESPESADOR': 0, 'POR DEFINIR': 0 };
+    const areaMountedCount = { 'TORRE TRANSFERENCIA': 0, 'PIPE RACK': 0, 'BAJO ESPESADOR': 0, 'POR DEFINIR': 0 };
 
     spools.forEach(s => {
         const area = (s.AREA || s['AREA '] || '').trim().toUpperCase();
+        const spoolId = resolveSpoolId(s);
+        const st = statusMap.get(spoolId);
+        const status = st ? normalizeStatus(st) : '';
+        if (status === 'ELIMINADO') return;
+
+        const isMounted = status === 'MONTADO';
+
+        let targetArea = 'POR DEFINIR';
         if (area.includes('TORRE')) {
-            areaCount['TORRE TRANSFERENCIA']++;
+            targetArea = 'TORRE TRANSFERENCIA';
         } else if (area.includes('PIPE RACK') || area.includes('RACK')) {
-            areaCount['PIPE RACK']++;
+            targetArea = 'PIPE RACK';
         } else if (area.includes('BAJO ESPESADOR') || area.includes('ESPESADOR')) {
-            areaCount['BAJO ESPESADOR']++;
-        } else {
-            areaCount['POR DEFINIR']++;
+            targetArea = 'BAJO ESPESADOR';
+        }
+
+        areaCount[targetArea]++;
+        if (isMounted) {
+            areaMountedCount[targetArea]++;
         }
     });
 
@@ -1408,25 +1445,59 @@ function renderSpools() {
     if (ctxArea) {
         if (charts.spoolsArea) charts.spoolsArea.destroy();
         const aLabels = ['Torre Transf.', 'Pipe Rack', 'Bajo Espesador', 'Por Definir'];
-        const aData   = [areaCount['TORRE TRANSFERENCIA'], areaCount['PIPE RACK'], areaCount['BAJO ESPESADOR'], areaCount['POR DEFINIR']];
+        const aMountedData = [
+            areaMountedCount['TORRE TRANSFERENCIA'],
+            areaMountedCount['PIPE RACK'],
+            areaMountedCount['BAJO ESPESADOR'],
+            areaMountedCount['POR DEFINIR']
+        ];
+        const aTotalData = [
+            areaCount['TORRE TRANSFERENCIA'],
+            areaCount['PIPE RACK'],
+            areaCount['BAJO ESPESADOR'],
+            areaCount['POR DEFINIR']
+        ];
+        const aPendingData = aTotalData.map((tot, idx) => tot - aMountedData[idx]);
+
         charts.spoolsArea = new Chart(ctxArea, {
             type: 'bar',
             data: {
                 labels: aLabels,
-                datasets: [{ label: 'Spools', data: aData,
-                    backgroundColor: ['#6366f1','#10b981','#0ea5e9','#64748b'],
-                    borderRadius: 6 }]
+                datasets: [
+                    {
+                        label: 'Montados',
+                        data: aMountedData,
+                        backgroundColor: ['#6366f1', '#10b981', '#0ea5e9', '#64748b'],
+                        borderRadius: 6
+                    },
+                    {
+                        label: 'Pendientes',
+                        data: aPendingData,
+                        backgroundColor: [
+                            'rgba(99, 102, 241, 0.25)',
+                            'rgba(16, 185, 129, 0.25)',
+                            'rgba(14, 165, 233, 0.25)',
+                            'rgba(100, 116, 139, 0.25)'
+                        ],
+                        borderRadius: 6
+                    }
+                ]
             },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
                     y: { 
+                        stacked: true,
                         beginAtZero: true, 
                         grid: { color: '#1e293b' }, 
                         ticks: { color: '#64748b' },
                         grace: '12%'
                     },
-                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                    x: { 
+                        stacked: true,
+                        grid: { display: false }, 
+                        ticks: { color: '#64748b' } 
+                    }
                 },
                 plugins: { legend: { display: false } }
             },
@@ -1443,31 +1514,70 @@ function renderSpools() {
         if (!fluidList.length) fluidList = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW'];
 
         const fluidosMap = {};
-        fluidList.forEach(f => fluidosMap[f] = 0);
+        const fluidosMountedMap = {};
+        fluidList.forEach(f => {
+            fluidosMap[f] = 0;
+            fluidosMountedMap[f] = 0;
+        });
         fluidosMap['OTROS'] = 0;
+        fluidosMountedMap['OTROS'] = 0;
 
         spools.forEach(s => {
             const val = (s.ID_ISO || s['ID_ISO '] || s.LINEA || '').toUpperCase();
+            const spoolId = resolveSpoolId(s);
+            const st = statusMap.get(spoolId);
+            const status = st ? normalizeStatus(st) : '';
+            if (status === 'ELIMINADO') return;
+
+            const isMounted = status === 'MONTADO';
+
             const fl = fluidList.find(f => val.includes(`-${f}-`) || val.includes(`/${f}/`));
-            if (fl) { fluidosMap[fl]++; } else { fluidosMap['OTROS']++; }
+            const targetFluid = fl || 'OTROS';
+            fluidosMap[targetFluid]++;
+            if (isMounted) {
+                fluidosMountedMap[targetFluid]++;
+            }
         });
 
         const labels = Object.keys(fluidosMap).filter(l => fluidosMap[l] > 0).sort((a, b) => fluidosMap[b] - fluidosMap[a]).slice(0, 6);
-        const data = labels.map(l => fluidosMap[l]);
+        const fTotalData = labels.map(l => fluidosMap[l]);
+        const fMountedData = labels.map(l => fluidosMountedMap[l]);
+        const fPendingData = fTotalData.map((tot, idx) => tot - fMountedData[idx]);
 
         charts.spoolsFluido = new Chart(ctxFluido, {
             type: 'bar',
-            data: { labels, datasets: [{ label: 'Spools', data, backgroundColor: '#0ea5e9', borderRadius: 4 }] },
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Montados',
+                        data: fMountedData,
+                        backgroundColor: '#0ea5e9',
+                        borderRadius: 4
+                    },
+                    {
+                        label: 'Pendientes',
+                        data: fPendingData,
+                        backgroundColor: 'rgba(14, 165, 233, 0.25)',
+                        borderRadius: 4
+                    }
+                ]
+            },
             options: {
                 responsive: true, maintainAspectRatio: false,
                 scales: {
                     y: { 
+                        stacked: true,
                         beginAtZero: true, 
                         grid: { color: '#1e293b' }, 
                         ticks: { color: '#64748b' },
                         grace: '12%'
                     },
-                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
+                    x: { 
+                        stacked: true,
+                        grid: { display: false }, 
+                        ticks: { color: '#64748b' } 
+                    }
                 },
                 plugins: { legend: { display: false } }
             },
