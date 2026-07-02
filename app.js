@@ -143,7 +143,18 @@ const lineLabelsPlugin = {
 // ============ INIT ============
 document.addEventListener('DOMContentLoaded', () => {
     setWeekDisplay(state.currentWeek);
-    refreshData();
+
+    // Auto-navegar a BIM si el QR incluye ?spool= en la URL
+    const urlParams  = new URLSearchParams(window.location.search);
+    const spoolParam = urlParams.get('spool');
+    if (spoolParam) {
+        // Cargar datos del dashboard en background y abrir BIM directamente
+        refreshData();
+        showSection('bim');
+    } else {
+        refreshData();
+    }
+
     setInterval(updateTime, 60000);
     updateTime();
 });
@@ -262,26 +273,30 @@ function showSection(name) {
     const sectionEl = document.getElementById(`${name}-section`);
     const navEl = document.getElementById(`nav-${name}`);
 
-    if (sectionEl) sectionEl.classList.add('active');
+    if (sectionEl) {
+        sectionEl.classList.add('active');
+        sectionEl.style.display = '';
+    }
     if (navEl) navEl.classList.add('active');
 
     const titles = {
-        overview: 'Dashboard Overview',
-        juntas: 'Avance de Juntas',
-        spools: 'Fabricación de Spools',
-        qc: 'Control de Calidad',
+        overview:  'Dashboard Overview',
+        juntas:    'Avance de Juntas',
+        spools:    'Fabricación de Spools',
+        qc:        'Control de Calidad',
         logistica: 'Logística y Despacho',
-        sdi: 'SDI — Consultas Técnicas'
+        sdi:       'SDI — Consultas Técnicas',
+        bim:       '🧊 BIM Viewer — Modelo 3D'
     };
-    
+
     const titleEl = document.getElementById('section-title');
     if (titleEl) titleEl.textContent = titles[name] || name;
-    
+
     state.currentSection = name;
 
     // Ocultar filtro de semana en secciones estáticas
     const weekNav = document.getElementById('week-nav-container');
-    if (['spools', 'qc', 'sdi', 'logistica'].includes(name)) {
+    if (['spools', 'qc', 'sdi', 'logistica', 'bim'].includes(name)) {
         if (weekNav) weekNav.style.display = 'none';
     } else {
         if (weekNav) weekNav.style.display = 'flex';
@@ -292,12 +307,13 @@ function showSection(name) {
 
 function renderCurrentSection() {
     switch (state.currentSection) {
-        case 'overview': renderOverview(); break;
-        case 'juntas': renderJuntas(); break;
-        case 'spools': renderSpools(); break;
-        case 'qc': renderQC(); break;
-        case 'sdi': renderSDI(); break;
-        case 'logistica': loadLogistica(); break;
+        case 'overview':  renderOverview();  break;
+        case 'juntas':    renderJuntas();    break;
+        case 'spools':    renderSpools();    break;
+        case 'qc':        renderQC();        break;
+        case 'sdi':       renderSDI();       break;
+        case 'logistica': loadLogistica();   break;
+        case 'bim':       initBimViewer();   break;
     }
 }
 
@@ -1796,4 +1812,573 @@ function copyLogisticaTable() {
     }).catch(err => {
         alert("Error al copiar: " + err);
     });
+}
+
+// =================================================================
+// ============ BIM VIEWER MODULE (APS / Autodesk) =================
+// =================================================================
+
+const bimState = {
+    viewer:        null,   // Instancia del Autodesk.Viewing.GuiViewer3D
+    initialized:   false,  // true cuando el modelo ya cargó
+    sdkLoaded:     false,  // true cuando el script del SDK ya está en el DOM
+    currentGuids:  [],     // GUIDs del spool actualmente seleccionado
+    dbIds:         [],     // dbIds correspondientes en el viewer
+    token:         null,
+    modelUrn:      null
+};
+
+/**
+ * Punto de entrada: se llama desde showSection('bim')
+ * Carga el SDK si no está cargado, obtiene el token y arranca el viewer.
+ */
+async function initBimViewer() {
+    // Detectar spool desde parámetro QR en la URL (?spool=XXXX)
+    const urlParams   = new URLSearchParams(window.location.search);
+    const spoolParam  = urlParams.get('spool');
+
+    if (bimState.initialized) {
+        // Visor ya listo: si hay parámetro QR, seleccionar directamente
+        if (spoolParam) bimLoadSpool(spoolParam);
+        return;
+    }
+
+    bimSetLoader('Obteniendo token APS...');
+
+    try {
+        // 1. Obtener token desde nuestro propio backend (nunca las credenciales crudas)
+        const resp = await fetch('/api/bim/token');
+        if (!resp.ok) throw new Error(`Error ${resp.status} obteniendo token APS`);
+        const data = await resp.json();
+        bimState.token    = data.access_token;
+        bimState.modelUrn = data.model_urn;
+
+        // 2. Verificar que el URN esté configurado
+        if (!bimState.modelUrn || bimState.modelUrn === 'TU_URN_DEL_MODELO_EN_BASE64_AQUI') {
+            document.getElementById('bim-loader').style.display    = 'none';
+            document.getElementById('bim-urn-missing').style.display = 'flex';
+            return;
+        }
+
+        // 3. Cargar el SDK de Autodesk Viewer si aún no está en el DOM
+        if (!bimState.sdkLoaded) {
+            bimSetLoader('Cargando SDK del visor 3D...');
+            await bimLoadSdk();
+            bimState.sdkLoaded = true;
+        }
+
+        // 4. Inicializar el viewer
+        bimSetLoader('Inicializando visor...');
+        await bimStartViewer();
+
+        // 5. Si vino desde QR, cargar el spool automáticamente
+        if (spoolParam) {
+            document.getElementById('bim-search-input').value = spoolParam;
+            await bimLoadSpool(spoolParam);
+        }
+
+    } catch (err) {
+        console.error('[BIM] Error inicializando visor:', err);
+        bimSetLoader(`❌ Error: ${err.message}`, true);
+    }
+}
+
+/** Carga el script del Autodesk Viewer SDK de forma dinámica */
+function bimLoadSdk() {
+    return new Promise((resolve, reject) => {
+        if (window.Autodesk) { resolve(); return; }
+        const script = document.createElement('script');
+        script.src = 'https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/viewer3D.min.js';
+        script.onload  = resolve;
+        script.onerror = () => reject(new Error('No se pudo cargar el SDK de Autodesk Viewer'));
+        document.head.appendChild(script);
+    });
+}
+
+/** Inicializa Autodesk.Viewing y monta el GuiViewer3D */
+function bimStartViewer() {
+    return new Promise((resolve, reject) => {
+        const options = {
+            env: 'AutodeskProduction2',
+            api: 'streamingV2',
+            getAccessToken: (callback) => callback(bimState.token, 3600)
+        };
+
+        Autodesk.Viewing.Initializer(options, () => {
+            const container = document.getElementById('forgeViewer');
+            const viewer    = new Autodesk.Viewing.GuiViewer3D(container, {
+                extensions: ['Autodesk.DefaultTools.NavTools']
+            });
+
+            const startCode = viewer.start();
+            if (startCode > 0) {
+                reject(new Error(`Viewer.start() falló con código ${startCode}`));
+                return;
+            }
+
+            bimState.viewer = viewer;
+            
+            // Activar modo fantasma (ghosting) para aislar spools y ver el resto del modelo translúcido
+            viewer.setGhosting(true);
+
+            bimSetLoader('Cargando modelo 3D...');
+
+            // Cargar el modelo desde el URN
+            const urn = bimState.modelUrn.startsWith('urn:')
+                ? btoa(bimState.modelUrn).replace(/=/g, '')
+                : bimState.modelUrn;
+
+            Autodesk.Viewing.Document.load(
+                `urn:${urn}`,
+                (doc) => {
+                    const viewables = doc.getRoot().getDefaultGeometry();
+                    viewer.loadDocumentNode(doc, viewables).then(() => {
+                        bimState.initialized = true;
+                        document.getElementById('bim-loader').style.display = 'none';
+
+                        // Listener de depuración: muestra en consola F12 las propiedades de cualquier elemento clickeado
+                        viewer.addEventListener(Autodesk.Viewing.SELECTION_CHANGED_EVENT, (event) => {
+                            const dbIdArray = event.dbIdArray;
+                            if (dbIdArray && dbIdArray.length > 0) {
+                                const selId = dbIdArray[0];
+                                viewer.getProperties(selId, (pResult) => {
+                                    console.log(`[BIM Debug] Elemento seleccionado dbId: ${selId}`, pResult);
+                                });
+                            }
+                        });
+
+                        resolve();
+                    });
+                },
+                (errCode, errMsg) => {
+                    reject(new Error(`Error cargando documento APS: ${errMsg} (${errCode})`));
+                }
+            );
+        });
+    });
+}
+
+/** Busca un spool desde la caja de búsqueda manual */
+function bimSearchSpool() {
+    const input = document.getElementById('bim-search-input');
+    const val   = input ? input.value.trim() : '';
+    if (!val) return;
+    bimLoadSpool(val);
+}
+
+/**
+ * Carga y resalta los elementos de un spool en el visor.
+ * Llama al backend que resuelve GUIDs + metadata desde bim-data.json + AppSheet.
+ */
+async function bimLoadSpool(spoolId) {
+    if (!bimState.initialized) {
+        console.warn('[BIM] Visor no listo todavía.');
+        return;
+    }
+
+    bimSetMeta('<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando elementos...</div>');
+
+    try {
+        const resp = await fetch(`/api/bim/spool/${encodeURIComponent(spoolId)}`);
+        if (!resp.ok) throw new Error(`Error ${resp.status}`);
+        const data = await resp.json();
+
+        if (!data.guids || data.guids.length === 0) {
+            bimSetMeta(`
+                <div class="bim-meta-empty">
+                    <i class="fas fa-search"></i>
+                    <p>No se encontraron elementos BIM para <strong>${spoolId}</strong></p>
+                    <small>Verifica el ID_SPOOL o agrega el mapeo en bim-data.json</small>
+                </div>`);
+            return;
+        }
+
+        bimState.currentGuids = data.guids;
+
+        // Convertir GUIDs a dbIds del viewer
+        bimGuidsToDbIds(data.guids, (dbIds) => {
+            bimState.dbIds = dbIds;
+            if (dbIds.length > 0) {
+                bimHighlightElements(dbIds);
+            }
+        });
+
+        // Renderizar metadata en panel lateral
+        bimRenderMeta(data);
+
+    } catch (err) {
+        console.error('[BIM] Error cargando spool:', err);
+        bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error: ${err.message}</p></div>`);
+    }
+}
+
+/** Convierte GUIDs de Revit a dbIds del Viewer buscando tanto en externalId como en propiedades internas (NWD/Navisworks/IFC) */
+function bimGuidsToDbIds(guids, callback) {
+    if (!bimState.viewer || !bimState.viewer.model) { callback([]); return; }
+    
+    console.log('[BIM] Buscando dbIds para los GUIDs:', guids);
+    
+    // Solicitamos externalId y propiedades comunes que almacenan el GUID de Revit
+    bimState.viewer.model.getBulkProperties(
+        null, // todos los objetos
+        { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID'] },
+        (results) => {
+            const guidSet = new Set(guids.map(g => g.toLowerCase()));
+            const dbIds = [];
+
+            results.forEach(r => {
+                // 1. Caso estándar (RVT): externalId directo
+                if (r.externalId && guidSet.has(r.externalId.toLowerCase())) {
+                    dbIds.push(r.dbId);
+                    return;
+                }
+
+                // 2. Caso Navisworks (NWD) o IFC: revisar propiedades del nodo
+                if (r.properties && r.properties.length > 0) {
+                    for (const prop of r.properties) {
+                        const name = String(prop.displayName || prop.attributeName || '').toLowerCase();
+                        if (['guid', 'element guid', 'revit guid'].includes(name)) {
+                            const val = String(prop.displayValue || '').trim().toLowerCase();
+                            if (guidSet.has(val)) {
+                                dbIds.push(r.dbId);
+                                return; // ya mapeado este nodo, pasar al siguiente
+                            }
+                        }
+                    }
+                }
+            });
+
+            console.log(`[BIM] Mapeados ${dbIds.length} dbIds de un total de ${guids.length} GUIDs.`, dbIds);
+            callback(dbIds);
+        },
+        (err) => { 
+            console.error('[BIM] getBulkProperties error:', err); 
+            callback([]); 
+        }
+    );
+}
+
+/** Resalta en verde los dbIds del spool seleccionado */
+function bimHighlightElements(dbIds) {
+    const viewer = bimState.viewer;
+    if (!viewer) return;
+
+    // Aislar y colorear en verde brillante (igual que la imagen de referencia)
+    viewer.isolate(dbIds);
+    viewer.fitToView(dbIds);
+
+    dbIds.forEach(id => {
+        viewer.setThemingColor(id, new THREE.Vector4(0.18, 0.84, 0.44, 1), viewer.model, true);
+    });
+
+    // Mostrar botones de acción
+    const actionsEl = document.getElementById('bim-actions');
+    if (actionsEl) actionsEl.style.display = 'flex';
+}
+
+/** Aisla los elementos actuales (solo muestra esos) */
+function bimIsolateElements() {
+    if (!bimState.viewer || bimState.dbIds.length === 0) return;
+    bimState.viewer.isolate(bimState.dbIds);
+    bimState.viewer.fitToView(bimState.dbIds);
+}
+
+/** Centra la cámara en los elementos seleccionados */
+function bimFitToView() {
+    if (!bimState.viewer || bimState.dbIds.length === 0) return;
+    bimState.viewer.fitToView(bimState.dbIds);
+}
+
+/** Restablece la vista del modelo completo */
+function bimResetView() {
+    if (!bimState.viewer) return;
+    bimState.viewer.showAll();
+    bimState.viewer.clearThemingColors(bimState.viewer.model);
+    bimState.dbIds  = [];
+    bimState.currentGuids = [];
+    bimState.viewer.fitToView();
+    const actionsEl = document.getElementById('bim-actions');
+    if (actionsEl) actionsEl.style.display = 'none';
+    bimSetMeta(`
+        <div class="bim-meta-placeholder">
+            <i class="fas fa-cube bim-meta-icon"></i>
+            <p>Vista restablecida. Busca un spool para continuar.</p>
+        </div>`);
+    const listEl = document.getElementById('bim-elements-list');
+    if (listEl) listEl.style.display = 'none';
+}
+
+/** Renderiza las tarjetas de metadata en el panel lateral */
+function bimRenderMeta(data) {
+    const meta = data.metadata || {};
+    const els  = data.elements || [];
+
+    // Tarjetas de metadata
+    const fields = [
+        { label: 'ID Spool',    value: data.spool_id,              icon: 'fa-barcode' },
+        { label: 'CWP',         value: els[0]?.cwp,                icon: 'fa-map-marker-alt' },
+        { label: 'Línea',       value: els[0]?.numero_linea,        icon: 'fa-route' },
+        { label: 'TAG',         value: els[0]?.tag,                 icon: 'fa-tag' },
+        { label: 'Tamaño',      value: els[0]?.autocad_size,        icon: 'fa-ruler' },
+        { label: 'Sistema',     value: meta['SISTEMA'],             icon: 'fa-layer-group' },
+        { label: 'NPS',         value: meta['NPS'] ? `${meta['NPS']}"` : null, icon: 'fa-circle-notch' },
+        { label: 'Material',    value: meta['MATERIAL'],            icon: 'fa-atom' },
+        { label: 'Área',        value: meta['AREA'],                icon: 'fa-map' },
+        { label: 'Responsable', value: meta['RESPONSABLE'],         icon: 'fa-user-hard-hat' },
+        { label: 'Proceso',     value: meta['Proceso'],             icon: 'fa-cogs' }
+    ].filter(f => f.value);
+
+    const metaHtml = fields.map(f => `
+        <div class="bim-meta-card">
+            <span class="bim-meta-icon-sm"><i class="fas ${f.icon}"></i></span>
+            <div>
+                <span class="bim-meta-label">${f.label}</span>
+                <span class="bim-meta-value">${f.value}</span>
+            </div>
+        </div>`).join('');
+
+    bimSetMeta(`
+        <div class="bim-meta-header">
+            <i class="fas fa-cube"></i>
+            <span>${data.spool_id}</span>
+            <span class="bim-badge">${data.guids.length} elemento${data.guids.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div class="bim-meta-cards">${metaHtml}</div>`);
+
+    // Lista de elementos
+    if (els.length > 0) {
+        const ul = document.getElementById('bim-elements-ul');
+        if (ul) {
+            ul.innerHTML = els.map(el => `
+                <li class="bim-element-item">
+                    <i class="fas fa-cube" style="color:var(--accent);margin-right:6px"></i>
+                    <span title="${el.guid}">${el.descripcion || el.guid.substring(0, 8) + '...'}</span>
+                </li>`).join('');
+        }
+        const listEl = document.getElementById('bim-elements-list');
+        if (listEl) listEl.style.display = 'block';
+    }
+}
+
+/** Helper: actualiza el contenido del panel de metadata */
+function bimSetMeta(html) {
+    const el = document.getElementById('bim-meta-panel');
+    if (el) el.innerHTML = html;
+}
+
+/** Helper: actualiza el loader con mensaje opcional de error */
+function bimSetLoader(msg, isError = false) {
+    const loader = document.getElementById('bim-loader');
+    const msgEl  = document.getElementById('bim-loader-msg');
+    if (loader) loader.style.display = 'flex';
+    if (msgEl)  msgEl.textContent = msg;
+    if (isError && loader) {
+        loader.style.background = 'rgba(239,68,68,0.08)';
+        loader.style.border     = '1px solid rgba(239,68,68,0.2)';
+    }
+}
+
+// =================================================================
+// ============ QR SCANNER MODULE (jsQR + getUserMedia) =============
+// =================================================================
+
+const scannerState = {
+    stream:       null,   // MediaStream activo
+    animFrame:    null,   // requestAnimationFrame ID
+    facingMode:   'environment', // 'environment'=trasera, 'user'=frontal
+    scanning:     true,   // false cuando se detectó y se pausa
+    lastResult:   null    // evitar disparar el mismo QR múltiples veces
+};
+
+/**
+ * Abre el modal del escáner y arranca la cámara.
+ * Requiere HTTPS o localhost para getUserMedia.
+ */
+async function bimOpenScanner() {
+    const modal = document.getElementById('bim-scanner-modal');
+    if (!modal) return;
+
+    // Verificar que jsQR esté disponible
+    if (typeof jsQR === 'undefined') {
+        alert('El módulo jsQR no está disponible. Verifica la conexión a internet.');
+        return;
+    }
+
+    // Mostrar modal
+    modal.style.display = 'flex';
+    scannerState.scanning  = true;
+    scannerState.lastResult = null;
+
+    bimScannerSetStatus('<i class="fas fa-camera"></i> Apunta al código QR del spool');
+
+    // Ocultar resultado anterior
+    const resultEl = document.getElementById('bim-scanner-result');
+    if (resultEl) resultEl.style.display = 'none';
+
+    try {
+        await bimStartCamera();
+    } catch (err) {
+        console.error('[QR Scanner] Error iniciando cámara:', err);
+        bimScannerSetStatus(`<i class="fas fa-exclamation-triangle" style="color:var(--danger)"></i> ${
+            err.name === 'NotAllowedError'
+                ? 'Permiso de cámara denegado. Permite el acceso en tu navegador.'
+                : 'No se pudo acceder a la cámara: ' + err.message
+        }`);
+    }
+}
+
+/** Inicia el stream de cámara y el loop de escaneo */
+async function bimStartCamera() {
+    // Detener stream anterior si existe
+    bimStopStream();
+
+    const constraints = {
+        video: {
+            facingMode: scannerState.facingMode,
+            width:  { ideal: 1280 },
+            height: { ideal: 720 }
+        },
+        audio: false
+    };
+
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    scannerState.stream = stream;
+
+    const video = document.getElementById('bim-qr-video');
+    video.srcObject = stream;
+
+    // Esperar a que el video esté listo y arrancar el loop
+    video.onloadedmetadata = () => {
+        video.play();
+        bimScanLoop();
+    };
+}
+
+/**
+ * Loop de escaneo: captura un frame del video, lo pasa a jsQR.
+ * Corre a ~30fps usando requestAnimationFrame.
+ */
+function bimScanLoop() {
+    const video  = document.getElementById('bim-qr-video');
+    const canvas = document.getElementById('bim-qr-canvas');
+    if (!video || !canvas || !scannerState.scanning) return;
+
+    const ctx = canvas.getContext('2d');
+
+    function tick() {
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            // Ajustar canvas al tamaño del video
+            canvas.width  = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: 'dontInvert'
+            });
+
+            if (code && code.data) {
+                const result = code.data.trim();
+
+                // Evitar disparar el mismo código repetidamente
+                if (result !== scannerState.lastResult) {
+                    scannerState.lastResult = result;
+                    scannerState.scanning   = false; // pausar loop
+                    bimOnQRDetected(result);
+                    return; // no seguir el loop
+                }
+            }
+        }
+
+        // Continuar loop si no se detectó nada
+        if (scannerState.scanning) {
+            scannerState.animFrame = requestAnimationFrame(tick);
+        }
+    }
+
+    scannerState.animFrame = requestAnimationFrame(tick);
+}
+
+/**
+ * Callback cuando se detecta un QR válido.
+ * Muestra flash de confirmación y carga el spool automáticamente.
+ */
+function bimOnQRDetected(value) {
+    console.log('[QR Scanner] Detectado:', value);
+
+    // Flash visual de confirmación
+    const resultEl   = document.getElementById('bim-scanner-result');
+    const resultText = document.getElementById('bim-scanner-result-text');
+    if (resultEl && resultText) {
+        resultText.textContent = value;
+        resultEl.style.display = 'flex';
+    }
+
+    bimScannerSetStatus(`<i class="fas fa-check-circle" style="color:var(--accent)"></i> ¡Detectado! Cargando spool...`);
+
+    // Esperar 1.2s para que el usuario vea el resultado y luego cerrar
+    setTimeout(() => {
+        bimCloseScanner();
+
+        // Cargar el spool en el visor
+        const inputEl = document.getElementById('bim-search-input');
+        if (inputEl) inputEl.value = value;
+
+        if (bimState.initialized) {
+            bimLoadSpool(value);
+        } else {
+            // Si el viewer no está listo, inicializarlo primero con el spool
+            initBimViewer().then(() => bimLoadSpool(value)).catch(console.error);
+        }
+    }, 1200);
+}
+
+/** Cierra el modal y detiene el stream de cámara */
+function bimCloseScanner() {
+    const modal = document.getElementById('bim-scanner-modal');
+    if (modal) modal.style.display = 'none';
+
+    scannerState.scanning = false;
+    if (scannerState.animFrame) {
+        cancelAnimationFrame(scannerState.animFrame);
+        scannerState.animFrame = null;
+    }
+    bimStopStream();
+}
+
+/** Detiene el stream de cámara y libera el track */
+function bimStopStream() {
+    if (scannerState.stream) {
+        scannerState.stream.getTracks().forEach(t => t.stop());
+        scannerState.stream = null;
+    }
+    const video = document.getElementById('bim-qr-video');
+    if (video) video.srcObject = null;
+}
+
+/** Alterna entre cámara frontal y trasera */
+async function bimFlipCamera() {
+    scannerState.facingMode  = scannerState.facingMode === 'environment' ? 'user' : 'environment';
+    scannerState.scanning    = true;
+    scannerState.lastResult  = null;
+
+    // Detener frame loop actual antes de reiniciar
+    if (scannerState.animFrame) {
+        cancelAnimationFrame(scannerState.animFrame);
+        scannerState.animFrame = null;
+    }
+
+    bimScannerSetStatus('<i class="fas fa-sync-alt fa-spin"></i> Cambiando cámara...');
+    try {
+        await bimStartCamera();
+        bimScannerSetStatus('<i class="fas fa-camera"></i> Apunta al código QR del spool');
+    } catch (err) {
+        bimScannerSetStatus(`<i class="fas fa-exclamation-triangle" style="color:var(--danger)"></i> Error: ${err.message}`);
+    }
+}
+
+/** Helper: actualiza el texto de estado del escáner */
+function bimScannerSetStatus(html) {
+    const el = document.getElementById('bim-scanner-status');
+    if (el) el.innerHTML = html;
 }

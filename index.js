@@ -1,5 +1,6 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 const app = express();
 const PORT = 3005;
 
@@ -108,6 +109,199 @@ app.get('/api/guia/:id', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+// =================================================================
+// APS (AUTODESK PLATFORM SERVICES) — BIM VIEWER
+// Credenciales SOLO en servidor, nunca expuestas al frontend.
+// =================================================================
+const APS_CONFIG = {
+    clientId:     '9InGA6qs4s4myHpKk1vzEoOxmzDGL6qdEis3Ze0nXHUUP2Ru',
+    clientSecret: '1T6qha9Y0KArOzbxc2J4MxrYAFVutFUrHykK55mtAEuKLRaMPFwy4naEyJ6frWt1',
+    // "ANDINA 29-03-26.nwd" — Proyecto MODELOS PARA VCAD | Últ. mod: 2026-03-29 | Versión 1
+    modelUrn: 'dXJuOmFkc2sud2lwcHJvZDpmcy5maWxlOnZmLnpaNmpTZVNxVGNhS3Q1Z0QxaWprcHc_dmVyc2lvbj0x'
+};
+
+
+// Caché del token APS (se renueva antes de expirar)
+let apsTokenCache = { token: null, expiresAt: 0 };
+
+async function getApsToken() {
+    const now = Date.now();
+    // Reutilizar si le quedan más de 5 minutos de vida
+    if (apsTokenCache.token && apsTokenCache.expiresAt - now > 5 * 60 * 1000) {
+        return apsTokenCache.token;
+    }
+    const credentials = Buffer.from(`${APS_CONFIG.clientId}:${APS_CONFIG.clientSecret}`).toString('base64');
+    const resp = await fetch('https://developer.api.autodesk.com/authentication/v2/token', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Basic ${credentials}`,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        },
+        body: 'grant_type=client_credentials&scope=viewables%3Aread'
+    });
+    if (!resp.ok) {
+        const err = await resp.text();
+        throw new Error(`APS Auth Error ${resp.status}: ${err}`);
+    }
+    const data = await resp.json();
+    apsTokenCache = {
+        token: data.access_token,
+        expiresAt: now + (data.expires_in * 1000)
+    };
+    console.log(`[APS] Token renovado. Expira en ${data.expires_in}s`);
+    return apsTokenCache.token;
+}
+
+// GET /api/bim/token → Token temporal para el Viewer SDK (solo lectura)
+app.get('/api/bim/token', async (req, res) => {
+    try {
+        const token = await getApsToken();
+        // Solo enviamos el token y el URN (no las credenciales)
+        res.json({
+            access_token: token,
+            model_urn: APS_CONFIG.modelUrn
+        });
+    } catch (e) {
+        console.error('[APS Token Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/bim/debug → Diagnóstico: muestra columnas reales de LIST_Bim_MS
+// Útil para verificar cómo AppSheet serializa nombres de columna con caracteres especiales
+app.get('/api/bim/debug', async (req, res) => {
+    try {
+        const rawBim = await fetchAppSheet('LIST_Bim_MS');
+        const sample = rawBim.slice(0, 3);
+        const columnNames = rawBim.length > 0 ? Object.keys(rawBim[0]) : [];
+        res.json({
+            total_rows:   rawBim.length,
+            column_names: columnNames,
+            sample_rows:  sample
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/bim/debug → Diagnóstico: columnas reales de LIST_Bim_MS
+// Columnas confirmadas: "Elemento GUID", "SPOOL LUKEAPP", "CWP", "DESCRIPCIÓN",
+//                       "Fastener1_NUMERO_LINEA", "Line Number", "TAG", "AutoCad Size"
+app.get('/api/bim/debug', async (req, res) => {
+    try {
+        const rows = await fetchAppSheet('LIST_Bim_MS');
+        const withSpool   = rows.filter(r => String(r['SPOOL LUKEAPP'] || '').trim() !== '').length;
+        const withoutSpool = rows.length - withSpool;
+        const spoolValues  = [...new Set(
+            rows.map(r => String(r['SPOOL LUKEAPP'] || '').trim()).filter(Boolean)
+        )].sort((a,b) => Number(a) - Number(b)).slice(0, 30);
+        res.json({
+            total_rows:          rows.length,
+            column_names:        rows.length > 0 ? Object.keys(rows[0]) : [],
+            with_spool_lukeapp:  withSpool,
+            without_spool:       withoutSpool,
+            sample_spool_values: spoolValues,
+            sample_rows:         rows.slice(0, 3)
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// "SPOOL LUKEAPP" en LIST_Bim_MS = TAG GESTION de LIST_Spools_MS_
+// El QR puede traer el TAG GESTION (numérico) o el ID_SPOOL completo.
+app.get('/api/bim/spool/:spoolId', async (req, res) => {
+    const spoolId = decodeURIComponent(req.params.spoolId).trim();
+
+    try {
+        // ----------------------------------------------------------------
+        // 1. Obtener elementos BIM desde AppSheet (LIST_Bim_MS)
+        //    Columnas: "Elemento GUID", "SPOOL LUKEAPP", "CWP",
+        //              "DESCRIPCIÓN", "Line Number", "TAG", "AutoCad Size"
+        // ----------------------------------------------------------------
+        let bimRows = [];
+        try {
+            // Columnas exactas confirmadas por /api/bim/debug:
+            // "Elemento GUID", "SPOOL LUKEAPP", "CWP", "DESCRIPCIÓN",
+            // "Fastener1_NUMERO_LINEA", "Line Number", "TAG", "AutoCad Size"
+            bimRows = await fetchAppSheet('LIST_Bim_MS');
+            const withSpool = bimRows.filter(r => String(r['SPOOL LUKEAPP'] || '').trim() !== '').length;
+            console.log(`[BIM] LIST_Bim_MS: ${bimRows.length} filas totales, ${withSpool} con SPOOL LUKEAPP`);
+        } catch (e) {
+            console.warn('[BIM] Error consultando LIST_Bim_MS en AppSheet:', e.message);
+            // Fallback: bim-data.json
+            const bimDataPath = path.join(__dirname, 'bim-data.json');
+            if (fs.existsSync(bimDataPath)) {
+                const local = JSON.parse(fs.readFileSync(bimDataPath, 'utf8'));
+                bimRows = local.map(el => ({
+                    'Elemento GUID':  el.guid,
+                    'SPOOL LUKEAPP':  el.spool_lukeapp,
+                    'CWP':            el.cwp,
+                    'DESCRIPCIÓN':    el.descripcion,
+                    'Line Number':    el.numero_linea,
+                    'TAG':            el.tag,
+                    'AutoCad Size':   el.autocad_size
+                }));
+            }
+        }
+
+        // ----------------------------------------------------------------
+        // 2. Filtrar elementos que corresponden al spool buscado
+        //    "SPOOL LUKEAPP" = TAG GESTION (puede ser numérico o texto)
+        // ----------------------------------------------------------------
+        const elements = bimRows.filter(row => {
+            const spoolVal = String(row['SPOOL LUKEAPP'] || '').trim();
+            return spoolVal === spoolId || spoolVal.toLowerCase() === spoolId.toLowerCase();
+        });
+
+        console.log(`[BIM] Spool "${spoolId}": ${elements.length} elementos encontrados en LIST_Bim_MS`);
+
+        // ----------------------------------------------------------------
+        // 3. Obtener metadata del spool desde LIST_Spools_MS_
+        //    Busca por TAG GESTION (= spoolId) o por ID_SPOOL
+        // ----------------------------------------------------------------
+        let spoolMeta = null;
+        try {
+            const spools = await fetchAppSheet('LIST_Spools_MS_');
+            spoolMeta = spools.find(s =>
+                String(s['TAG GESTION'] || '').trim() === spoolId ||
+                String(s['ID_SPOOL']    || '').trim() === spoolId ||
+                String(s['ID_SPOOL']    || '').toLowerCase().includes(spoolId.toLowerCase())
+            );
+            if (spoolMeta) {
+                console.log(`[BIM] Metadata encontrada para "${spoolId}": ${spoolMeta['ID_SPOOL']}`);
+            }
+        } catch (e) {
+            console.warn('[BIM] No se pudo obtener metadata de LIST_Spools_MS_:', e.message);
+        }
+
+        // ----------------------------------------------------------------
+        // 4. Mapear a estructura normalizada para el frontend
+        // ----------------------------------------------------------------
+        const normalizedElements = elements.map(row => ({
+            guid:         String(row['Elemento GUID'] || '').trim(),
+            spool:        String(row['SPOOL LUKEAPP']  || '').trim(),
+            cwp:          String(row['CWP']            || '').trim(),
+            descripcion:  String(row['DESCRIPCIÓN']    || row['DESCRIPCION'] || '').trim(),
+            numero_linea: String(row['Line Number']    || '').trim(),
+            tag:          String(row['TAG']            || '').trim(),
+            autocad_size: String(row['AutoCad Size']   || '').trim()
+        }));
+
+        res.json({
+            spool_id:  spoolId,
+            guids:     normalizedElements.map(el => el.guid).filter(Boolean),
+            elements:  normalizedElements,
+            metadata:  spoolMeta || null
+        });
+
+    } catch (e) {
+        console.error('[BIM Spool Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // Ruta visual de la Guía
 app.get('/guia/:id', (req, res) => {

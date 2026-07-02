@@ -7,9 +7,11 @@
     <!-- Version: 1.2.0 (Auto-Deployed via GitHub Webhook) -->
     <title>Dashboard Piping | Andina PRY-413</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.min.css" type="text/css">
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -56,6 +58,9 @@
                 <button class="nav-btn" onclick="showSection('sdi')" id="nav-sdi">
                     <i class="fas fa-question-circle"></i><span>SDI</span>
                     <span class="badge-sidebar" id="badge-sdi" style="display: none;">0</span>
+                </button>
+                <button class="nav-btn" onclick="showSection('bim')" id="nav-bim">
+                    <i class="fas fa-cube"></i><span>BIM Viewer</span>
                 </button>
             </nav>
 
@@ -679,6 +684,132 @@
             </section>
 
         </main>
+    </div>
+
+    <!-- ===========================
+         SECCIÓN BIM VIEWER
+    =========================== -->
+    <section class="section-content" id="bim-section" style="display:none;">
+        <div class="bim-layout">
+
+            <!-- Panel lateral de metadata -->
+            <aside class="bim-sidebar glass">
+                <div class="bim-search-wrapper">
+                    <label class="bim-search-label">
+                        <i class="fas fa-search"></i> Buscar Spool
+                    </label>
+                    <div class="bim-search-row">
+                        <input type="text" id="bim-search-input"
+                            placeholder="TAG Gestión (ej: 217)"
+                            class="bim-search-input"
+                            onkeydown="if(event.key==='Enter') bimSearchSpool()" />
+                        <button class="bim-search-btn" onclick="bimSearchSpool()" title="Buscar">
+                            <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
+                    <!-- Botón escanear QR con cámara -->
+                    <button class="bim-scan-btn" id="bim-scan-btn" onclick="bimOpenScanner()">
+                        <i class="fas fa-qrcode"></i>
+                        <span>Escanear QR con Cámara</span>
+                    </button>
+                </div>
+
+                <div id="bim-meta-panel" class="bim-meta-panel">
+                    <div class="bim-meta-placeholder">
+                        <i class="fas fa-cube bim-meta-icon"></i>
+                        <p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p>
+                    </div>
+                </div>
+
+                <div id="bim-elements-list" class="bim-elements-list" style="display:none;">
+                    <h4 class="bim-elements-title"><i class="fas fa-layer-group"></i> Elementos en modelo</h4>
+                    <ul id="bim-elements-ul"></ul>
+                </div>
+
+                <div class="bim-actions" id="bim-actions" style="display:none;">
+                    <button class="bim-btn-isolate" onclick="bimIsolateElements()">
+                        <i class="fas fa-crosshairs"></i> Aislar
+                    </button>
+                    <button class="bim-btn-fit" onclick="bimFitToView()">
+                        <i class="fas fa-expand"></i> Centrar
+                    </button>
+                    <button class="bim-btn-reset" onclick="bimResetView()">
+                        <i class="fas fa-undo"></i> Reset
+                    </button>
+                </div>
+            </aside>
+
+            <!-- Contenedor del visor 3D -->
+            <div class="bim-viewer-wrapper">
+                <div id="bim-loader" class="bim-loader">
+                    <div class="bim-loader-inner">
+                        <div class="bim-spinner"></div>
+                        <p id="bim-loader-msg">Inicializando visor BIM...</p>
+                    </div>
+                </div>
+                <div id="bim-urn-missing" class="bim-urn-missing" style="display:none;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    <h3>URN del modelo no configurado</h3>
+                    <p>Configura el <code>modelUrn</code> en <code>index.js</code> con el URN de tu modelo en APS.</p>
+                </div>
+                <div id="forgeViewer" class="forge-viewer"></div>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- ===========================
+         MODAL ESCÁNER QR
+    =========================== -->
+    <div id="bim-scanner-modal" class="bim-scanner-modal" style="display:none;">
+        <div class="bim-scanner-inner">
+            <!-- Header -->
+            <div class="bim-scanner-header">
+                <div class="bim-scanner-title">
+                    <i class="fas fa-qrcode"></i>
+                    <span>Escanear Código QR</span>
+                </div>
+                <button class="bim-scanner-close" onclick="bimCloseScanner()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <!-- Visor de cámara -->
+            <div class="bim-scanner-viewport">
+                <video id="bim-qr-video" class="bim-qr-video" playsinline autoplay muted></video>
+                <canvas id="bim-qr-canvas" style="display:none;"></canvas>
+
+                <!-- Marco de alineación QR -->
+                <div class="bim-scanner-frame">
+                    <div class="bim-frame-corner bim-frame-tl"></div>
+                    <div class="bim-frame-corner bim-frame-tr"></div>
+                    <div class="bim-frame-corner bim-frame-bl"></div>
+                    <div class="bim-frame-corner bim-frame-br"></div>
+                    <div class="bim-frame-line" id="bim-scan-line"></div>
+                </div>
+
+                <!-- Estado del escáner -->
+                <div class="bim-scanner-status" id="bim-scanner-status">
+                    <i class="fas fa-camera"></i> Apunta al código QR del spool
+                </div>
+            </div>
+
+            <!-- Resultado detectado (flash) -->
+            <div class="bim-scanner-result" id="bim-scanner-result" style="display:none;">
+                <i class="fas fa-check-circle"></i>
+                <span id="bim-scanner-result-text"></span>
+            </div>
+
+            <!-- Selector de cámara (frontal/trasera) -->
+            <div class="bim-scanner-footer">
+                <button class="bim-scanner-flip" onclick="bimFlipCamera()" title="Cambiar cámara">
+                    <i class="fas fa-sync-alt"></i> Cambiar cámara
+                </button>
+                <button class="bim-scanner-cancel" onclick="bimCloseScanner()">
+                    Cancelar
+                </button>
+            </div>
+        </div>
     </div>
 
     <script src="app.js"></script>

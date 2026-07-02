@@ -1,0 +1,32 @@
+[
+  {
+    "guid": "bb57bd44-3fa4-5d46-afcc-246df4b8886b",
+    "id_spool": "03351-CT-6-C3-0018-R3_HOJA11_SP01",
+    "spool_lukeapp": "HOJA11-SP01",
+    "cwp": "CWP-3351-10-PA-220",
+    "descripcion": "CURVA 90°, RADIO 5D, ASTM A53 GR B, ASME B16.49, GE, SCH STD",
+    "numero_linea": "03351-CT-6-C3-0018-R3",
+    "tag": "03351-CT-6-C3-0018-R3",
+    "autocad_size": "6\""
+  },
+  {
+    "guid": "dbbf1ff0-ca1f-5c77-a040-4989b346aa60",
+    "id_spool": "03351-CT-6-C3-0018-R3_HOJA10_SP04",
+    "spool_lukeapp": "HOJA10-SP04",
+    "cwp": "CWP-3351-10-PA-220",
+    "descripcion": "CAÑERÍA ERW, ASTM A53 GR B, ASME B36.10 M, BE - GE, SCH STD",
+    "numero_linea": "03351-CT-6-C3-0018-R3",
+    "tag": "03351-CT-6-C3-0018-R3",
+    "autocad_size": "6\""
+  },
+  {
+    "guid": "ee159f97-28d6-5ae7-9aa8-17b3aa0cf941",
+    "id_spool": "03351-CT-6-C3-0018-R3_HOJA10_SP05",
+    "spool_lukeapp": "HOJA10-SP05",
+    "cwp": "CWP-3351-10-PA-220",
+    "descripcion": "CURVA 90°, RADIO 5D, ASTM A53 GR B, ASME B16.49, GE, SCH STD",
+    "numero_linea": "03351-CT-6-C3-0018-R3",
+    "tag": "03351-CT-6-C3-0018-R3",
+    "autocad_size": "6\""
+  }
+]
