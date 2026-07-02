@@ -210,21 +210,43 @@ app.get('/api/bim/debug', async (req, res) => {
 });
 
 // "SPOOL LUKEAPP" en LIST_Bim_MS = TAG GESTION de LIST_Spools_MS_
-// El QR puede traer el TAG GESTION (numérico) o el ID_SPOOL completo.
+// El QR puede traer el TAG GESTION (numérico corto) o el ID_SPOOL completo.
 app.get('/api/bim/spool/:spoolId', async (req, res) => {
     const spoolId = decodeURIComponent(req.params.spoolId).trim();
 
     try {
         // ----------------------------------------------------------------
-        // 1. Obtener elementos BIM desde AppSheet (LIST_Bim_MS)
+        // 1. Obtener la metadata del spool primero desde LIST_Spools_MS_
+        //    Esto nos permite mapear ID_SPOOL (largo) -> TAG GESTION (corto)
+        // ----------------------------------------------------------------
+        let spoolMeta = null;
+        let tagGestion = spoolId; // Valor por defecto en caso de no encontrarse coincidencia
+
+        try {
+            const spools = await fetchAppSheet('LIST_Spools_MS_');
+            spoolMeta = spools.find(s => {
+                const idSpool = String(s['ID_SPOOL'] || '').trim();
+                const tagG    = String(s['TAG GESTION'] || '').trim();
+                return idSpool === spoolId || tagG === spoolId || idSpool.toLowerCase() === spoolId.toLowerCase();
+            });
+
+            if (spoolMeta) {
+                tagGestion = String(spoolMeta['TAG GESTION'] || '').trim();
+                console.log(`[BIM] Resolucion: "${spoolId}" mapeado a TAG GESTION: "${tagGestion}" | ID_SPOOL: "${spoolMeta['ID_SPOOL']}"`);
+            } else {
+                console.log(`[BIM] No se hallo metadata en LIST_Spools_MS_ para "${spoolId}". Se buscara directamente en BIM por este valor.`);
+            }
+        } catch (e) {
+            console.warn('[BIM] No se pudo obtener metadata de LIST_Spools_MS_:', e.message);
+        }
+
+        // ----------------------------------------------------------------
+        // 2. Obtener elementos BIM desde AppSheet (LIST_Bim_MS)
         //    Columnas: "Elemento GUID", "SPOOL LUKEAPP", "CWP",
         //              "DESCRIPCIÓN", "Line Number", "TAG", "AutoCad Size"
         // ----------------------------------------------------------------
         let bimRows = [];
         try {
-            // Columnas exactas confirmadas por /api/bim/debug:
-            // "Elemento GUID", "SPOOL LUKEAPP", "CWP", "DESCRIPCIÓN",
-            // "Fastener1_NUMERO_LINEA", "Line Number", "TAG", "AutoCad Size"
             bimRows = await fetchAppSheet('LIST_Bim_MS');
             const withSpool = bimRows.filter(r => String(r['SPOOL LUKEAPP'] || '').trim() !== '').length;
             console.log(`[BIM] LIST_Bim_MS: ${bimRows.length} filas totales, ${withSpool} con SPOOL LUKEAPP`);
@@ -247,34 +269,18 @@ app.get('/api/bim/spool/:spoolId', async (req, res) => {
         }
 
         // ----------------------------------------------------------------
-        // 2. Filtrar elementos que corresponden al spool buscado
-        //    "SPOOL LUKEAPP" = TAG GESTION (puede ser numérico o texto)
+        // 3. Filtrar elementos que corresponden al spool buscado
+        //    "SPOOL LUKEAPP" de LIST_Bim_MS corresponde a "TAG GESTION"
         // ----------------------------------------------------------------
         const elements = bimRows.filter(row => {
             const spoolVal = String(row['SPOOL LUKEAPP'] || '').trim();
-            return spoolVal === spoolId || spoolVal.toLowerCase() === spoolId.toLowerCase();
+            return spoolVal === tagGestion || 
+                   spoolVal === spoolId || 
+                   spoolVal.toLowerCase() === tagGestion.toLowerCase() ||
+                   spoolVal.toLowerCase() === spoolId.toLowerCase();
         });
 
-        console.log(`[BIM] Spool "${spoolId}": ${elements.length} elementos encontrados en LIST_Bim_MS`);
-
-        // ----------------------------------------------------------------
-        // 3. Obtener metadata del spool desde LIST_Spools_MS_
-        //    Busca por TAG GESTION (= spoolId) o por ID_SPOOL
-        // ----------------------------------------------------------------
-        let spoolMeta = null;
-        try {
-            const spools = await fetchAppSheet('LIST_Spools_MS_');
-            spoolMeta = spools.find(s =>
-                String(s['TAG GESTION'] || '').trim() === spoolId ||
-                String(s['ID_SPOOL']    || '').trim() === spoolId ||
-                String(s['ID_SPOOL']    || '').toLowerCase().includes(spoolId.toLowerCase())
-            );
-            if (spoolMeta) {
-                console.log(`[BIM] Metadata encontrada para "${spoolId}": ${spoolMeta['ID_SPOOL']}`);
-            }
-        } catch (e) {
-            console.warn('[BIM] No se pudo obtener metadata de LIST_Spools_MS_:', e.message);
-        }
+        console.log(`[BIM] Spool "${spoolId}" (Tag: "${tagGestion}"): ${elements.length} elementos encontrados en LIST_Bim_MS`);
 
         // ----------------------------------------------------------------
         // 4. Mapear a estructura normalizada para el frontend
