@@ -308,6 +308,118 @@ app.get('/api/bim/spool/:spoolId', async (req, res) => {
     }
 });
 
+// GET /api/bim/statuses → Devuelve un mapeo de { [status]: [guid1, guid2, ...] }
+app.get('/api/bim/statuses', async (req, res) => {
+    try {
+        // 1. Obtener todas las tablas necesarias
+        const [rawBim, spools, logs] = await Promise.all([
+            fetchAppSheet('LIST_Bim_MS'),
+            fetchAppSheet('LIST_Spools_MS_'),
+            fetchAppSheet('LOG_Spool_MS')
+        ]);
+
+        // Normalizar columnas de LIST_Bim_MS
+        const bimRows = rawBim.map(row => {
+            const norm = {};
+            for (const [k, v] of Object.entries(row)) {
+                norm[k.replace(/[\r\n]+/g, ' ').trim()] = v;
+            }
+            return norm;
+        });
+
+        // 2. Mapear TAG GESTION (SPOOL LUKEAPP) -> ID_SPOOL
+        const tagToIdSpool = {};
+        spools.forEach(s => {
+            const idSpool = String(s['ID_SPOOL'] || '').trim();
+            const tagG    = String(s['TAG GESTION'] || '').trim();
+            if (tagG && idSpool) {
+                tagToIdSpool[tagG] = idSpool;
+            }
+        });
+
+        // 3. Resolver el status más avanzado de cada ID_SPOOL
+        const STATUS_WEIGHT = {
+            'EN FABRICACIÓN': 1, 'EN FABRICACION': 1,
+            'QAQC': 2,
+            'EN PINT/REVEST.': 3, 'EN PINT': 3,
+            'RETIRAR': 4,
+            'POR MONTAR': 5,
+            'POSICIONADO': 6,
+            'MONTADO': 7,
+            'ELIMINADO': 8
+        };
+
+        function getStatusWeight(status) {
+            if (!status) return 0;
+            const s = status.toUpperCase().trim();
+            if (STATUS_WEIGHT[s] !== undefined) return STATUS_WEIGHT[s];
+            for (const [key, w] of Object.entries(STATUS_WEIGHT)) {
+                if (s.includes(key)) return w;
+            }
+            return 0;
+        }
+
+        function normalizeStatus(st) {
+            if (!st) return 'SIN ESTADO';
+            const s = st.toUpperCase().trim();
+            if (s.includes('FABRICA')) return 'EN FABRICACIÓN';
+            if (s.includes('QAQC') || s.includes('QA/QC')) return 'QAQC';
+            if (s.includes('PINT') || s.includes('REVEST')) return 'EN PINT/REVEST.';
+            if (s.includes('RETIRAR')) return 'RETIRAR';
+            if (s.includes('POR MONTAR') || s.includes('POR_MONTAR')) return 'POR MONTAR';
+            if (s.includes('POSICIONADO')) return 'POSICIONADO';
+            if (s.includes('MONTADO') || s.includes('MONTAJE')) return 'MONTADO';
+            if (s.includes('ELIMINADO')) return 'ELIMINADO';
+            return s;
+        }
+
+        const spoolStatuses = {}; // ID_SPOOL -> { status, weight }
+        logs.forEach(r => {
+            const id = String(r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
+            const st = String(r.STATUS || r['STATUS '] || '').trim();
+            if (!id || !st) return;
+            const w = getStatusWeight(st);
+            const prev = spoolStatuses[id];
+            if (!prev || w > prev.weight) {
+                spoolStatuses[id] = { status: normalizeStatus(st), weight: w };
+            }
+        });
+
+        // 4. Agrupar GUIDs de LIST_Bim_MS por el status resuelto
+        const result = {
+            'EN FABRICACIÓN': [],
+            'QAQC': [],
+            'EN PINT/REVEST.': [],
+            'RETIRAR': [],
+            'POR MONTAR': [],
+            'POSICIONADO': [],
+            'MONTADO': [],
+            'ELIMINADO': [],
+            'SIN ESTADO': []
+        };
+
+        bimRows.forEach(row => {
+            const guid = String(row['Elemento GUID'] || '').trim();
+            if (!guid) return;
+
+            const tagG = String(row['SPOOL LUKEAPP'] || '').trim();
+            const idSpool = tagToIdSpool[tagG] || tagG; // fallback al tag si no se mapea
+            const statusEntry = spoolStatuses[idSpool];
+            const status = statusEntry ? statusEntry.status : 'SIN ESTADO';
+
+            if (!result[status]) {
+                result[status] = [];
+            }
+            result[status].push(guid);
+        });
+
+        res.json(result);
+    } catch (e) {
+        console.error('[BIM Statuses Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 // Ruta visual de la Guía
 app.get('/guia/:id', (req, res) => {

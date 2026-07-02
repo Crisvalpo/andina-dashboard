@@ -1825,7 +1825,8 @@ const bimState = {
     currentGuids:  [],     // GUIDs del spool actualmente seleccionado
     dbIds:         [],     // dbIds correspondientes en el viewer
     token:         null,
-    modelUrn:      null
+    modelUrn:      null,
+    statusesCache: null    // Caché de { status: [guids] }
 };
 
 /**
@@ -1935,6 +1936,12 @@ function bimStartViewer() {
                     viewer.loadDocumentNode(doc, viewables).then(() => {
                         bimState.initialized = true;
                         document.getElementById('bim-loader').style.display = 'none';
+
+                        // Pre-cargar caché de estados de spools en background para visualización rápida
+                        fetch('/api/bim/statuses')
+                            .then(r => r.json())
+                            .then(data => { bimState.statusesCache = data; })
+                            .catch(err => console.error('[BIM] Error precargando estados:', err));
 
                         // Listener de depuración: muestra en consola F12 las propiedades de cualquier elemento clickeado
                         viewer.addEventListener(Autodesk.Viewing.SELECTION_CHANGED_EVENT, (event) => {
@@ -2102,15 +2109,130 @@ function bimResetView() {
     bimState.dbIds  = [];
     bimState.currentGuids = [];
     bimState.viewer.fitToView();
+    
+    // Resetear el select de filtros por estado
+    const select = document.getElementById('bim-status-filter');
+    if (select) select.value = '';
+
     const actionsEl = document.getElementById('bim-actions');
     if (actionsEl) actionsEl.style.display = 'none';
     bimSetMeta(`
         <div class="bim-meta-placeholder">
             <i class="fas fa-cube bim-meta-icon"></i>
-            <p>Vista restablecida. Busca un spool para continuar.</p>
+            <p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p>
         </div>`);
     const listEl = document.getElementById('bim-elements-list');
     if (listEl) listEl.style.display = 'none';
+}
+
+/** Colores premium para cada estado del Spool en el visualizador 3D */
+const BIM_STATUS_COLORS = {
+    'MONTADO':         new THREE.Vector4(0.06, 0.75, 0.35, 1), // Verde brillante
+    'POSICIONADO':     new THREE.Vector4(0.95, 0.45, 0.10, 1), // Naranja
+    'POR MONTAR':      new THREE.Vector4(0.95, 0.85, 0.10, 1), // Amarillo
+    'EN PINT/REVEST.': new THREE.Vector4(0.65, 0.30, 0.95, 1), // Morado
+    'QAQC':            new THREE.Vector4(0.10, 0.65, 0.95, 1), // Azul
+    'EN FABRICACIÓN':  new THREE.Vector4(0.30, 0.80, 0.95, 1), // Celeste
+    'RETIRAR':         new THREE.Vector4(0.95, 0.15, 0.15, 1), // Rojo
+    'ELIMINADO':       new THREE.Vector4(0.40, 0.40, 0.40, 0.5), // Gris translúcido
+    'SIN ESTADO':      new THREE.Vector4(0.50, 0.50, 0.50, 0.3)  // Gris opaco
+};
+
+/** Filtra e aisla los elementos del modelo 3D según el estado de pre-fabricación seleccionado */
+async function bimFilterByStatus() {
+    const select = document.getElementById('bim-status-filter');
+    const status = select ? select.value : '';
+    
+    if (!status) {
+        bimResetView();
+        return;
+    }
+
+    if (!bimState.initialized) return;
+
+    // Limpiar input manual y cerrar cualquier lista de spool
+    const input = document.getElementById('bim-search-input');
+    if (input) input.value = '';
+    const listEl = document.getElementById('bim-elements-list');
+    if (listEl) listEl.style.display = 'none';
+
+    bimSetMeta(`<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando spools en estado ${status}...</div>`);
+
+    try {
+        let statuses = bimState.statusesCache;
+        if (!statuses) {
+            const resp = await fetch('/api/bim/statuses');
+            if (!resp.ok) throw new Error(`Error ${resp.status}`);
+            statuses = await resp.json();
+            bimState.statusesCache = statuses;
+        }
+
+        const guids = statuses[status] || [];
+
+        if (guids.length === 0) {
+            bimSetMeta(`
+                <div class="bim-meta-empty">
+                    <i class="fas fa-info-circle"></i>
+                    <p>No se encontraron elementos mapeados en estado <strong>${status}</strong></p>
+                </div>`);
+            bimState.viewer.isolate([]);
+            return;
+        }
+
+        bimSetMeta(`<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Mapeando ${guids.length} elementos en modelo...</div>`);
+
+        bimGuidsToDbIds(guids, (dbIds) => {
+            bimState.dbIds = dbIds;
+            const viewer = bimState.viewer;
+            if (!viewer) return;
+
+            // Restablecer colores anteriores
+            viewer.clearThemingColors(viewer.model);
+
+            if (dbIds.length > 0) {
+                // Aislar y centrar en el visor
+                viewer.isolate(dbIds);
+                viewer.fitToView(dbIds);
+
+                // Colorear con el color correspondiente
+                const color = BIM_STATUS_COLORS[status] || new THREE.Vector4(0.18, 0.84, 0.44, 1);
+                dbIds.forEach(id => {
+                    viewer.setThemingColor(id, color, viewer.model, true);
+                });
+
+                // Mostrar botón de acciones rápidas
+                const actionsEl = document.getElementById('bim-actions');
+                if (actionsEl) actionsEl.style.display = 'flex';
+
+                // Si está en móvil o tablet, cerrar el panel para ver el resultado de inmediato
+                if (window.innerWidth <= 1024) {
+                    bimCloseSidebar();
+                }
+
+                bimSetMeta(`
+                    <div class="bim-meta-header" style="background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3);">
+                        <i class="fas fa-filter"></i>
+                        <span>Estado: ${status}</span>
+                        <span class="bim-badge">${dbIds.length} elementos</span>
+                    </div>
+                    <div class="bim-meta-placeholder" style="padding: 1.5rem 0.5rem;">
+                        <p style="font-size:0.78rem;">Se muestran solo los elementos del modelo que actualmente se registran en estado <strong>${status}</strong> en la tabla de control (LOG_Spool_MS).</p>
+                    </div>
+                `);
+            } else {
+                bimSetMeta(`
+                    <div class="bim-meta-empty">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p>Los elementos en estado <strong>${status}</strong> no corresponden a piezas del modelo 3D cargado.</p>
+                    </div>`);
+                viewer.isolate([]);
+            }
+        });
+
+    } catch (err) {
+        console.error('[BIM Status Filter Error]', err);
+        bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error: ${err.message}</p></div>`);
+    }
 }
 
 /** Renderiza las tarjetas de metadata en el panel lateral */

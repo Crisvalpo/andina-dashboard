@@ -714,6 +714,25 @@
                     </button>
                 </div>
 
+                <!-- Filtro por Estado (LOG) -->
+                <div class="bim-filter-wrapper">
+                    <label class="bim-search-label">
+                        <i class="fas fa-filter"></i> Filtrar por Estado
+                    </label>
+                    <select id="bim-status-filter" class="bim-status-select" onchange="bimFilterByStatus()">
+                        <option value="">-- Ver Todo el Modelo --</option>
+                        <option value="MONTADO">MONTADO (Verde)</option>
+                        <option value="POSICIONADO">POSICIONADO (Naranja)</option>
+                        <option value="POR MONTAR">POR MONTAR (Amarillo)</option>
+                        <option value="EN PINT/REVEST.">EN PINT/REVEST. (Morado)</option>
+                        <option value="QAQC">QAQC (Azul)</option>
+                        <option value="EN FABRICACIÓN">EN FABRICACIÓN (Celeste)</option>
+                        <option value="RETIRAR">RETIRAR (Rojo)</option>
+                        <option value="ELIMINADO">ELIMINADO (Gris)</option>
+                        <option value="SIN ESTADO">SIN ESTADO (Gris Opaco)</option>
+                    </select>
+                </div>
+
                 <div id="bim-meta-panel" class="bim-meta-panel">
                     <div class="bim-meta-placeholder">
                         <i class="fas fa-cube bim-meta-icon"></i>

@@ -1674,7 +1674,7 @@ tr:hover td {
 /* ---- Responsive: panel lateral tipo drawer deslizante para Móvil y Tablet ---- */
 @media (max-width: 1024px) {
     #bim-section {
-        left: 0 !important;
+        left: var(--sidebar-w) !important; /* Empezar a la derecha del menú lateral principal para no solaparse */
     }
 
     .bim-layout {
@@ -1697,6 +1697,7 @@ tr:hover td {
         box-shadow: 10px 0 30px rgba(0, 0, 0, 0.6);
         transform: translateX(-100%);
         transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        padding-bottom: 120px !important; /* Espacio extra abajo para que el contenido sea completamente visible con scroll */
     }
 
     .bim-sidebar.open {
@@ -1995,5 +1996,39 @@ tr:hover td {
     background: rgba(100, 116, 139, 0.2);
     color: var(--text);
 }
+
+/* Selector de Filtros por Estado en BIM */
+.bim-filter-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+}
+
+.bim-status-select {
+    width: 100%;
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.75rem;
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    font-size: 0.8rem;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.bim-status-select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+}
+
+.bim-status-select option {
+    background: #0f172a;
+    color: var(--text);
+}
+
 
 
