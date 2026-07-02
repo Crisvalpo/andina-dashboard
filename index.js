@@ -422,28 +422,37 @@ app.get('/api/bim/statuses', async (req, res) => {
     }
 });
 
-// POST /api/bim/vincular → Vincula un Elemento GUID a un SPOOL LUKEAPP en AppSheet (LIST_Bim_MS)
+// POST /api/bim/vincular → Vincula uno o múltiples Elementos GUID a un SPOOL LUKEAPP en AppSheet (LIST_Bim_MS)
 app.post('/api/bim/vincular', async (req, res) => {
-    const { guid, spool, cwp, descripcion, line_number, tag, autocad_size } = req.body;
+    let elements = req.body.elements;
+    const spool = req.body.spool;
 
-    if (!guid || !spool) {
-        return res.status(400).json({ error: "GUID y Spool son requeridos." });
+    // Si viene en el formato antiguo de un solo objeto, envolver en un array para compatibilidad
+    if (!elements && req.body.guid) {
+        elements = [ req.body ];
+    }
+
+    if (!elements || elements.length === 0 || !spool) {
+        return res.status(400).json({ error: "Elementos y Spool son requeridos." });
     }
 
     try {
-        console.log(`[BIM] Guardando en AppSheet (LIST_Bim_MS): GUID "${guid}" -> Spool "${spool}"`);
-        const row = {
-            "Elemento GUID": guid,
+        console.log(`[BIM] Guardando en AppSheet (LIST_Bim_MS): ${elements.length} vinculaciones para Spool "${spool}"`);
+        
+        // Mapear cada elemento a la estructura de la fila de AppSheet
+        const rows = elements.map(el => ({
+            "Elemento GUID": el.guid,
             "SPOOL LUKEAPP": spool,
-            "CWP": cwp || "",
-            "DESCRIPCIÓN": descripcion || "",
-            "Line Number": line_number || "",
-            "TAG": tag || "",
-            "AutoCad Size": autocad_size || ""
-        };
+            "CWP": el.cwp || "",
+            "DESCRIPCIÓN": el.descripcion || el.name || "",
+            "Line Number": el.line_number || el.layer || "",
+            "TAG": el.tag || el.layer || "",
+            "AutoCad Size": el.autocad_size || ""
+        }));
 
-        const result = await fetchAppSheet('LIST_Bim_MS', 'Add', [row]);
-        res.json({ success: true, result });
+        // Enviar la inserción en bloque (batch)
+        const result = await fetchAppSheet('LIST_Bim_MS', 'Add', rows);
+        res.json({ success: true, count: rows.length, result });
     } catch (e) {
         console.error('[BIM Vincular Error]', e.message);
         res.status(500).json({ error: e.message });

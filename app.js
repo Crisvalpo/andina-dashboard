@@ -1944,70 +1944,98 @@ function bimStartViewer() {
                             .then(data => { bimState.statusesCache = data; })
                             .catch(err => console.error('[BIM] Error precargando estados:', err));
 
-                        // Listener de selección: captura propiedades para vinculación en tiempo real y depuración
+                        // Listener de selección: captura propiedades para vinculación en tiempo real (admite selección múltiple con CTRL)
                         viewer.addEventListener(Autodesk.Viewing.SELECTION_CHANGED_EVENT, (event) => {
                             const dbIdArray = event.dbIdArray;
                             const panel = document.getElementById('bim-link-panel');
                             
                             if (dbIdArray && dbIdArray.length > 0) {
-                                const selId = dbIdArray[0];
-                                viewer.getProperties(selId, (pResult) => {
-                                    console.log(`[BIM Debug] Elemento seleccionado dbId: ${selId}`, pResult);
-                                    
-                                    let guid = pResult.externalId || '';
-                                    let layer = '';
-                                    let sourceFile = '';
-                                    
-                                    if (pResult.properties) {
-                                        pResult.properties.forEach(prop => {
-                                            const propName = String(prop.displayName || prop.attributeName || '').toLowerCase();
-                                            if (['guid', 'element guid', 'revit guid'].includes(propName)) {
-                                                guid = String(prop.displayValue || '').trim();
+                                // Obtener propiedades de todos los elementos seleccionados en un único bloque
+                                viewer.model.getBulkProperties(
+                                    dbIdArray,
+                                    { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'Layer'] },
+                                    (results) => {
+                                        const selectedList = [];
+                                        const uniqueLayers = new Set();
+
+                                        results.forEach(pResult => {
+                                            let guid = pResult.externalId || '';
+                                            let layer = '';
+                                            let sourceFile = '';
+                                            
+                                            if (pResult.properties) {
+                                                pResult.properties.forEach(prop => {
+                                                    const propName = String(prop.displayName || prop.attributeName || '').toLowerCase();
+                                                    if (['guid', 'element guid', 'revit guid'].includes(propName)) {
+                                                        guid = String(prop.displayValue || '').trim();
+                                                    }
+                                                    if (propName === 'layer') {
+                                                        layer = String(prop.displayValue || '').trim();
+                                                    }
+                                                    if (propName === 'source file') {
+                                                        sourceFile = String(prop.displayValue || '').trim();
+                                                    }
+                                                });
                                             }
-                                            if (propName === 'layer') {
-                                                layer = String(prop.displayValue || '').trim();
-                                            }
-                                            if (propName === 'source file') {
-                                                sourceFile = String(prop.displayValue || '').trim();
+
+                                            if (guid) {
+                                                selectedList.push({
+                                                    dbId: pResult.dbId,
+                                                    guid: guid,
+                                                    layer: layer,
+                                                    sourceFile: sourceFile,
+                                                    name: pResult.name || 'ACPPPIPE'
+                                                });
+                                                if (layer) uniqueLayers.add(layer);
                                             }
                                         });
-                                    }
 
-                                    if (guid) {
-                                        bimState.selectedElement = {
-                                            dbId: selId,
-                                            guid: guid,
-                                            layer: layer,
-                                            sourceFile: sourceFile,
-                                            name: pResult.name || ''
-                                        };
+                                        if (selectedList.length > 0) {
+                                            bimState.selectedElements = selectedList;
 
-                                        // Actualizar panel en UI
-                                        document.getElementById('bim-link-guid').textContent = guid;
-                                        document.getElementById('bim-link-layer').textContent = layer || 'N/A';
-                                        document.getElementById('bim-link-spool').value = '';
-                                        
-                                        const btn = document.getElementById('bim-link-btn');
-                                        if (btn) {
-                                            btn.innerHTML = '<i class="fas fa-save"></i> Guardar en AppSheet';
-                                            btn.disabled = false;
-                                            btn.style.opacity = '1';
+                                            // Actualizar título de panel en UI
+                                            const linkTitle = document.querySelector('#bim-link-panel h4');
+                                            if (linkTitle) {
+                                                linkTitle.innerHTML = `<i class="fas fa-link"></i> Vincular (${selectedList.length} selec.)`;
+                                            }
+
+                                            // Mostrar resumen del GUID
+                                            document.getElementById('bim-link-guid').textContent = selectedList.length === 1
+                                                ? selectedList[0].guid
+                                                : `${selectedList.length} elementos seleccionados`;
+
+                                            // Mostrar capas / líneas únicas
+                                            document.getElementById('bim-link-layer').textContent = uniqueLayers.size > 0
+                                                ? Array.from(uniqueLayers).join(', ')
+                                                : 'N/A';
+
+                                            document.getElementById('bim-link-spool').value = '';
+                                            
+                                            const btn = document.getElementById('bim-link-btn');
+                                            if (btn) {
+                                                btn.innerHTML = `<i class="fas fa-save"></i> Guardar ${selectedList.length} elem.`;
+                                                btn.disabled = false;
+                                                btn.style.opacity = '1';
+                                            }
+
+                                            if (panel) panel.style.display = 'flex';
+                                            
+                                            // Abrir la barra lateral si está colapsada en móvil para que el usuario la vea
+                                            const sidebar = document.querySelector('.bim-sidebar');
+                                            if (sidebar && window.innerWidth <= 1024 && !sidebar.classList.contains('open')) {
+                                                bimToggleSidebar();
+                                            }
+                                        } else {
+                                            bimState.selectedElements = [];
+                                            if (panel) panel.style.display = 'none';
                                         }
-
-                                        if (panel) panel.style.display = 'flex';
-                                        
-                                        // Abrir la barra lateral si está colapsada en móvil para que el usuario la vea
-                                        const sidebar = document.querySelector('.bim-sidebar');
-                                        if (sidebar && window.innerWidth <= 1024 && !sidebar.classList.contains('open')) {
-                                            bimToggleSidebar();
-                                        }
-                                    } else {
-                                        bimState.selectedElement = null;
-                                        if (panel) panel.style.display = 'none';
+                                    },
+                                    (err) => {
+                                        console.error('[BIM] Error al obtener propiedades en lote:', err);
                                     }
-                                });
+                                );
                             } else {
-                                bimState.selectedElement = null;
+                                bimState.selectedElements = [];
                                 if (panel) panel.style.display = 'none';
                             }
                         });
@@ -2601,11 +2629,11 @@ function bimCloseSidebar() {
     if (btn) btn.innerHTML = '<i class="fas fa-info-circle"></i>';
 }
 
-/** Guarda la vinculación del elemento 3D seleccionado en AppSheet */
+/** Guarda la vinculación de los elementos 3D seleccionados en AppSheet */
 async function bimSaveLink() {
-    const el = bimState.selectedElement;
-    if (!el) {
-        alert("Selecciona un elemento en el visor 3D primero.");
+    const elements = bimState.selectedElements || [];
+    if (elements.length === 0) {
+        alert("Selecciona al menos un elemento en el visor 3D primero.");
         return;
     }
 
@@ -2620,20 +2648,22 @@ async function bimSaveLink() {
 
     const btn = document.getElementById('bim-link-btn');
     if (btn) {
-        btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Guardando...';
+        btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> Guardando ${elements.length}...`;
         btn.disabled = true;
         btn.style.opacity = '0.7';
     }
 
     try {
         const payload = {
-            guid: el.guid,
             spool: spoolVal,
-            cwp: '', // vacío por defecto, se puede poblar si el modelo tuviera la info
-            descripcion: el.name || 'ACPPPIPE',
-            line_number: el.layer || '',
-            tag: el.layer || '',
-            autocad_size: ''
+            elements: elements.map(el => ({
+                guid: el.guid,
+                cwp: '',
+                descripcion: el.name || 'ACPPPIPE',
+                line_number: el.layer || '',
+                tag: el.layer || '',
+                autocad_size: ''
+            }))
         };
 
         const resp = await fetch('/api/bim/vincular', {
@@ -2647,19 +2677,21 @@ async function bimSaveLink() {
             throw new Error(errData.error || `Error ${resp.status}`);
         }
 
-        console.log(`[BIM] Mapeo guardado con éxito en AppSheet para GUID: ${el.guid}`);
+        console.log(`[BIM] Mapeo de ${elements.length} elementos guardado con éxito en AppSheet.`);
 
         // Feedback visual en el botón
         if (btn) {
-            btn.innerHTML = '<i class="fas fa-check"></i> ¡Vinculado en AppSheet!';
+            btn.innerHTML = `<i class="fas fa-check"></i> ¡${elements.length} Vinculados!`;
             btn.style.background = '#059669';
             btn.style.borderColor = '#059669';
             btn.style.color = '#fff';
         }
 
-        // Colorear el elemento seleccionado en verde brillante como feedback visual
+        // Colorear todos los elementos seleccionados en verde brillante como feedback visual
         if (bimState.viewer) {
-            bimState.viewer.setThemingColor(el.dbId, new THREE.Vector4(0.18, 0.84, 0.44, 1), bimState.viewer.model, true);
+            elements.forEach(el => {
+                bimState.viewer.setThemingColor(el.dbId, new THREE.Vector4(0.18, 0.84, 0.44, 1), bimState.viewer.model, true);
+            });
         }
 
         // Forzar actualización de la caché de estados en background
@@ -2668,10 +2700,10 @@ async function bimSaveLink() {
             .then(data => { bimState.statusesCache = data; })
             .catch(err => console.error('[BIM] Error actualizando estados:', err));
 
-        // Limpiar el input después de un momento
+        // Limpiar el input y la interfaz después de un momento
         setTimeout(() => {
             if (btn) {
-                btn.innerHTML = '<i class="fas fa-save"></i> Guardar en AppSheet';
+                btn.innerHTML = '<i class="fas fa-save"></i> Guardar';
                 btn.style.background = '';
                 btn.style.borderColor = '';
                 btn.style.color = '';
@@ -2686,10 +2718,10 @@ async function bimSaveLink() {
         }, 2000);
 
     } catch (err) {
-        console.error('[BIM] Error vinculando elemento:', err);
+        console.error('[BIM] Error vinculando elementos:', err);
         alert(`No se pudo guardar la vinculación: ${err.message}`);
         if (btn) {
-            btn.innerHTML = '<i class="fas fa-save"></i> Guardar en AppSheet';
+            btn.innerHTML = `<i class="fas fa-save"></i> Guardar ${elements.length}`;
             btn.disabled = false;
             btn.style.opacity = '1';
         }
