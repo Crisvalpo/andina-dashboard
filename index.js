@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { CONFIG, resumenSeguro } = require('./config');
 const { fetchAppSheet } = require('./lib/appsheet');
+const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS } = require('./lib/auth');
 const app = express();
 const PORT = CONFIG.PORT;
 
@@ -396,7 +397,8 @@ app.get('/api/bim/statuses', async (req, res) => {
 });
 
 // POST /api/bim/vincular → Vincula uno o múltiples Elementos GUID a un SPOOL LUKEAPP en AppSheet (LIST_Bim_MS)
-app.post('/api/bim/vincular', async (req, res) => {
+// Escritura protegida: requiere clave de edición BIM.
+app.post('/api/bim/vincular', requerirPermiso('bim'), async (req, res) => {
     let elements = req.body.elements;
     const spool = req.body.spool;
 
@@ -457,8 +459,26 @@ const { handleWhatsappIncoming } = require('./lib/bot');
 const { listarBotConfig, setBotConfig } = require('./lib/botConfig');
 const { getSupabase } = require('./lib/supabase');
 
-// Webhook de mensajes entrantes (llamado por el wa-bridge)
+// -----------------------------------------------------------------
+// AUTENTICACIÓN (claves de escritura). Lectura del dashboard: abierta.
+// -----------------------------------------------------------------
+// POST /api/auth/login → valida una clave y devuelve un token con permisos.
+app.post('/api/auth/login', (req, res) => {
+    const clave = (req.body && req.body.clave) || '';
+    const permisos = permisosDeClave(clave);
+    if (!permisos.length) {
+        return res.status(401).json({ success: false, error: 'Clave incorrecta' });
+    }
+    const token = crearToken(permisos);
+    res.json({ success: true, token, permisos, expiraEnHoras: TTL_HORAS });
+});
+
+// Webhook de mensajes entrantes (llamado por el wa-bridge; valida su propio secreto)
 app.post('/api/whatsapp-incoming', handleWhatsappIncoming);
+
+// Todas las rutas /api/bot/* y /api/config exigen clave de administración del bot.
+// (Protege también el QR: quien lo escanee secuestraría la sesión de WhatsApp.)
+app.use(['/api/bot', '/api/config'], requerirPermiso('bot'));
 
 // Estado del bridge + número del bot (proxy para no exponer el puerto del bridge)
 app.get('/api/bot/status', async (req, res) => {

@@ -2649,6 +2649,10 @@ async function bimSaveLink() {
         return;
     }
 
+    // Escritura protegida: exigir clave de edición BIM antes de guardar.
+    const desbloqueado = await authAsegurar('bim');
+    if (!desbloqueado) return;
+
     const btn = document.getElementById('bim-link-btn');
     if (btn) {
         btn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> Guardando ${elements.length}...`;
@@ -2671,9 +2675,16 @@ async function bimSaveLink() {
 
         const resp = await fetch('/api/bim/vincular', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
             body: JSON.stringify(payload)
         });
+
+        if (resp.status === 401) {
+            authOlvidar('bim');
+            alert('🔒 Clave de edición BIM incorrecta o expirada. Vuelve a intentar.');
+            if (btn) { btn.innerHTML = `<i class="fas fa-save"></i> Guardar ${elements.length}`; btn.disabled = false; btn.style.opacity = '1'; }
+            return;
+        }
 
         if (!resp.ok) {
             const errData = await resp.json();
@@ -2738,7 +2749,20 @@ async function bimSaveLink() {
 // ============================================================
 let botQrPollTimer = null;
 
-function botInitPanel() {
+async function botInitPanel() {
+    const lock = document.getElementById('bot-lock');
+    const content = document.getElementById('bot-content');
+
+    // Exigir clave de administración del bot antes de mostrar QR/config/usuarios.
+    const desbloqueado = await authAsegurar('bot');
+    if (!desbloqueado) {
+        if (lock) lock.style.display = 'flex';
+        if (content) content.style.display = 'none';
+        return;
+    }
+    if (lock) lock.style.display = 'none';
+    if (content) content.style.display = '';
+
     botRefreshStatus();
     botRefreshQr();
     botCargarUsuarios();
@@ -2763,7 +2787,7 @@ async function botRefreshStatus(silencioso = false) {
     if (!silencioso) badge.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Consultando...';
 
     try {
-        const r = await fetch('/api/bot/status');
+        const r = await fetch('/api/bot/status', { headers: authHeaders('bot') });
         const d = await r.json();
 
         const estados = {
@@ -2793,7 +2817,7 @@ async function botRefreshQr(silencioso = false) {
     if (!img || !hint) return;
 
     try {
-        const r = await fetch('/api/bot/qr');
+        const r = await fetch('/api/bot/qr', { headers: authHeaders('bot') });
         const d = await r.json();
 
         if (d.qrDataUrl) {
@@ -2824,7 +2848,7 @@ async function botRestart(logout) {
     try {
         const r = await fetch('/api/bot/restart', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
             body: JSON.stringify({ logout })
         });
         const d = await r.json();
@@ -2839,7 +2863,7 @@ async function botCargarUsuarios() {
     const body = document.getElementById('bot-users-body');
     if (!body) return;
     try {
-        const r = await fetch('/api/bot/usuarios');
+        const r = await fetch('/api/bot/usuarios', { headers: authHeaders('bot') });
         const d = await r.json();
         if (!d.success) throw new Error(d.error || 'Error');
 
@@ -2875,7 +2899,7 @@ async function botToggleUsuario(telefono, activo) {
     try {
         await fetch(`/api/bot/usuarios/${telefono}`, {
             method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
             body: JSON.stringify({ activo })
         });
         botCargarUsuarios();
@@ -2897,7 +2921,7 @@ async function botAgregarUsuario() {
     try {
         const r = await fetch('/api/bot/usuarios', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
             body: JSON.stringify({ telefono, nombre, rol })
         });
         const d = await r.json();
@@ -2916,7 +2940,7 @@ async function botCargarConfig() {
     if (!runtimeEl || !envEl) return;
 
     try {
-        const r = await fetch('/api/config');
+        const r = await fetch('/api/config', { headers: authHeaders('bot') });
         const d = await r.json();
 
         // --- Config runtime (editable) ---
@@ -2965,7 +2989,7 @@ async function botGuardarConfig(clave) {
     try {
         const r = await fetch('/api/config', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
             body: JSON.stringify({ clave, valor: input.value })
         });
         const d = await r.json();
@@ -2975,4 +2999,104 @@ async function botGuardarConfig(clave) {
     } catch (e) {
         alert('Error guardando: ' + e.message);
     }
+}
+
+
+// ============================================================
+// CONTROL DE ACCESO (escritura) — frontend
+// Lectura abierta; escritura pide clave por área (bim / bot).
+// El token se guarda en localStorage y se valida en el servidor.
+// ============================================================
+const AUTH_LABELS = {
+    bim: { titulo: 'Edición BIM', desc: 'Ingresa la clave para vincular elementos 3D a spools.' },
+    bot: { titulo: 'Administración del Bot', desc: 'Ingresa la clave para administrar el bot de WhatsApp.' }
+};
+
+function authGuardar(area, token, expiraEnHoras) {
+    const exp = Date.now() + (expiraEnHoras || 12) * 3600 * 1000;
+    localStorage.setItem(`andina_tok_${area}`, JSON.stringify({ token, exp }));
+}
+
+function authObtener(area) {
+    try {
+        const raw = localStorage.getItem(`andina_tok_${area}`);
+        if (!raw) return null;
+        const { token, exp } = JSON.parse(raw);
+        if (!exp || Date.now() > exp) { authOlvidar(area); return null; }
+        return token;
+    } catch (e) { return null; }
+}
+
+function authOlvidar(area) {
+    localStorage.removeItem(`andina_tok_${area}`);
+}
+
+function authHeaders(area) {
+    const t = authObtener(area);
+    return t ? { 'x-edit-token': t } : {};
+}
+
+/** Garantiza que exista un token válido para el área; si no, pide la clave. */
+async function authAsegurar(area) {
+    if (authObtener(area)) return true;
+    const clave = await authPedirClave(area);
+    if (clave === null) return false; // cancelado
+    try {
+        const r = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clave })
+        });
+        const d = await r.json();
+        if (!d.success) {
+            alert('🔒 Clave incorrecta.');
+            return false;
+        }
+        // Una clave puede otorgar varios permisos: guardar el token para cada uno.
+        (d.permisos || []).forEach(p => authGuardar(p, d.token, d.expiraEnHoras));
+        return (d.permisos || []).includes(area);
+    } catch (e) {
+        alert('Error validando la clave: ' + e.message);
+        return false;
+    }
+}
+
+/** Modal de clave. Devuelve la clave (string) o null si se cancela. */
+function authPedirClave(area) {
+    const info = AUTH_LABELS[area] || { titulo: 'Acceso', desc: 'Ingresa la clave.' };
+    return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'auth-modal-overlay';
+        overlay.innerHTML = `
+            <div class="auth-modal">
+                <div class="auth-modal-icon"><i class="fas fa-lock"></i></div>
+                <h3>${info.titulo}</h3>
+                <p>${info.desc}</p>
+                <input type="password" id="auth-modal-input" placeholder="Clave" autocomplete="off">
+                <div class="auth-modal-error" id="auth-modal-error"></div>
+                <div class="auth-modal-actions">
+                    <button class="auth-btn-cancel" id="auth-modal-cancel">Cancelar</button>
+                    <button class="auth-btn-ok" id="auth-modal-ok">Desbloquear</button>
+                </div>
+            </div>`;
+        document.body.appendChild(overlay);
+
+        const input = overlay.querySelector('#auth-modal-input');
+        const cerrar = (val) => { overlay.remove(); resolve(val); };
+
+        overlay.querySelector('#auth-modal-cancel').onclick = () => cerrar(null);
+        overlay.querySelector('#auth-modal-ok').onclick = () => cerrar(input.value);
+        overlay.addEventListener('click', e => { if (e.target === overlay) cerrar(null); });
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') cerrar(input.value);
+            if (e.key === 'Escape') cerrar(null);
+        });
+        setTimeout(() => input.focus(), 50);
+    });
+}
+
+// Botón dentro del panel Bot para reintentar el desbloqueo manualmente.
+async function botDesbloquear() {
+    const ok = await authAsegurar('bot');
+    if (ok) botInitPanel();
 }

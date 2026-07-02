@@ -689,6 +689,22 @@
             <!-- ===== SECTION: BOT WHATSAPP (Configuración) ===== -->
             <section class="section-content" id="bot-section">
 
+                <!-- Pantalla de bloqueo (si no hay clave de administración del bot) -->
+                <div id="bot-lock" class="bot-lock" style="display:none;">
+                    <div class="bot-lock-card glass">
+                        <div class="bot-lock-icon"><i class="fas fa-lock"></i></div>
+                        <h3>Sección restringida</h3>
+                        <p>La administración del bot (configuración, usuarios y QR de WhatsApp)
+                            requiere la clave de administración.</p>
+                        <button class="refresh-btn" onclick="botDesbloquear()">
+                            <i class="fas fa-key"></i> Ingresar clave
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Contenido real del panel (visible tras desbloquear) -->
+                <div id="bot-content" style="display:none;">
+
                 <!-- Fila 1: Estado de conexión + QR -->
                 <div class="bot-grid">
                     <div class="chart-card glass bot-card">
@@ -793,6 +809,8 @@
                         </div>
                     </div>
                 </div>
+
+                </div><!-- /#bot-content -->
 
             </section>
 

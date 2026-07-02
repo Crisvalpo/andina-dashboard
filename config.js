@@ -34,6 +34,12 @@ const CONFIG = {
     APS_CLIENT_ID: process.env.APS_CLIENT_ID || '',
     APS_CLIENT_SECRET: process.env.APS_CLIENT_SECRET || '',
     APS_MODEL_URN: process.env.APS_MODEL_URN || '',
+
+    // --- Control de acceso (escritura) ---
+    // Claves compartidas por área; validadas en servidor. Solo en .env.
+    CLAVE_BIM: process.env.CLAVE_BIM || '',       // desbloquea vincular elementos 3D
+    CLAVE_BOT: process.env.CLAVE_BOT || '',       // desbloquea administración del bot
+    SESSION_SECRET: process.env.SESSION_SECRET || '', // firma los tokens de sesión
 };
 
 // Claves que son secretas: el endpoint /api/config solo informa si están
@@ -44,6 +50,9 @@ const CLAVES_SECRETAS = [
     'GEMINI_API_KEY',
     'WA_BRIDGE_SECRET',
     'APS_CLIENT_SECRET',
+    'CLAVE_BIM',
+    'CLAVE_BOT',
+    'SESSION_SECRET',
 ];
 
 /**
