@@ -1826,7 +1826,8 @@ const bimState = {
     dbIds:         [],     // dbIds correspondientes en el viewer
     token:         null,
     modelUrn:      null,
-    statusesCache: null    // Caché de { status: [guids] }
+    statusesCache: null,   // Caché de { status: [guids] }
+    selectedElement: null  // Elemento 3D clickeado actualmente
 };
 
 /**
@@ -1943,14 +1944,71 @@ function bimStartViewer() {
                             .then(data => { bimState.statusesCache = data; })
                             .catch(err => console.error('[BIM] Error precargando estados:', err));
 
-                        // Listener de depuración: muestra en consola F12 las propiedades de cualquier elemento clickeado
+                        // Listener de selección: captura propiedades para vinculación en tiempo real y depuración
                         viewer.addEventListener(Autodesk.Viewing.SELECTION_CHANGED_EVENT, (event) => {
                             const dbIdArray = event.dbIdArray;
+                            const panel = document.getElementById('bim-link-panel');
+                            
                             if (dbIdArray && dbIdArray.length > 0) {
                                 const selId = dbIdArray[0];
                                 viewer.getProperties(selId, (pResult) => {
                                     console.log(`[BIM Debug] Elemento seleccionado dbId: ${selId}`, pResult);
+                                    
+                                    let guid = pResult.externalId || '';
+                                    let layer = '';
+                                    let sourceFile = '';
+                                    
+                                    if (pResult.properties) {
+                                        pResult.properties.forEach(prop => {
+                                            const propName = String(prop.displayName || prop.attributeName || '').toLowerCase();
+                                            if (['guid', 'element guid', 'revit guid'].includes(propName)) {
+                                                guid = String(prop.displayValue || '').trim();
+                                            }
+                                            if (propName === 'layer') {
+                                                layer = String(prop.displayValue || '').trim();
+                                            }
+                                            if (propName === 'source file') {
+                                                sourceFile = String(prop.displayValue || '').trim();
+                                            }
+                                        });
+                                    }
+
+                                    if (guid) {
+                                        bimState.selectedElement = {
+                                            dbId: selId,
+                                            guid: guid,
+                                            layer: layer,
+                                            sourceFile: sourceFile,
+                                            name: pResult.name || ''
+                                        };
+
+                                        // Actualizar panel en UI
+                                        document.getElementById('bim-link-guid').textContent = guid;
+                                        document.getElementById('bim-link-layer').textContent = layer || 'N/A';
+                                        document.getElementById('bim-link-spool').value = '';
+                                        
+                                        const btn = document.getElementById('bim-link-btn');
+                                        if (btn) {
+                                            btn.innerHTML = '<i class="fas fa-save"></i> Guardar en AppSheet';
+                                            btn.disabled = false;
+                                            btn.style.opacity = '1';
+                                        }
+
+                                        if (panel) panel.style.display = 'flex';
+                                        
+                                        // Abrir la barra lateral si está colapsada en móvil para que el usuario la vea
+                                        const sidebar = document.querySelector('.bim-sidebar');
+                                        if (sidebar && window.innerWidth <= 1024 && !sidebar.classList.contains('open')) {
+                                            bimToggleSidebar();
+                                        }
+                                    } else {
+                                        bimState.selectedElement = null;
+                                        if (panel) panel.style.display = 'none';
+                                    }
                                 });
+                            } else {
+                                bimState.selectedElement = null;
+                                if (panel) panel.style.display = 'none';
                             }
                         });
 
@@ -2542,3 +2600,99 @@ function bimCloseSidebar() {
     if (overlay) overlay.classList.remove('active');
     if (btn) btn.innerHTML = '<i class="fas fa-info-circle"></i>';
 }
+
+/** Guarda la vinculación del elemento 3D seleccionado en AppSheet */
+async function bimSaveLink() {
+    const el = bimState.selectedElement;
+    if (!el) {
+        alert("Selecciona un elemento en el visor 3D primero.");
+        return;
+    }
+
+    const input = document.getElementById('bim-link-spool');
+    const spoolVal = input ? input.value.trim() : '';
+
+    if (!spoolVal) {
+        alert("Ingresa un código de Spool (LUKEAPP).");
+        if (input) input.focus();
+        return;
+    }
+
+    const btn = document.getElementById('bim-link-btn');
+    if (btn) {
+        btn.innerHTML = '<i class="fas fa-sync-alt fa-spin"></i> Guardando...';
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+    }
+
+    try {
+        const payload = {
+            guid: el.guid,
+            spool: spoolVal,
+            cwp: '', // vacío por defecto, se puede poblar si el modelo tuviera la info
+            descripcion: el.name || 'ACPPPIPE',
+            line_number: el.layer || '',
+            tag: el.layer || '',
+            autocad_size: ''
+        };
+
+        const resp = await fetch('/api/bim/vincular', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!resp.ok) {
+            const errData = await resp.json();
+            throw new Error(errData.error || `Error ${resp.status}`);
+        }
+
+        console.log(`[BIM] Mapeo guardado con éxito en AppSheet para GUID: ${el.guid}`);
+
+        // Feedback visual en el botón
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-check"></i> ¡Vinculado en AppSheet!';
+            btn.style.background = '#059669';
+            btn.style.borderColor = '#059669';
+            btn.style.color = '#fff';
+        }
+
+        // Colorear el elemento seleccionado en verde brillante como feedback visual
+        if (bimState.viewer) {
+            bimState.viewer.setThemingColor(el.dbId, new THREE.Vector4(0.18, 0.84, 0.44, 1), bimState.viewer.model, true);
+        }
+
+        // Forzar actualización de la caché de estados en background
+        fetch('/api/bim/statuses')
+            .then(r => r.json())
+            .then(data => { bimState.statusesCache = data; })
+            .catch(err => console.error('[BIM] Error actualizando estados:', err));
+
+        // Limpiar el input después de un momento
+        setTimeout(() => {
+            if (btn) {
+                btn.innerHTML = '<i class="fas fa-save"></i> Guardar en AppSheet';
+                btn.style.background = '';
+                btn.style.borderColor = '';
+                btn.style.color = '';
+                btn.disabled = false;
+                btn.style.opacity = '1';
+            }
+            // Ocultar panel de vinculación
+            const panel = document.getElementById('bim-link-panel');
+            if (panel) panel.style.display = 'none';
+            // Limpiar selección del visor
+            if (bimState.viewer) bimState.viewer.select([]);
+        }, 2000);
+
+    } catch (err) {
+        console.error('[BIM] Error vinculando elemento:', err);
+        alert(`No se pudo guardar la vinculación: ${err.message}`);
+        if (btn) {
+            btn.innerHTML = '<i class="fas fa-save"></i> Guardar en AppSheet';
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
+    }
+}
+

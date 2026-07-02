@@ -11,6 +11,8 @@ const APPSHEET_CONFIG = {
 };
 
 app.use(express.static(__dirname));
+app.use(express.json()); // Habilitar lectura de JSON en peticiones POST
+
 
 /**
  * Función genérica para consultar AppSheet
@@ -419,6 +421,35 @@ app.get('/api/bim/statuses', async (req, res) => {
         res.status(500).json({ error: e.message });
     }
 });
+
+// POST /api/bim/vincular → Vincula un Elemento GUID a un SPOOL LUKEAPP en AppSheet (LIST_Bim_MS)
+app.post('/api/bim/vincular', async (req, res) => {
+    const { guid, spool, cwp, descripcion, line_number, tag, autocad_size } = req.body;
+
+    if (!guid || !spool) {
+        return res.status(400).json({ error: "GUID y Spool son requeridos." });
+    }
+
+    try {
+        console.log(`[BIM] Guardando en AppSheet (LIST_Bim_MS): GUID "${guid}" -> Spool "${spool}"`);
+        const row = {
+            "Elemento GUID": guid,
+            "SPOOL LUKEAPP": spool,
+            "CWP": cwp || "",
+            "DESCRIPCIÓN": descripcion || "",
+            "Line Number": line_number || "",
+            "TAG": tag || "",
+            "AutoCad Size": autocad_size || ""
+        };
+
+        const result = await fetchAppSheet('LIST_Bim_MS', 'Add', [row]);
+        res.json({ success: true, result });
+    } catch (e) {
+        console.error('[BIM Vincular Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 
 // Ruta visual de la Guía

@@ -733,6 +733,28 @@
                     </select>
                 </div>
 
+                <!-- Formulario de Vinculación de Elementos 3D -->
+                <div id="bim-link-panel" class="bim-link-panel" style="display:none;">
+                    <h4 class="bim-elements-title"><i class="fas fa-link"></i> Vincular Elemento 3D</h4>
+                    <div class="bim-link-row">
+                        <span class="bim-link-label">GUID:</span>
+                        <span class="bim-link-val" id="bim-link-guid">--</span>
+                    </div>
+                    <div class="bim-link-row">
+                        <span class="bim-link-label">Línea (Capa):</span>
+                        <span class="bim-link-val" id="bim-link-layer">--</span>
+                    </div>
+                    <div class="bim-link-field">
+                        <label for="bim-link-spool">Código Spool (LUKEAPP):</label>
+                        <div class="bim-search-row">
+                            <input type="text" id="bim-link-spool" class="bim-search-input" placeholder="Ej: 217" />
+                        </div>
+                    </div>
+                    <button class="bim-scan-btn" onclick="bimSaveLink()" id="bim-link-btn" style="background:rgba(99,102,241,0.15); border-color:rgba(99,102,241,0.3); color:var(--primary-light);">
+                        <i class="fas fa-save"></i> Guardar en AppSheet
+                    </button>
+                </div>
+
                 <div id="bim-meta-panel" class="bim-meta-panel">
                     <div class="bim-meta-placeholder">
                         <i class="fas fa-cube bim-meta-icon"></i>

@@ -2030,5 +2030,49 @@ tr:hover td {
     color: var(--text);
 }
 
+/* Formulario de vinculación rápida */
+.bim-link-panel {
+    border-top: 1px solid var(--border);
+    padding-top: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.bim-link-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.72rem;
+    color: var(--text-dim);
+}
+
+.bim-link-label {
+    font-weight: 500;
+}
+
+.bim-link-val {
+    color: var(--text);
+    font-family: monospace;
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.bim-link-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+}
+
+.bim-link-field label {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+
 
 
