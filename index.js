@@ -1,39 +1,13 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const { CONFIG, resumenSeguro } = require('./config');
+const { fetchAppSheet } = require('./lib/appsheet');
 const app = express();
-const PORT = 3005;
-
-// Configuración API AppSheet
-const APPSHEET_CONFIG = {
-    appId: 'eb4713b6-0828-4993-b5e1-935eec83cf4e',
-    accessKey: 'V2-b9qXt-SY9es-eDDQb-L2lXN-NIInJ-U0DvZ-5fa2N-4huez'
-};
+const PORT = CONFIG.PORT;
 
 app.use(express.static(__dirname));
-app.use(express.json()); // Habilitar lectura de JSON en peticiones POST
-
-
-/**
- * Función genérica para consultar AppSheet
- */
-async function fetchAppSheet(tableName, action = "Find", rows = []) {
-    const url = `https://api.appsheet.com/api/v2/apps/${APPSHEET_CONFIG.appId}/tables/${tableName}/Action`;
-    const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-            'ApplicationAccessKey': APPSHEET_CONFIG.accessKey,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            Action: action,
-            Properties: { Locale: "es-ES" },
-            Rows: rows
-        })
-    });
-    if (!response.ok) throw new Error(`AppSheet Error: ${response.status}`);
-    return await response.json();
-}
+app.use(express.json({ limit: '50mb' })); // JSON en POST (audios del bot vienen en base64)
 
 // Caché en memoria para optimizar peticiones y consumo de cuota
 const cache = {};
@@ -117,10 +91,9 @@ app.get('/api/guia/:id', async (req, res) => {
 // Credenciales SOLO en servidor, nunca expuestas al frontend.
 // =================================================================
 const APS_CONFIG = {
-    clientId:     '9InGA6qs4s4myHpKk1vzEoOxmzDGL6qdEis3Ze0nXHUUP2Ru',
-    clientSecret: '1T6qha9Y0KArOzbxc2J4MxrYAFVutFUrHykK55mtAEuKLRaMPFwy4naEyJ6frWt1',
-    // "ANDINA 29-03-26.nwd" — Proyecto MODELOS PARA VCAD | Últ. mod: 2026-03-29 | Versión 1
-    modelUrn: 'dXJuOmFkc2sud2lwcHJvZDpmcy5maWxlOnZmLnpaNmpTZVNxVGNhS3Q1Z0QxaWprcHc_dmVyc2lvbj0x'
+    clientId:     CONFIG.APS_CLIENT_ID,
+    clientSecret: CONFIG.APS_CLIENT_SECRET,
+    modelUrn:     CONFIG.APS_MODEL_URN
 };
 
 
@@ -476,6 +449,121 @@ app.post('/api/bim/vincular', async (req, res) => {
 });
 
 
+
+// =================================================================
+// BOT WHATSAPP (wa-bridge Baileys + Gemini) Y PANEL DE CONFIGURACIÓN
+// =================================================================
+const { handleWhatsappIncoming } = require('./lib/bot');
+const { listarBotConfig, setBotConfig } = require('./lib/botConfig');
+const { getSupabase } = require('./lib/supabase');
+
+// Webhook de mensajes entrantes (llamado por el wa-bridge)
+app.post('/api/whatsapp-incoming', handleWhatsappIncoming);
+
+// Estado del bridge + número del bot (proxy para no exponer el puerto del bridge)
+app.get('/api/bot/status', async (req, res) => {
+    try {
+        const r = await fetch(`${CONFIG.WA_BRIDGE_URL}/status`, { signal: AbortSignal.timeout(5000) });
+        res.json(await r.json());
+    } catch (e) {
+        res.json({ success: false, status: 'bridge_offline', error: 'El wa-bridge no responde (¿PM2 detenido?)' });
+    }
+});
+
+// QR para vincular / re-vincular la sesión de WhatsApp
+app.get('/api/bot/qr', async (req, res) => {
+    try {
+        const r = await fetch(`${CONFIG.WA_BRIDGE_URL}/qr`, { signal: AbortSignal.timeout(5000) });
+        res.json(await r.json());
+    } catch (e) {
+        res.json({ success: false, status: 'bridge_offline', qr: null, qrDataUrl: null });
+    }
+});
+
+// Reiniciar conexión del bridge. body: { logout: true } fuerza QR nuevo.
+app.post('/api/bot/restart', async (req, res) => {
+    try {
+        const r = await fetch(`${CONFIG.WA_BRIDGE_URL}/restart`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ logout: Boolean(req.body && req.body.logout) }),
+            signal: AbortSignal.timeout(10000)
+        });
+        res.json(await r.json());
+    } catch (e) {
+        res.status(502).json({ success: false, error: 'El wa-bridge no responde' });
+    }
+});
+
+// Configuración: entorno (secretos enmascarados) + runtime (editable)
+app.get('/api/config', async (req, res) => {
+    try {
+        let runtime = [];
+        let runtimeError = null;
+        try {
+            runtime = await listarBotConfig();
+        } catch (e) {
+            runtimeError = e.message;
+        }
+        res.json({ success: true, env: resumenSeguro(), runtime, runtimeError });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/config', async (req, res) => {
+    const { clave, valor } = req.body || {};
+    if (!clave) return res.status(400).json({ success: false, error: 'Falta clave' });
+    try {
+        await setBotConfig(clave, valor);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Usuarios del bot (autorización por número de WhatsApp)
+app.get('/api/bot/usuarios', async (req, res) => {
+    try {
+        const { data, error } = await getSupabase()
+            .from('bot_usuarios').select('*').order('created_at', { ascending: false });
+        if (error) throw new Error(error.message);
+        res.json({ success: true, usuarios: data || [] });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.post('/api/bot/usuarios', async (req, res) => {
+    const { telefono, nombre, rol } = req.body || {};
+    const tel = String(telefono || '').replace(/[^0-9]/g, '');
+    if (!tel || !nombre) return res.status(400).json({ success: false, error: 'Faltan telefono y nombre' });
+    try {
+        const { error } = await getSupabase().from('bot_usuarios').upsert(
+            { telefono: tel, nombre, rol: rol || 'Terreno', activo: true },
+            { onConflict: 'telefono' }
+        );
+        if (error) throw new Error(error.message);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.patch('/api/bot/usuarios/:telefono', async (req, res) => {
+    const tel = String(req.params.telefono || '').replace(/[^0-9]/g, '');
+    const cambios = {};
+    if (req.body.activo !== undefined) cambios.activo = Boolean(req.body.activo);
+    if (req.body.nombre) cambios.nombre = req.body.nombre;
+    if (req.body.rol) cambios.rol = req.body.rol;
+    try {
+        const { error } = await getSupabase().from('bot_usuarios').update(cambios).eq('telefono', tel);
+        if (error) throw new Error(error.message);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
 
 // Ruta visual de la Guía
 app.get('/guia/:id', (req, res) => {

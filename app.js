@@ -286,7 +286,8 @@ function showSection(name) {
         qc:        'Control de Calidad',
         logistica: 'Logística y Despacho',
         sdi:       'SDI — Consultas Técnicas',
-        bim:       '🧊 BIM Viewer — Modelo 3D'
+        bim:       '🧊 BIM Viewer — Modelo 3D',
+        bot:       '🤖 Bot WhatsApp — Configuración'
     };
 
     const titleEl = document.getElementById('section-title');
@@ -296,7 +297,7 @@ function showSection(name) {
 
     // Ocultar filtro de semana en secciones estáticas
     const weekNav = document.getElementById('week-nav-container');
-    if (['spools', 'qc', 'sdi', 'logistica', 'bim'].includes(name)) {
+    if (['spools', 'qc', 'sdi', 'logistica', 'bim', 'bot'].includes(name)) {
         if (weekNav) weekNav.style.display = 'none';
     } else {
         if (weekNav) weekNav.style.display = 'flex';
@@ -314,6 +315,7 @@ function renderCurrentSection() {
         case 'sdi':       renderSDI();       break;
         case 'logistica': loadLogistica();   break;
         case 'bim':       initBimViewer();   break;
+        case 'bot':       botInitPanel();    break;
     }
 }
 
@@ -2729,3 +2731,248 @@ async function bimSaveLink() {
     }
 }
 
+
+
+// ============================================================
+// BOT WHATSAPP — Panel de Configuración
+// ============================================================
+let botQrPollTimer = null;
+
+function botInitPanel() {
+    botRefreshStatus();
+    botRefreshQr();
+    botCargarUsuarios();
+    botCargarConfig();
+
+    // Poll suave del QR/estado mientras la sección esté visible
+    if (botQrPollTimer) clearInterval(botQrPollTimer);
+    botQrPollTimer = setInterval(() => {
+        if (state.currentSection !== 'bot') {
+            clearInterval(botQrPollTimer);
+            botQrPollTimer = null;
+            return;
+        }
+        botRefreshStatus(true);
+        botRefreshQr(true);
+    }, 15000);
+}
+
+async function botRefreshStatus(silencioso = false) {
+    const badge = document.getElementById('bot-status-badge');
+    if (!badge) return;
+    if (!silencioso) badge.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Consultando...';
+
+    try {
+        const r = await fetch('/api/bot/status');
+        const d = await r.json();
+
+        const estados = {
+            connected:      ['bot-ok',   'fa-check-circle',  'Conectado'],
+            connecting:     ['bot-warn', 'fa-circle-notch fa-spin', 'Conectando...'],
+            disconnected:   ['bot-warn', 'fa-exclamation-triangle', 'Desconectado'],
+            bridge_offline: ['bot-err',  'fa-times-circle',  'Puente apagado (PM2)']
+        };
+        const [cls, icon, label] = estados[d.status] || estados.bridge_offline;
+        badge.className = `bot-status-badge ${cls}`;
+        badge.innerHTML = `<i class="fas ${icon}"></i> ${label}`;
+
+        document.getElementById('bot-number').textContent =
+            d.botNumber ? `+${d.botNumber}` : '— (sin vincular)';
+        document.getElementById('bot-name').textContent = d.botName || '—';
+        document.getElementById('bot-last-connected').textContent =
+            d.lastConnectedAt ? new Date(d.lastConnectedAt).toLocaleString('es-CL') : '—';
+    } catch (e) {
+        badge.className = 'bot-status-badge bot-err';
+        badge.innerHTML = '<i class="fas fa-times-circle"></i> Error consultando estado';
+    }
+}
+
+async function botRefreshQr(silencioso = false) {
+    const img = document.getElementById('bot-qr-img');
+    const hint = document.getElementById('bot-qr-hint');
+    if (!img || !hint) return;
+
+    try {
+        const r = await fetch('/api/bot/qr');
+        const d = await r.json();
+
+        if (d.qrDataUrl) {
+            img.src = d.qrDataUrl;
+            img.style.display = 'block';
+            hint.textContent = '📲 Escanea este código desde WhatsApp > Dispositivos vinculados';
+        } else {
+            img.style.display = 'none';
+            if (d.status === 'connected') {
+                hint.textContent = `✅ Sesión vinculada${d.botNumber ? ' al +' + d.botNumber : ''}. No se necesita QR.`;
+            } else if (d.status === 'bridge_offline') {
+                hint.textContent = '🔌 El puente (wa-bridge) no responde. Revisa PM2 en el servidor.';
+            } else {
+                hint.textContent = '⏳ Generando QR... presiona "Refrescar QR" en unos segundos.';
+            }
+        }
+    } catch (e) {
+        if (!silencioso) hint.textContent = 'Error consultando el QR.';
+    }
+}
+
+async function botRestart(logout) {
+    const msg = logout
+        ? '¿Desvincular la sesión de WhatsApp? Se borrarán las credenciales y deberás escanear un QR nuevo.'
+        : '¿Reconectar el puente de WhatsApp?';
+    if (!confirm(msg)) return;
+
+    try {
+        const r = await fetch('/api/bot/restart', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ logout })
+        });
+        const d = await r.json();
+        alert(d.message || (d.success ? 'Listo' : 'Error: ' + (d.error || 'desconocido')));
+        setTimeout(() => { botRefreshStatus(); botRefreshQr(); }, 3000);
+    } catch (e) {
+        alert('No se pudo contactar el puente: ' + e.message);
+    }
+}
+
+async function botCargarUsuarios() {
+    const body = document.getElementById('bot-users-body');
+    if (!body) return;
+    try {
+        const r = await fetch('/api/bot/usuarios');
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Error');
+
+        if (!d.usuarios.length) {
+            body.innerHTML = '<tr><td colspan="5" style="text-align:center;opacity:0.6;padding:20px;">Sin usuarios aún. Agrega el primero arriba.</td></tr>';
+            return;
+        }
+
+        body.innerHTML = d.usuarios.map(u => `
+            <tr>
+                <td>+${u.telefono}</td>
+                <td>${u.nombre || '—'}</td>
+                <td>${u.rol || 'Terreno'}</td>
+                <td>
+                    <span class="status-pill ${u.activo ? 'pill-green' : 'pill-red'}">
+                        ${u.activo ? 'Activo' : 'Pendiente'}
+                    </span>
+                </td>
+                <td>
+                    <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem"
+                        onclick="botToggleUsuario('${u.telefono}', ${!u.activo})">
+                        ${u.activo ? 'Desactivar' : 'Autorizar'}
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;padding:20px;">Error: ${e.message}</td></tr>`;
+    }
+}
+
+async function botToggleUsuario(telefono, activo) {
+    try {
+        await fetch(`/api/bot/usuarios/${telefono}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ activo })
+        });
+        botCargarUsuarios();
+    } catch (e) {
+        alert('Error actualizando usuario: ' + e.message);
+    }
+}
+
+async function botAgregarUsuario() {
+    const telefono = document.getElementById('bot-user-telefono').value.trim();
+    const nombre = document.getElementById('bot-user-nombre').value.trim();
+    const rol = document.getElementById('bot-user-rol').value;
+
+    if (!telefono || !nombre) {
+        alert('Completa teléfono y nombre.');
+        return;
+    }
+
+    try {
+        const r = await fetch('/api/bot/usuarios', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ telefono, nombre, rol })
+        });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Error');
+        document.getElementById('bot-user-telefono').value = '';
+        document.getElementById('bot-user-nombre').value = '';
+        botCargarUsuarios();
+    } catch (e) {
+        alert('Error agregando usuario: ' + e.message);
+    }
+}
+
+async function botCargarConfig() {
+    const runtimeEl = document.getElementById('bot-config-list');
+    const envEl = document.getElementById('bot-env-list');
+    if (!runtimeEl || !envEl) return;
+
+    try {
+        const r = await fetch('/api/config');
+        const d = await r.json();
+
+        // --- Config runtime (editable) ---
+        if (d.runtimeError) {
+            runtimeEl.innerHTML = `<p style="color:#f59e0b;font-size:0.85rem">⚠️ Supabase no disponible: ${d.runtimeError}</p>`;
+        } else {
+            runtimeEl.innerHTML = d.runtime.map(c => `
+                <div class="bot-config-item">
+                    <div class="bot-config-meta">
+                        <span class="bot-config-key">${c.clave}</span>
+                        <span class="bot-config-desc">${c.descripcion || ''}</span>
+                    </div>
+                    <div class="bot-config-edit">
+                        <input type="text" id="conf-${c.clave}" value="${String(c.valor).replace(/"/g, '&quot;')}">
+                        <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem"
+                            onclick="botGuardarConfig('${c.clave}')">💾</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // --- Entorno (solo lectura, secretos enmascarados) ---
+        envEl.innerHTML = Object.entries(d.env).map(([k, v]) => {
+            if (v.secreto) {
+                const ok = v.configurada;
+                return `<div class="bot-config-item">
+                    <span class="bot-config-key">${k}</span>
+                    <span class="status-pill ${ok ? 'pill-green' : 'pill-red'}">
+                        ${ok ? '🔒 Configurada' : '✗ Falta'}
+                    </span>
+                </div>`;
+            }
+            return `<div class="bot-config-item">
+                <span class="bot-config-key">${k}</span>
+                <span class="bot-config-desc">${v.valor === '' ? '—' : v.valor}</span>
+            </div>`;
+        }).join('');
+    } catch (e) {
+        runtimeEl.innerHTML = `<p style="color:#ef4444">Error: ${e.message}</p>`;
+    }
+}
+
+async function botGuardarConfig(clave) {
+    const input = document.getElementById(`conf-${clave}`);
+    if (!input) return;
+    try {
+        const r = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ clave, valor: input.value })
+        });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Error');
+        input.style.borderColor = '#10b981';
+        setTimeout(() => { input.style.borderColor = ''; }, 1500);
+    } catch (e) {
+        alert('Error guardando: ' + e.message);
+    }
+}

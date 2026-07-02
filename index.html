@@ -62,6 +62,9 @@
                 <button class="nav-btn" onclick="showSection('bim')" id="nav-bim">
                     <i class="fas fa-cube"></i><span>BIM Viewer</span>
                 </button>
+                <button class="nav-btn" onclick="showSection('bot')" id="nav-bot">
+                    <i class="fas fa-robot"></i><span>Bot WhatsApp</span>
+                </button>
             </nav>
 
             <div class="sidebar-footer">
@@ -681,6 +684,116 @@
                         </tbody>
                     </table>
                 </div>
+            </section>
+
+            <!-- ===== SECTION: BOT WHATSAPP (Configuración) ===== -->
+            <section class="section-content" id="bot-section">
+
+                <!-- Fila 1: Estado de conexión + QR -->
+                <div class="bot-grid">
+                    <div class="chart-card glass bot-card">
+                        <h3><i class="fas fa-plug"></i> Estado del Puente WhatsApp</h3>
+                        <div class="bot-status-row">
+                            <span class="bot-status-badge" id="bot-status-badge">
+                                <i class="fas fa-circle-notch fa-spin"></i> Consultando...
+                            </span>
+                        </div>
+                        <div class="bot-info-list">
+                            <div class="bot-info-item">
+                                <span class="bot-info-label">📱 Número del bot</span>
+                                <span class="bot-info-value" id="bot-number">—</span>
+                            </div>
+                            <div class="bot-info-item">
+                                <span class="bot-info-label">🏷 Nombre de la cuenta</span>
+                                <span class="bot-info-value" id="bot-name">—</span>
+                            </div>
+                            <div class="bot-info-item">
+                                <span class="bot-info-label">🕐 Última conexión</span>
+                                <span class="bot-info-value" id="bot-last-connected">—</span>
+                            </div>
+                        </div>
+                        <div class="bot-actions">
+                            <button class="refresh-btn" onclick="botRefreshStatus()">
+                                <i class="fas fa-sync-alt"></i> Actualizar estado
+                            </button>
+                            <button class="refresh-btn bot-btn-warn" onclick="botRestart(false)">
+                                <i class="fas fa-rotate"></i> Reconectar puente
+                            </button>
+                            <button class="refresh-btn bot-btn-danger" onclick="botRestart(true)">
+                                <i class="fas fa-unlink"></i> Desvincular (QR nuevo)
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="chart-card glass bot-card">
+                        <h3><i class="fas fa-qrcode"></i> Vinculación por QR</h3>
+                        <div class="bot-qr-box" id="bot-qr-box">
+                            <p class="bot-qr-hint" id="bot-qr-hint">Consultando estado del QR...</p>
+                            <img id="bot-qr-img" src="" alt="QR de vinculación" style="display:none;">
+                        </div>
+                        <div class="bot-actions">
+                            <button class="refresh-btn" onclick="botRefreshQr()">
+                                <i class="fas fa-sync-alt"></i> Refrescar QR
+                            </button>
+                        </div>
+                        <p class="bot-qr-note">Si la sesión se cae, presiona <b>Reconectar puente</b> y luego
+                            <b>Refrescar QR</b>. Escanea desde WhatsApp &gt; Dispositivos vinculados.</p>
+                    </div>
+                </div>
+
+                <!-- Fila 2: Usuarios autorizados -->
+                <div class="chart-card glass bot-card" style="margin-top:1rem">
+                    <h3><i class="fas fa-users"></i> Usuarios Autorizados</h3>
+                    <p class="bot-qr-note">Solo los números activos pueden reportar avances. Los números
+                        desconocidos que escriban al bot quedarán aquí como pendientes.</p>
+                    <div class="bot-user-form">
+                        <input type="text" id="bot-user-telefono" placeholder="Teléfono (ej: 56912345678)">
+                        <input type="text" id="bot-user-nombre" placeholder="Nombre y apellido">
+                        <select id="bot-user-rol">
+                            <option value="Terreno">Terreno</option>
+                            <option value="Supervisor">Supervisor</option>
+                            <option value="Admin">Admin</option>
+                        </select>
+                        <button class="refresh-btn" onclick="botAgregarUsuario()">
+                            <i class="fas fa-user-plus"></i> Agregar
+                        </button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table" id="bot-users-table">
+                            <thead>
+                                <tr>
+                                    <th>Teléfono</th>
+                                    <th>Nombre</th>
+                                    <th>Rol</th>
+                                    <th>Estado</th>
+                                    <th>Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="bot-users-body">
+                                <tr><td colspan="5" style="text-align:center;opacity:0.6;padding:20px;">Cargando...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Fila 3: Configuración runtime + entorno -->
+                <div class="bot-grid" style="margin-top:1rem">
+                    <div class="chart-card glass bot-card">
+                        <h3><i class="fas fa-sliders-h"></i> Configuración del Bot</h3>
+                        <p class="bot-qr-note">Cambios en caliente, sin redeploy (se guardan en Supabase).</p>
+                        <div id="bot-config-list" class="bot-config-list">
+                            <p style="opacity:0.6">Cargando configuración...</p>
+                        </div>
+                    </div>
+                    <div class="chart-card glass bot-card">
+                        <h3><i class="fas fa-key"></i> Entorno del Servidor (.env)</h3>
+                        <p class="bot-qr-note">Los secretos nunca se muestran: solo si están configurados.</p>
+                        <div id="bot-env-list" class="bot-config-list">
+                            <p style="opacity:0.6">Cargando entorno...</p>
+                        </div>
+                    </div>
+                </div>
+
             </section>
 
         </main>

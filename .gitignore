@@ -4,4 +4,7 @@ node_modules/
 *.log
 npm-debug.log*
 scratch/
+wa-bridge/auth_info_baileys/
+wa-bridge/temp_*.pcm
+wa-bridge/temp_*.ogg
 

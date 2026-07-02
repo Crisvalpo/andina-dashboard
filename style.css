@@ -2075,4 +2075,183 @@ tr:hover td {
 
 
 
-
+
+
+/* ============================================================
+   BOT WHATSAPP — Panel de Configuración
+   ============================================================ */
+.bot-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+}
+
+@media (max-width: 900px) {
+    .bot-grid { grid-template-columns: 1fr; }
+}
+
+.bot-card h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.bot-status-row { margin-bottom: 1rem; }
+
+.bot-status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    background: rgba(100, 116, 139, 0.15);
+    color: #94a3b8;
+}
+.bot-status-badge.bot-ok   { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+.bot-status-badge.bot-warn { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+.bot-status-badge.bot-err  { background: rgba(239, 68, 68, 0.15);  color: #ef4444; }
+
+.bot-info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.bot-info-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+    font-size: 0.85rem;
+}
+
+.bot-info-label { opacity: 0.7; }
+.bot-info-value { font-weight: 600; }
+
+.bot-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.bot-btn-warn  { background: rgba(245, 158, 11, 0.2) !important; }
+.bot-btn-danger { background: rgba(239, 68, 68, 0.2) !important; }
+
+.bot-qr-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 220px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 12px;
+    margin-bottom: 0.75rem;
+    padding: 1rem;
+}
+
+.bot-qr-box img {
+    width: 220px;
+    height: 220px;
+    border-radius: 8px;
+    background: #fff;
+    padding: 8px;
+}
+
+.bot-qr-hint {
+    font-size: 0.85rem;
+    opacity: 0.8;
+    text-align: center;
+    margin-bottom: 0.5rem;
+}
+
+.bot-qr-note {
+    font-size: 0.75rem;
+    opacity: 0.55;
+    margin: 0.5rem 0;
+    line-height: 1.4;
+}
+
+.bot-user-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.bot-user-form input,
+.bot-user-form select {
+    flex: 1;
+    min-width: 140px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+    font-family: inherit;
+    font-size: 0.85rem;
+}
+
+.status-pill {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.72rem;
+    font-weight: 600;
+}
+.pill-green { background: rgba(16, 185, 129, 0.15); color: #10b981; }
+.pill-red   { background: rgba(239, 68, 68, 0.15);  color: #ef4444; }
+
+.bot-config-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    max-height: 420px;
+    overflow-y: auto;
+}
+
+.bot-config-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border-radius: 8px;
+}
+
+.bot-config-key {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #818cf8;
+    word-break: break-all;
+}
+
+.bot-config-desc {
+    font-size: 0.72rem;
+    opacity: 0.6;
+    line-height: 1.3;
+}
+
+.bot-config-meta { display: flex; flex-direction: column; gap: 2px; }
+
+.bot-config-edit {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.bot-config-edit input {
+    flex: 1;
+    padding: 6px 10px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(0, 0, 0, 0.25);
+    color: inherit;
+    font-family: inherit;
+    font-size: 0.8rem;
+    transition: border-color 0.3s;
+}
