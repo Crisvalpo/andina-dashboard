@@ -2767,6 +2767,7 @@ async function botInitPanel() {
     botRefreshQr();
     botCargarUsuarios();
     botCargarConfig();
+    botCargarTools();
 
     // Poll suave del QR/estado mientras la sección esté visible
     if (botQrPollTimer) clearInterval(botQrPollTimer);
@@ -3099,4 +3100,53 @@ function authPedirClave(area) {
 async function botDesbloquear() {
     const ok = await authAsegurar('bot');
     if (ok) botInitPanel();
+}
+
+
+// ============================================================
+// BOT — Catálogo de herramientas dinámicas (mapa del mundo)
+// ============================================================
+async function botCargarTools() {
+    const body = document.getElementById('bot-tools-body');
+    if (!body) return;
+    try {
+        const r = await fetch('/api/bot/tools', { headers: authHeaders('bot') });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Error');
+
+        if (!d.tools.length) {
+            body.innerHTML = '<tr><td colspan="5" style="text-align:center;opacity:0.6;padding:20px;">Aún no hay herramientas. Se crearán solas cuando un supervisor haga consultas de datos al bot.</td></tr>';
+            return;
+        }
+
+        body.innerHTML = d.tools.map(t => `
+            <tr>
+                <td style="font-family:monospace;font-size:0.78rem;color:#818cf8">${t.nombre_funcion}</td>
+                <td style="font-size:0.8rem;opacity:0.8">${t.descripcion || ''}</td>
+                <td style="text-align:center">${t.usos || 0}</td>
+                <td style="font-size:0.8rem">${t.creada_por || '—'}</td>
+                <td>
+                    <button class="refresh-btn bot-btn-danger" style="padding:4px 10px;font-size:0.72rem"
+                        onclick="botBorrarTool('${t.nombre_funcion}')" title="Eliminar herramienta">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;padding:20px;">Error: ${e.message}</td></tr>`;
+    }
+}
+
+async function botBorrarTool(nombre) {
+    if (!confirm(`¿Eliminar la herramienta "${nombre}"? El bot la volverá a crear si alguien repite la consulta.`)) return;
+    try {
+        await fetch(`/api/bot/tools/${encodeURIComponent(nombre)}`, {
+            method: 'DELETE',
+            headers: authHeaders('bot')
+        });
+        botCargarTools();
+    } catch (e) {
+        alert('Error eliminando herramienta: ' + e.message);
+    }
 }

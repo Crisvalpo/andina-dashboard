@@ -570,6 +570,33 @@ app.post('/api/bot/usuarios', async (req, res) => {
     }
 });
 
+// Catálogo de herramientas dinámicas (el bot se las auto-escribe; aquí solo se observan/borran)
+app.get('/api/bot/tools', async (req, res) => {
+    try {
+        const { data, error } = await getSupabase()
+            .from('bot_tools_dinamicas')
+            .select('nombre_funcion, descripcion, usos, creada_por, created_at')
+            .order('created_at', { ascending: false });
+        if (error) throw new Error(error.message);
+        res.json({ success: true, tools: data || [] });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+app.delete('/api/bot/tools/:nombre', async (req, res) => {
+    try {
+        const { error } = await getSupabase()
+            .from('bot_tools_dinamicas')
+            .delete()
+            .eq('nombre_funcion', req.params.nombre);
+        if (error) throw new Error(error.message);
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
 app.patch('/api/bot/usuarios/:telefono', async (req, res) => {
     const tel = String(req.params.telefono || '').replace(/[^0-9]/g, '');
     const cambios = {};

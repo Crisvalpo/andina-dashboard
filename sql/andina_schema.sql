@@ -59,6 +59,19 @@ create table if not exists andina.bot_config (
     updated_at  timestamptz not null default now()
 );
 
+-- Herramientas dinámicas: el bot se auto-escribe consultas JS cuando un
+-- supervisor pide algo no cubierto ("mapa del mundo", patrón LukeMaquinarias).
+create table if not exists andina.bot_tools_dinamicas (
+    id                uuid primary key default gen_random_uuid(),
+    nombre_funcion    text unique not null,
+    descripcion       text not null,
+    codigo_javascript text not null,
+    esquema_json      jsonb not null,
+    creada_por        text,
+    usos              integer not null default 0,
+    created_at        timestamptz not null default now()
+);
+
 -- Permisos para PostgREST (service_role bypass RLS)
 grant all on all tables in schema andina to service_role;
 grant all on all sequences in schema andina to service_role;
