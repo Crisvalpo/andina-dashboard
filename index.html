@@ -741,6 +741,13 @@
 
             <!-- Contenedor del visor 3D -->
             <div class="bim-viewer-wrapper">
+                <!-- Botón flotante para abrir/cerrar panel de información en móviles/tablets -->
+                <button class="bim-sidebar-toggle" id="bim-sidebar-toggle" onclick="bimToggleSidebar()" title="Mostrar información">
+                    <i class="fas fa-info-circle"></i>
+                </button>
+                <!-- Fondo oscuro para cerrar panel al hacer clic fuera -->
+                <div class="bim-sidebar-overlay" id="bim-sidebar-overlay" onclick="bimCloseSidebar()"></div>
+
                 <div id="bim-loader" class="bim-loader">
                     <div class="bim-loader-inner">
                         <div class="bim-spinner"></div>

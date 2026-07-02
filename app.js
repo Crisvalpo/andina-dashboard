@@ -2000,6 +2000,11 @@ async function bimLoadSpool(spoolId) {
             bimState.dbIds = dbIds;
             if (dbIds.length > 0) {
                 bimHighlightElements(dbIds);
+                // Si el usuario está en móvil o tablet, colapsar automáticamente la barra
+                // lateral para que el modelo 3D sea visible a pantalla completa de inmediato
+                if (window.innerWidth <= 1024) {
+                    bimCloseSidebar();
+                }
             }
         });
 
@@ -2381,4 +2386,37 @@ async function bimFlipCamera() {
 function bimScannerSetStatus(html) {
     const el = document.getElementById('bim-scanner-status');
     if (el) el.innerHTML = html;
+}
+
+// =================================================================
+// ============ MOBILE RESPONSIVE DRAWER TOGGLE ====================
+// =================================================================
+
+/** Alterna la barra lateral en versión móvil / tablet */
+function bimToggleSidebar() {
+    const sidebar = document.querySelector('.bim-sidebar');
+    const overlay = document.getElementById('bim-sidebar-overlay');
+    const btn     = document.getElementById('bim-sidebar-toggle');
+    if (!sidebar || !overlay) return;
+
+    const isOpen = sidebar.classList.contains('open');
+    if (isOpen) {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('active');
+        if (btn) btn.innerHTML = '<i class="fas fa-info-circle"></i>';
+    } else {
+        sidebar.classList.add('open');
+        overlay.classList.add('active');
+        if (btn) btn.innerHTML = '<i class="fas fa-times"></i>';
+    }
+}
+
+/** Cierra la barra lateral en versión móvil / tablet */
+function bimCloseSidebar() {
+    const sidebar = document.querySelector('.bim-sidebar');
+    const overlay = document.getElementById('bim-sidebar-overlay');
+    const btn     = document.getElementById('bim-sidebar-toggle');
+    if (sidebar) sidebar.classList.remove('open');
+    if (overlay) overlay.classList.remove('active');
+    if (btn) btn.innerHTML = '<i class="fas fa-info-circle"></i>';
 }
