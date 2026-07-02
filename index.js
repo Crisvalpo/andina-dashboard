@@ -437,12 +437,28 @@ app.post('/api/bim/vincular', async (req, res) => {
     }
 
     try {
-        console.log(`[BIM] Guardando en AppSheet (LIST_Bim_MS): ${elements.length} vinculaciones para Spool "${spool}"`);
+        // Traducir el ID largo del Spool a TAG GESTION (SPOOL LUKEAPP) si corresponde
+        let finalSpoolTag = String(spool).trim();
+        try {
+            const masterSpools = await fetchAppSheet('LIST_Spools_MS_');
+            const foundMaster = masterSpools.find(m => 
+                String(m.ID_SPOOL || '').trim().toLowerCase() === finalSpoolTag.toLowerCase() ||
+                String(m.SPOOL || '').trim().toLowerCase() === finalSpoolTag.toLowerCase()
+            );
+            if (foundMaster) {
+                finalSpoolTag = foundMaster['TAG GESTION'] || foundMaster.SPOOL || finalSpoolTag;
+                console.log(`[BIM Vincular] Traducido spool "${spool}" a tag final "${finalSpoolTag}"`);
+            }
+        } catch (masterErr) {
+            console.error('[BIM Vincular] Advertencia al buscar maestro spools para traducción:', masterErr.message);
+        }
+
+        console.log(`[BIM] Guardando en AppSheet (LIST_Bim_MS): ${elements.length} vinculaciones para Spool "${finalSpoolTag}"`);
         
         // Mapear cada elemento a la estructura de la fila de AppSheet
         const rows = elements.map(el => ({
             "Elemento GUID": el.guid,
-            "SPOOL LUKEAPP": spool,
+            "SPOOL LUKEAPP": finalSpoolTag,
             "CWP": el.cwp || "",
             "DESCRIPCIÓN": el.descripcion || el.name || "",
             "Line Number": el.line_number || el.layer || "",

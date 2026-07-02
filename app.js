@@ -2211,17 +2211,17 @@ function bimResetView() {
     if (listEl) listEl.style.display = 'none';
 }
 
-/** Colores premium para cada estado del Spool en el visualizador 3D */
+/** Colores premium para cada estado del Spool en el visualizador 3D (definidos como arrays para evitar errores antes de cargar el SDK) */
 const BIM_STATUS_COLORS = {
-    'MONTADO':         new THREE.Vector4(0.06, 0.75, 0.35, 1), // Verde brillante
-    'POSICIONADO':     new THREE.Vector4(0.95, 0.45, 0.10, 1), // Naranja
-    'POR MONTAR':      new THREE.Vector4(0.95, 0.85, 0.10, 1), // Amarillo
-    'EN PINT/REVEST.': new THREE.Vector4(0.65, 0.30, 0.95, 1), // Morado
-    'QAQC':            new THREE.Vector4(0.10, 0.65, 0.95, 1), // Azul
-    'EN FABRICACIÓN':  new THREE.Vector4(0.30, 0.80, 0.95, 1), // Celeste
-    'RETIRAR':         new THREE.Vector4(0.95, 0.15, 0.15, 1), // Rojo
-    'ELIMINADO':       new THREE.Vector4(0.40, 0.40, 0.40, 0.5), // Gris translúcido
-    'SIN ESTADO':      new THREE.Vector4(0.50, 0.50, 0.50, 0.3)  // Gris opaco
+    'MONTADO':         [0.06, 0.75, 0.35, 1], // Verde brillante
+    'POSICIONADO':     [0.95, 0.45, 0.10, 1], // Naranja
+    'POR MONTAR':      [0.95, 0.85, 0.10, 1], // Amarillo
+    'EN PINT/REVEST.': [0.65, 0.30, 0.95, 1], // Morado
+    'QAQC':            [0.10, 0.65, 0.95, 1], // Azul
+    'EN FABRICACIÓN':  [0.30, 0.80, 0.95, 1], // Celeste
+    'RETIRAR':         [0.95, 0.15, 0.15, 1], // Rojo
+    'ELIMINADO':       [0.40, 0.40, 0.40, 0.5], // Gris translúcido
+    'SIN ESTADO':      [0.50, 0.50, 0.50, 0.3]  // Gris opaco
 };
 
 /** Filtra e aisla los elementos del modelo 3D según el estado de pre-fabricación seleccionado */
@@ -2280,8 +2280,9 @@ async function bimFilterByStatus() {
                 viewer.isolate(dbIds);
                 viewer.fitToView(dbIds);
 
-                // Colorear con el color correspondiente
-                const color = BIM_STATUS_COLORS[status] || new THREE.Vector4(0.18, 0.84, 0.44, 1);
+                // Colorear con el color correspondiente (instanciado dinámicamente)
+                const rawColor = BIM_STATUS_COLORS[status] || [0.18, 0.84, 0.44, 1];
+                const color = new THREE.Vector4(rawColor[0], rawColor[1], rawColor[2], rawColor[3]);
                 dbIds.forEach(id => {
                     viewer.setThemingColor(id, color, viewer.model, true);
                 });
