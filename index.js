@@ -616,7 +616,6 @@ app.post('/api/bim/vincular', requerirPermiso('bim'), async (req, res) => {
                     "Elemento GUID": existingRow["Elemento GUID"],
                     "SPOOL LUKEAPP": finalSpoolTag,
                     "CWP": existingRow["CWP"] || el.cwp || "",
-                    "DESCRIPCIÓN": existingRow["DESCRIPCIÓN"] || el.descripcion || el.name || "",
                     "Line Number": existingRow["Line Number"] || el.line_number || el.layer || "",
                     "TAG": existingRow["TAG"] || el.tag || el.layer || "",
                     "AutoCad Size": existingRow["AutoCad Size"] || el.autocad_size || ""
@@ -627,7 +626,6 @@ app.post('/api/bim/vincular', requerirPermiso('bim'), async (req, res) => {
                     "Elemento GUID": el.guid,
                     "SPOOL LUKEAPP": finalSpoolTag,
                     "CWP": el.cwp || "",
-                    "DESCRIPCIÓN": el.descripcion || el.name || "",
                     "Line Number": el.line_number || el.layer || "",
                     "TAG": el.tag || el.layer || "",
                     "AutoCad Size": el.autocad_size || ""
@@ -709,7 +707,6 @@ app.post('/api/bim/desvincular', requerirPermiso('bim'), async (req, res) => {
                     "Elemento GUID": existingRow["Elemento GUID"],
                     "SPOOL LUKEAPP": "",
                     "CWP": existingRow["CWP"] || "",
-                    "DESCRIPCIÓN": existingRow["DESCRIPCIÓN"] || "",
                     "Line Number": existingRow["Line Number"] || "",
                     "TAG": existingRow["TAG"] || "",
                     "AutoCad Size": existingRow["AutoCad Size"] || ""
@@ -776,9 +773,12 @@ function bimItemLabel(capa, row) {
     return parts.join('_');
 }
 
-// Columnas reales de LIST_Bim_MS (para preservar valores al editar)
+// Columnas reales de LIST_Bim_MS que preservamos al editar.
+// OJO: se OMITE "DESCRIPCIÓN" a propósito — escribir esa columna (tilde en la Í)
+// dispara System.Text.DecoderFallbackException (400) en AppSheet tras regenerar el app.
+// Está vacía en todas las filas y no se usa, así que nunca la escribimos.
 const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP',
-    'CWP', 'DESCRIPCIÓN', 'Line Number', 'TAG', 'AutoCad Size'];
+    'CWP', 'Line Number', 'TAG', 'AutoCad Size'];
 
 function bimBuildEditRow(existingRow, colName, valor) {
     const out = {};
@@ -937,7 +937,6 @@ app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => 
                     'Elemento GUID': el.guid,
                     [capa.col]:      itemId,
                     'CWP':           el.cwp || '',
-                    'DESCRIPCIÓN':   el.descripcion || el.name || '',
                     'Line Number':   el.line_number || el.layer || '',
                     'TAG':           el.tag || el.layer || '',
                     'AutoCad Size':  el.autocad_size || ''
