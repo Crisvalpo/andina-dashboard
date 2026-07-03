@@ -849,8 +849,22 @@
 
             <!-- Panel lateral de metadata -->
             <aside class="bim-sidebar glass">
+
+                <!-- Selector de capa: Spools / Válvulas / Soportes -->
+                <div class="bim-capa-toggle">
+                    <button class="bim-capa-btn active" id="bim-capa-spool" onclick="bimSetCapa('spool')">
+                        <i class="fas fa-industry"></i> Spools
+                    </button>
+                    <button class="bim-capa-btn" id="bim-capa-valvula" onclick="bimSetCapa('valvula')">
+                        <i class="fas fa-faucet"></i> Válvulas
+                    </button>
+                    <button class="bim-capa-btn" id="bim-capa-soporte" onclick="bimSetCapa('soporte')" title="Próximamente" disabled style="opacity:0.4;cursor:not-allowed;">
+                        <i class="fas fa-grip-lines"></i> Soportes
+                    </button>
+                </div>
+
                 <div class="bim-search-wrapper">
-                    <label class="bim-search-label">
+                    <label class="bim-search-label" id="bim-search-label">
                         <i class="fas fa-search"></i> Buscar Spool
                     </label>
                     <div class="bim-search-row">

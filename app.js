@@ -1845,8 +1845,82 @@ const bimState = {
     selectedElement: null, // Elemento 3D clickeado actualmente
     mapeoSpools:   null,   // Caché de { [guid]: spoolTag }
     spoolIndex:    null,   // Caché de { [tagLower]: { id_spool, tag_gestion, id_iso } }
-    isAutoSelecting: false // Bandera para evitar bucle de selección
+    isAutoSelecting: false,// Bandera para evitar bucle de selección
+    capa:          'spool',// Capa activa: 'spool' | 'valvula' | 'soporte'
+    capaMapeo:     {},     // { valvula: {guidLower:id}, soporte: {...} }
+    capaIndex:     {}      // { valvula: {idLower:row}, soporte: {...} }
 };
+
+// Config de capas en el frontend (llave, etiqueta, endpoints)
+const BIM_CAPA_UI = {
+    spool:   { label: 'Spool',   buscar: 'Buscar Spool',   placeholder: 'TAG Gestión (ej: 217)' },
+    valvula: { label: 'Válvula', buscar: 'Buscar Válvula', placeholder: 'ID Válvula (ej: VAL113)' },
+    soporte: { label: 'Soporte', buscar: 'Buscar Soporte', placeholder: 'ID/ITEM Soporte (ej: 148)' }
+};
+
+/** Cambia la capa activa (Spools / Válvulas / Soportes) y recarga su mapeo+índice. */
+async function bimSetCapa(capa) {
+    if (!BIM_CAPA_UI[capa]) return;
+    bimState.capa = capa;
+
+    // UI: botones activos
+    document.querySelectorAll('.bim-capa-btn').forEach(b => b.classList.remove('active'));
+    const btn = document.getElementById(`bim-capa-${capa}`);
+    if (btn) btn.classList.add('active');
+
+    // UI: etiqueta y placeholder de búsqueda
+    const lbl = document.getElementById('bim-search-label');
+    if (lbl) lbl.innerHTML = `<i class="fas fa-search"></i> ${BIM_CAPA_UI[capa].buscar}`;
+    const inp = document.getElementById('bim-search-input');
+    if (inp) { inp.placeholder = BIM_CAPA_UI[capa].placeholder; inp.value = ''; }
+
+    // Limpiar selección/panel y colores
+    if (bimState.viewer) { bimState.viewer.clearThemingColors(bimState.viewer.model); bimState.viewer.select([]); }
+    const panel = document.getElementById('bim-link-panel');
+    if (panel) panel.style.display = 'none';
+    bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Capa: <strong>${BIM_CAPA_UI[capa].label}s</strong>. Selecciona un elemento en el modelo o busca por su ID.</p></div>`);
+
+    // Filtro por estado según capa
+    bimUpdateStatusFilterOptions(capa);
+
+    // Cargar mapeo + índice de la capa (spools ya se cargan en init)
+    if (capa !== 'spool' && !bimState.capaIndex[capa]) {
+        try {
+            const [mapeo, index] = await Promise.all([
+                fetch(`/api/bim/${capa}/mapeo`).then(r => r.json()),
+                fetch(`/api/bim/${capa}/index`).then(r => r.json())
+            ]);
+            bimState.capaMapeo[capa] = mapeo || {};
+            bimState.capaIndex[capa] = index || {};
+        } catch (e) {
+            console.error(`[BIM] Error cargando capa ${capa}:`, e);
+        }
+    }
+}
+
+/** Ajusta las opciones del filtro por estado según la capa (spools tienen flujo; válvulas/soportes binario). */
+function bimUpdateStatusFilterOptions(capa) {
+    const sel = document.getElementById('bim-status-filter');
+    if (!sel) return;
+    if (capa === 'spool') {
+        sel.innerHTML = `
+            <option value="">-- Ver Todo el Modelo --</option>
+            <option value="MONTADO">MONTADO (Verde)</option>
+            <option value="POSICIONADO">POSICIONADO (Naranja)</option>
+            <option value="POR MONTAR">POR MONTAR (Amarillo)</option>
+            <option value="EN PINT/REVEST.">EN PINT/REVEST. (Morado)</option>
+            <option value="QAQC">QAQC (Azul)</option>
+            <option value="EN FABRICACIÓN">EN FABRICACIÓN (Celeste)</option>
+            <option value="RETIRAR">RETIRAR (Rojo)</option>
+            <option value="ELIMINADO">ELIMINADO (Gris)</option>
+            <option value="SIN ESTADO">SIN ESTADO (Gris Opaco)</option>`;
+    } else {
+        sel.innerHTML = `
+            <option value="">-- Ver Todo el Modelo --</option>
+            <option value="MONTADO">MONTADO (Verde)</option>
+            <option value="PENDIENTE">PENDIENTE (Gris)</option>`;
+    }
+}
 
 /**
  * Punto de entrada: se llama desde showSection('bim')
@@ -2028,6 +2102,13 @@ function bimStartViewer() {
                                         if (selectedList.length > 0) {
                                             bimState.selectedElements = selectedList;
 
+                                            // Capa válvulas/soportes: flujo simple (1 elemento = 1 ítem, sin auto-grupo)
+                                            if (bimState.capa !== 'spool') {
+                                                bimRenderCapaSelection(bimState.capa, selectedList, uniqueLayers);
+                                                if (panel) panel.style.display = 'flex';
+                                                return;
+                                            }
+
                                             // --- AUTOSELECCIÓN POR SPOOL EXISTENTE ---
                                             if (selectedList.length === 1 && bimState.mapeoSpools && !skipAuto) {
                                                 const selectedGuid = selectedList[0].guid.toLowerCase();
@@ -2173,7 +2254,45 @@ function bimSearchSpool() {
     const input = document.getElementById('bim-search-input');
     const val   = input ? input.value.trim() : '';
     if (!val) return;
-    bimLoadSpool(val);
+    if (bimState.capa === 'spool') bimLoadSpool(val);
+    else bimLoadCapaItem(bimState.capa, val);
+}
+
+/** Busca una válvula/soporte por ID (o etiqueta) y resalta sus elementos vinculados en el modelo. */
+async function bimLoadCapaItem(capa, termino) {
+    if (!bimState.initialized) return;
+    const ui = BIM_CAPA_UI[capa];
+    // Aceptar tanto el ID (VAL113) como la etiqueta (VAL113_03351-...): tomar la parte antes del primer "_" si no existe tal cual
+    const index = bimState.capaIndex[capa] || {};
+    let id = termino.trim();
+    if (!index[id.toLowerCase()]) {
+        // buscar por etiqueta o prefijo
+        const hit = Object.values(index).find(r => (r._label || '').toLowerCase() === id.toLowerCase())
+            || Object.values(index).find(r => String(r[capa === 'valvula' ? 'ID_VALVULA' : 'ID_Soporte'] || '').toLowerCase() === id.split('_')[0].toLowerCase());
+        if (hit) id = hit[capa === 'valvula' ? 'ID_VALVULA' : 'ID_Soporte'];
+    }
+
+    bimSetMeta('<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando elementos...</div>');
+    try {
+        const resp = await fetch(`/api/bim/${capa}/item/${encodeURIComponent(id)}`);
+        const data = await resp.json();
+        if (!data.guids || data.guids.length === 0) {
+            bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-search"></i><p>La ${ui.label.toLowerCase()} <strong>${data.label || id}</strong> no tiene elementos 3D vinculados aún.</p></div>`);
+            bimRenderCapaMeta(capa, id);
+            return;
+        }
+        bimState.currentGuids = data.guids;
+        bimGuidsToDbIds(data.guids, (dbIds) => {
+            bimState.dbIds = dbIds;
+            if (dbIds.length > 0) {
+                bimHighlightElements(dbIds);
+                if (window.innerWidth <= 1024) bimCloseSidebar();
+            }
+        });
+        bimRenderCapaMeta(capa, id);
+    } catch (err) {
+        bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error: ${err.message}</p></div>`);
+    }
 }
 
 /**
@@ -2338,7 +2457,9 @@ const BIM_STATUS_COLORS = {
     'EN FABRICACIÓN':  [0.30, 0.80, 0.95, 1], // Celeste
     'RETIRAR':         [0.95, 0.15, 0.15, 1], // Rojo
     'ELIMINADO':       [0.40, 0.40, 0.40, 0.5], // Gris translúcido
-    'SIN ESTADO':      [0.50, 0.50, 0.50, 0.3]  // Gris opaco
+    'SIN ESTADO':      [0.50, 0.50, 0.50, 0.3], // Gris opaco
+    // Válvulas / soportes (estado binario)
+    'PENDIENTE':       [0.55, 0.55, 0.55, 0.4]  // Gris (pendiente de montaje)
 };
 
 /** Filtra e aisla los elementos del modelo 3D según el estado de pre-fabricación seleccionado */
@@ -2359,15 +2480,23 @@ async function bimFilterByStatus() {
     const listEl = document.getElementById('bim-elements-list');
     if (listEl) listEl.style.display = 'none';
 
-    bimSetMeta(`<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando spools en estado ${status}...</div>`);
+    bimSetMeta(`<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando elementos en estado ${status}...</div>`);
 
     try {
-        let statuses = bimState.statusesCache;
-        if (!statuses) {
-            const resp = await fetch('/api/bim/statuses');
+        // Fuente de estados según capa (spools cachean; válvulas/soportes se consultan directo)
+        let statuses;
+        if (bimState.capa === 'spool') {
+            statuses = bimState.statusesCache;
+            if (!statuses) {
+                const resp = await fetch('/api/bim/statuses');
+                if (!resp.ok) throw new Error(`Error ${resp.status}`);
+                statuses = await resp.json();
+                bimState.statusesCache = statuses;
+            }
+        } else {
+            const resp = await fetch(`/api/bim/${bimState.capa}/statuses`);
             if (!resp.ok) throw new Error(`Error ${resp.status}`);
             statuses = await resp.json();
-            bimState.statusesCache = statuses;
         }
 
         const guids = statuses[status] || [];
@@ -2633,6 +2762,107 @@ function bimSetLoader(msg, isError = false) {
 }
 
 /**
+ * Pinta el panel de vinculación para capas válvula/soporte.
+ * A diferencia de spools, aquí 1 elemento = 1 ítem (sin auto-grupo).
+ */
+function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
+    const ui = BIM_CAPA_UI[capa];
+    const mapeo = bimState.capaMapeo[capa] || {};
+    const index = bimState.capaIndex[capa] || {};
+
+    // GUID / capa
+    const guidEl = document.getElementById('bim-link-guid');
+    if (guidEl) guidEl.textContent = selectedList.length === 1 ? selectedList[0].guid : `${selectedList.length} elementos`;
+    const layerEl = document.getElementById('bim-link-layer');
+    if (layerEl) layerEl.textContent = uniqueLayers && uniqueLayers.size ? Array.from(uniqueLayers).join(', ') : 'N/A';
+
+    // Título del panel
+    const linkTitle = document.querySelector('#bim-link-panel h4');
+    if (linkTitle) linkTitle.innerHTML = `<i class="fas fa-link"></i> Vincular ${ui.label} (${selectedList.length} selec.)`;
+
+    // IDs ya vinculados en la selección
+    const idsSel = [...new Set(selectedList.map(el => mapeo[el.guid.toLowerCase()]).filter(Boolean))];
+    const statusContainer = document.getElementById('bim-link-status-container');
+    const infoEl = document.getElementById('bim-link-spool-info');
+    const inputEl = document.getElementById('bim-link-spool');
+
+    // Etiqueta del campo de entrada
+    const fieldLabel = document.querySelector('#bim-link-panel label[for="bim-link-spool"]');
+    if (fieldLabel) fieldLabel.textContent = `ID ${ui.label} (${capa === 'valvula' ? 'ID_VALVULA' : 'ID_Soporte'}):`;
+    if (inputEl) inputEl.placeholder = ui.placeholder;
+
+    if (idsSel.length > 0) {
+        if (statusContainer) statusContainer.style.display = 'flex';
+        if (infoEl) {
+            infoEl.innerHTML = idsSel.map(id => {
+                const row = index[id.toLowerCase()];
+                const label = row?._label || id;
+                return `<div style="display:flex;justify-content:space-between;gap:8px;">
+                    <span style="opacity:0.75;">Vinculado a:</span>
+                    <span style="font-weight:700;color:#fde68a;text-align:right;word-break:break-all;">${label}</span>
+                </div>`;
+            }).join('');
+        }
+        if (inputEl) inputEl.value = idsSel.length === 1 ? idsSel[0] : '';
+        // Metadata + estado de montaje del primer ítem
+        if (idsSel.length === 1) bimRenderCapaMeta(capa, idsSel[0]);
+    } else {
+        if (statusContainer) statusContainer.style.display = 'none';
+        if (inputEl) inputEl.value = '';
+        bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada. Ingresa su ID abajo para vincular.</p></div>`);
+    }
+
+    // Botón guardar
+    const btn = document.getElementById('bim-link-btn');
+    if (btn) { btn.innerHTML = `<i class="fas fa-save"></i> Guardar ${selectedList.length} elem.`; btn.disabled = false; btn.style.opacity = '1'; }
+}
+
+/** Renderiza la ficha (metadata + estado montaje) de una válvula/soporte. */
+async function bimRenderCapaMeta(capa, id) {
+    const index = bimState.capaIndex[capa] || {};
+    const row = index[id.toLowerCase()];
+    const label = row?._label || id;
+
+    // Campos a mostrar según capa
+    const fields = capa === 'valvula' ? [
+        { label: 'ID Válvula',  value: row?.['ID_VALVULA'] },
+        { label: 'Línea',       value: row?.['ID_LINEA'] },
+        { label: 'Clase',       value: row?.['CLASE'] },
+        { label: 'Diámetro',    value: row?.['DIAM.'] },
+        { label: 'Descripción', value: row?.['DESCRIPCION'] }
+    ] : [
+        { label: 'ID Soporte',  value: row?.['ID_Soporte'] },
+        { label: 'ITEM',        value: row?.['ITEM'] },
+        { label: 'Tipo',        value: row?.['ID_TipoSoporte'] },
+        { label: 'Línea',       value: row?.['ID_LINEA'] },
+        { label: 'Diámetro',    value: row?.['DIAM.'] }
+    ];
+
+    const cards = fields.filter(f => f.value).map(f => `
+        <div class="bim-meta-card">
+            <span class="bim-meta-icon-sm"><i class="fas fa-tag"></i></span>
+            <div><span class="bim-meta-label">${f.label}</span><span class="bim-meta-value">${f.value}</span></div>
+        </div>`).join('');
+
+    bimSetMeta(`
+        <div class="bim-meta-header"><i class="fas fa-faucet"></i><span>${label}</span></div>
+        <div class="bim-meta-cards">${cards}</div>
+        <div id="bim-capa-montaje" style="margin-top:10px;font-size:0.82rem;opacity:0.7;">Consultando estado de montaje...</div>`);
+
+    // Estado de montaje real (REG_Montaje*)
+    try {
+        const r = await fetch(`/api/bim/${capa}/item/${encodeURIComponent(id)}`);
+        const d = await r.json();
+        const el = document.getElementById('bim-capa-montaje');
+        if (el) {
+            const montado = d.montado;
+            el.innerHTML = `<span class="status-pill ${montado ? 'pill-green' : 'pill-red'}">
+                ${montado ? '✅ ' + (d.status || 'Montado') : '⏳ Pendiente de montaje'}</span>`;
+        }
+    } catch (e) { /* silencioso */ }
+}
+
+/**
  * Desvincula el o los elementos seleccionados de su spool actual en AppSheet.
  */
 async function bimRemoveLink() {
@@ -2642,7 +2872,7 @@ async function bimRemoveLink() {
         return;
     }
 
-    if (!confirm(`¿Estás seguro de que deseas desvincular estos ${elements.length} elementos de su spool actual?`)) {
+    if (!confirm(`¿Estás seguro de que deseas desvincular estos ${elements.length} elementos de su ${BIM_CAPA_UI[bimState.capa].label.toLowerCase()} actual?`)) {
         return;
     }
 
@@ -2666,7 +2896,8 @@ async function bimRemoveLink() {
             }))
         };
 
-        const resp = await fetch('/api/bim/desvincular', {
+        const endpoint = bimState.capa === 'spool' ? '/api/bim/desvincular' : `/api/bim/${bimState.capa}/desvincular`;
+        const resp = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
             body: JSON.stringify(payload)
@@ -2695,11 +2926,11 @@ async function bimRemoveLink() {
 
         console.log(`[BIM] ${elements.length} elementos desvinculados con éxito en AppSheet.`);
 
-        // Actualizar localmente la caché de spools (eliminar la asignación)
-        if (bimState.mapeoSpools) {
-            elements.forEach(el => {
-                delete bimState.mapeoSpools[el.guid.toLowerCase()];
-            });
+        // Actualizar localmente la caché del mapeo (eliminar la asignación)
+        if (bimState.capa === 'spool') {
+            if (bimState.mapeoSpools) elements.forEach(el => { delete bimState.mapeoSpools[el.guid.toLowerCase()]; });
+        } else if (bimState.capaMapeo[bimState.capa]) {
+            elements.forEach(el => { delete bimState.capaMapeo[bimState.capa][el.guid.toLowerCase()]; });
         }
 
         // Feedback visual en el botón de desvincular
@@ -2998,11 +3229,13 @@ async function bimSaveLink() {
         return;
     }
 
+    const capa = bimState.capa;
     const input = document.getElementById('bim-link-spool');
     const spoolVal = input ? input.value.trim() : '';
 
     if (!spoolVal) {
-        alert("Ingresa un código de Spool (LUKEAPP).");
+        alert(capa === 'spool' ? "Ingresa un código de Spool (LUKEAPP)."
+            : `Ingresa el ID de la ${BIM_CAPA_UI[capa].label}.`);
         if (input) input.focus();
         return;
     }
@@ -3019,19 +3252,22 @@ async function bimSaveLink() {
     }
 
     try {
-        const payload = {
-            spool: spoolVal,
-            elements: elements.map(el => ({
-                guid: el.guid,
-                cwp: '',
-                descripcion: el.name || 'ACPPPIPE',
-                line_number: el.layer || '',
-                tag: el.layer || '',
-                autocad_size: ''
-            }))
-        };
+        const elementsPayload = elements.map(el => ({
+            guid: el.guid,
+            cwp: '',
+            descripcion: el.name || 'ACPPPIPE',
+            line_number: el.layer || '',
+            tag: el.layer || '',
+            autocad_size: ''
+        }));
 
-        const resp = await fetch('/api/bim/vincular', {
+        // Spools usan /api/bim/vincular {spool}; válvulas/soportes /api/bim/:capa/vincular {item}
+        const endpoint = capa === 'spool' ? '/api/bim/vincular' : `/api/bim/${capa}/vincular`;
+        const payload = capa === 'spool'
+            ? { spool: spoolVal, elements: elementsPayload }
+            : { item: spoolVal, elements: elementsPayload };
+
+        const resp = await fetch(endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
             body: JSON.stringify(payload)
@@ -3060,11 +3296,12 @@ async function bimSaveLink() {
 
         console.log(`[BIM] Mapeo de ${elements.length} elementos guardado con éxito en AppSheet.`);
 
-        // Actualizar localmente el mapeo de spools en memoria para reflejar la vinculación de inmediato
-        if (bimState.mapeoSpools) {
-            elements.forEach(el => {
-                bimState.mapeoSpools[el.guid.toLowerCase()] = spoolVal;
-            });
+        // Actualizar localmente el mapeo en memoria para reflejar la vinculación de inmediato
+        if (capa === 'spool') {
+            if (bimState.mapeoSpools) elements.forEach(el => { bimState.mapeoSpools[el.guid.toLowerCase()] = spoolVal; });
+        } else {
+            if (!bimState.capaMapeo[capa]) bimState.capaMapeo[capa] = {};
+            elements.forEach(el => { bimState.capaMapeo[capa][el.guid.toLowerCase()] = spoolVal; });
         }
         
         // Feedback visual en el botón
