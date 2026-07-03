@@ -2350,3 +2350,82 @@ tr:hover td {
 }
 .bot-lock-card h3 { margin: 0 0 10px; }
 .bot-lock-card p { font-size: 0.88rem; opacity: 0.7; line-height: 1.5; margin-bottom: 22px; }
+
+/* ============ MODAL PDF PREMIUM ============ */
+.pdf-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+.pdf-modal-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(15, 23, 42, 0.75);
+    backdrop-filter: blur(8px);
+}
+.pdf-modal-content {
+    position: relative;
+    width: 90vw;
+    height: 90vh;
+    max-width: 1200px;
+    max-height: 800px;
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    z-index: 10000;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2);
+    animation: pdfScaleUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pdf-modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.pdf-modal-header h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--primary-light);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.pdf-modal-header h3 i {
+    color: #ef4444;
+}
+.pdf-modal-close {
+    background: none;
+    border: none;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 1.2rem;
+    cursor: pointer;
+    transition: color 0.2s, transform 0.2s;
+}
+.pdf-modal-close:hover {
+    color: #ef4444;
+    transform: rotate(90deg);
+}
+.pdf-modal-body {
+    flex: 1;
+    background: #0f172a;
+    padding: 0;
+    overflow: hidden;
+}
+@keyframes pdfScaleUp {
+    from { transform: scale(0.95); opacity: 0; }
+    to { transform: scale(1); opacity: 1; }
+}

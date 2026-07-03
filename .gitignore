@@ -7,4 +7,5 @@ scratch/
 wa-bridge/auth_info_baileys/
 wa-bridge/temp_*.pcm
 wa-bridge/temp_*.ogg
+*.csv
 

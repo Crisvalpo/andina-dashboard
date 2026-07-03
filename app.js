@@ -1829,7 +1829,9 @@ const bimState = {
     token:         null,
     modelUrn:      null,
     statusesCache: null,   // Caché de { status: [guids] }
-    selectedElement: null  // Elemento 3D clickeado actualmente
+    selectedElement: null, // Elemento 3D clickeado actualmente
+    mapeoSpools:   null,   // Caché de { [guid]: spoolTag }
+    isAutoSelecting: false // Bandera para evitar bucle de selección
 };
 
 /**
@@ -1946,12 +1948,20 @@ function bimStartViewer() {
                             .then(data => { bimState.statusesCache = data; })
                             .catch(err => console.error('[BIM] Error precargando estados:', err));
 
+                        // Pre-cargar el mapeo de GUID -> Spool en background
+                        fetch('/api/bim/mapeo')
+                            .then(r => r.json())
+                            .then(data => { bimState.mapeoSpools = data; })
+                            .catch(err => console.error('[BIM] Error precargando mapeo de spools:', err));
+
                         // Listener de selección: captura propiedades para vinculación en tiempo real (admite selección múltiple con CTRL)
                         viewer.addEventListener(Autodesk.Viewing.SELECTION_CHANGED_EVENT, (event) => {
                             const dbIdArray = event.dbIdArray;
                             const panel = document.getElementById('bim-link-panel');
                             
                             if (dbIdArray && dbIdArray.length > 0) {
+                                if (bimState.isAutoSelecting) return;
+
                                 // Obtener propiedades de todos los elementos seleccionados en un único bloque
                                 viewer.model.getBulkProperties(
                                     dbIdArray,
@@ -1995,6 +2005,32 @@ function bimStartViewer() {
                                         if (selectedList.length > 0) {
                                             bimState.selectedElements = selectedList;
 
+                                            // --- AUTOSELECCIÓN POR SPOOL EXISTENTE ---
+                                            if (selectedList.length === 1 && bimState.mapeoSpools) {
+                                                const selectedGuid = selectedList[0].guid.toLowerCase();
+                                                const spoolTag = bimState.mapeoSpools[selectedGuid];
+                                                if (spoolTag) {
+                                                    console.log(`[BIM] Elemento seleccionado pertenece al spool: ${spoolTag}. Autoseleccionando grupo...`);
+                                                    const guidsDelSpool = Object.entries(bimState.mapeoSpools)
+                                                        .filter(([g, s]) => s.toLowerCase() === spoolTag.toLowerCase())
+                                                        .map(([g, s]) => g);
+
+                                                    if (guidsDelSpool.length > 1) {
+                                                        bimGuidsToDbIds(guidsDelSpool, (targetDbIds) => {
+                                                            if (targetDbIds.length > 0) {
+                                                                bimState.isAutoSelecting = true;
+                                                                viewer.select(targetDbIds);
+                                                                setTimeout(() => {
+                                                                    bimState.isAutoSelecting = false;
+                                                                }, 100);
+                                                            }
+                                                        });
+                                                        return;
+                                                    }
+                                                }
+                                            }
+                                            // ----------------------------------------
+
                                             // Actualizar título de panel en UI
                                             const linkTitle = document.querySelector('#bim-link-panel h4');
                                             if (linkTitle) {
@@ -2011,7 +2047,32 @@ function bimStartViewer() {
                                                 ? Array.from(uniqueLayers).join(', ')
                                                 : 'N/A';
 
-                                            document.getElementById('bim-link-spool').value = '';
+                                            // --- ACTUALIZAR UI DE VINCULACIÓN EXISTENTE ---
+                                            let commonSpool = null;
+                                            if (bimState.mapeoSpools) {
+                                                const spoolsSet = new Set(
+                                                    selectedList.map(el => bimState.mapeoSpools[el.guid.toLowerCase()]).filter(Boolean)
+                                                );
+                                                if (spoolsSet.size === 1) {
+                                                    commonSpool = Array.from(spoolsSet)[0];
+                                                } else if (spoolsSet.size > 1) {
+                                                    commonSpool = "Múltiples Spools";
+                                                }
+                                            }
+
+                                            const statusContainer = document.getElementById('bim-link-status-container');
+                                            const currentSpoolEl = document.getElementById('bim-link-current-spool');
+                                            const linkSpoolInput = document.getElementById('bim-link-spool');
+
+                                            if (commonSpool) {
+                                                if (currentSpoolEl) currentSpoolEl.textContent = commonSpool;
+                                                if (statusContainer) statusContainer.style.display = 'flex';
+                                                if (linkSpoolInput) linkSpoolInput.value = commonSpool !== "Múltiples Spools" ? commonSpool : '';
+                                            } else {
+                                                if (statusContainer) statusContainer.style.display = 'none';
+                                                if (linkSpoolInput) linkSpoolInput.value = '';
+                                            }
+                                            // ---------------------------------------------
                                             
                                             const btn = document.getElementById('bim-link-btn');
                                             if (btn) {
@@ -2361,6 +2422,54 @@ function bimRenderMeta(data) {
         </div>
         <div class="bim-meta-cards">${metaHtml}</div>`);
 
+    // Carga asíncrona de hojas de isométricos PDF (multi-hoja)
+    const isoId = meta['ID_ISO'];
+    if (isoId) {
+        fetch(`/api/iso/pdf/${encodeURIComponent(isoId)}`)
+            .then(r => r.json())
+            .then(res => {
+                if (res.success && res.sheets && res.sheets.length > 0) {
+                    const metaPanel = document.getElementById('bim-meta-panel');
+                    if (metaPanel) {
+                        let btnContainer = document.getElementById('bim-pdf-btn-container');
+                        if (!btnContainer) {
+                            btnContainer = document.createElement('div');
+                            btnContainer.id = 'bim-pdf-btn-container';
+                            btnContainer.style.marginTop = '15px';
+                            btnContainer.style.width = '100%';
+                            metaPanel.appendChild(btnContainer);
+                        }
+
+                        // Si hay más de 1 hoja, mostramos dropdown selector. Si hay 1, botón directo.
+                        if (res.sheets.length > 1) {
+                            btnContainer.innerHTML = `
+                                <div style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
+                                    <label style="font-size: 0.75rem; font-weight: 600; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Isométrico Hojas (${res.sheets.length}):</label>
+                                    <div style="display: flex; gap: 8px;">
+                                        <select id="bim-pdf-sheets-select" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(15,23,42,0.6); color: #fff; font-family: inherit; font-size: 0.88rem; outline: none; box-sizing: border-box;">
+                                            ${res.sheets.map(sh => `<option value="${sh.pdf_url}" ${sh.id_iso === res.current_sheet.id_iso ? 'selected' : ''}>${sh.hoja_label}</option>`).join('')}
+                                        </select>
+                                        <button onclick="bimOpenSelectedPdf()" style="padding: 10px 14px; border-radius: 8px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; outline: none;" title="Ver PDF de la hoja seleccionada">
+                                            <i class="fas fa-file-pdf" style="font-size: 1.1rem; color: #ef4444;"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            const sh = res.sheets[0];
+                            btnContainer.innerHTML = `
+                                <button onclick="bimOpenPdf('${sh.pdf_url}')" style="background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.25); color:#fca5a5; display:flex; justify-content:center; align-items:center; gap:8px; width:100%; padding: 10px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; outline: none;">
+                                    <i class="fas fa-file-pdf" style="font-size: 1.1rem; color: #ef4444;"></i>
+                                    <span>Ver Isométrico PDF</span>
+                                </button>
+                            `;
+                        }
+                    }
+                }
+            })
+            .catch(err => console.error('[BIM] Error al consultar hojas del isométrico:', err));
+    }
+
     // Lista de elementos
     if (els.length > 0) {
         const ul = document.getElementById('bim-elements-ul');
@@ -2391,6 +2500,117 @@ function bimSetLoader(msg, isError = false) {
     if (isError && loader) {
         loader.style.background = 'rgba(239,68,68,0.08)';
         loader.style.border     = '1px solid rgba(239,68,68,0.2)';
+    }
+}
+
+/**
+ * Desvincula el o los elementos seleccionados de su spool actual en AppSheet.
+ */
+async function bimRemoveLink() {
+    const elements = bimState.selectedElements;
+    if (!elements || elements.length === 0) {
+        alert('Selecciona al menos un elemento para desvincular.');
+        return;
+    }
+
+    if (!confirm(`¿Estás seguro de que deseas desvincular estos ${elements.length} elementos de su spool actual?`)) {
+        return;
+    }
+
+    // Escritura protegida: exigir clave de edición BIM antes de guardar.
+    const desbloqueado = await authAsegurar('bim');
+    if (!desbloqueado) return;
+
+    const unlinkBtn = document.getElementById('bim-unlink-btn');
+    let originalText = '';
+    if (unlinkBtn) {
+        originalText = unlinkBtn.innerHTML;
+        unlinkBtn.innerHTML = `<i class="fas fa-sync-alt fa-spin"></i> Desvinculando...`;
+        unlinkBtn.disabled = true;
+        unlinkBtn.style.opacity = '0.7';
+    }
+
+    try {
+        const payload = {
+            elements: elements.map(el => ({
+                guid: el.guid
+            }))
+        };
+
+        const resp = await fetch('/api/bim/desvincular', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify(payload)
+        });
+
+        if (resp.status === 401) {
+            authOlvidar('bim');
+            alert('🔒 Clave de edición BIM incorrecta o expirada. Vuelve a intentar.');
+            if (unlinkBtn) { unlinkBtn.innerHTML = originalText; unlinkBtn.disabled = false; unlinkBtn.style.opacity = '1'; }
+            return;
+        }
+
+        if (!resp.ok) {
+            const errData = await resp.json();
+            throw new Error(errData.error || `Error ${resp.status}`);
+        }
+
+        console.log(`[BIM] ${elements.length} elementos desvinculados con éxito en AppSheet.`);
+
+        // Actualizar localmente la caché de spools (eliminar la asignación)
+        if (bimState.mapeoSpools) {
+            elements.forEach(el => {
+                delete bimState.mapeoSpools[el.guid.toLowerCase()];
+            });
+        }
+
+        // Feedback visual en el botón de desvincular
+        if (unlinkBtn) {
+            unlinkBtn.innerHTML = `<i class="fas fa-check"></i> Desvinculados`;
+            unlinkBtn.style.background = '#059669';
+            unlinkBtn.style.borderColor = '#059669';
+            unlinkBtn.style.color = '#fff';
+        }
+
+        // Limpiar el color de theming del visor para los elementos desvinculados
+        if (bimState.viewer) {
+            bimState.viewer.clearThemingColors(bimState.viewer.model);
+        }
+
+        // Limpiar el formulario de vinculación en la UI
+        const statusContainer = document.getElementById('bim-link-status-container');
+        if (statusContainer) statusContainer.style.display = 'none';
+        
+        const linkSpoolInput = document.getElementById('bim-link-spool');
+        if (linkSpoolInput) linkSpoolInput.value = '';
+
+        // Forzar actualización de estados
+        fetch('/api/bim/statuses')
+            .then(r => r.json())
+            .then(data => { bimState.statusesCache = data; })
+            .catch(err => console.error('[BIM] Error actualizando estados:', err));
+
+        // Limpiar la selección en el visor
+        setTimeout(() => {
+            if (unlinkBtn) {
+                unlinkBtn.innerHTML = originalText;
+                unlinkBtn.style.background = '';
+                unlinkBtn.style.borderColor = '';
+                unlinkBtn.style.color = '';
+                unlinkBtn.disabled = false;
+                unlinkBtn.style.opacity = '1';
+            }
+            const panel = document.getElementById('bim-link-panel');
+            if (panel) panel.style.display = 'none';
+            if (bimState.viewer) {
+                bimState.viewer.select([]);
+            }
+        }, 1500);
+
+    } catch (err) {
+        console.error('[BIM Desvincular Error]', err);
+        alert(`Error al desvincular elementos: ${err.message}`);
+        if (unlinkBtn) { unlinkBtn.innerHTML = originalText; unlinkBtn.disabled = false; unlinkBtn.style.opacity = '1'; }
     }
 }
 
@@ -2693,6 +2913,13 @@ async function bimSaveLink() {
 
         console.log(`[BIM] Mapeo de ${elements.length} elementos guardado con éxito en AppSheet.`);
 
+        // Actualizar localmente el mapeo de spools en memoria para reflejar la vinculación de inmediato
+        if (bimState.mapeoSpools) {
+            elements.forEach(el => {
+                bimState.mapeoSpools[el.guid.toLowerCase()] = spoolVal;
+            });
+        }
+        
         // Feedback visual en el botón
         if (btn) {
             btn.innerHTML = `<i class="fas fa-check"></i> ¡${elements.length} Vinculados!`;
@@ -3148,5 +3375,39 @@ async function botBorrarTool(nombre) {
         botCargarTools();
     } catch (e) {
         alert('Error eliminando herramienta: ' + e.message);
+    }
+}
+
+/**
+ * Abre el visualizador de PDF incrustado en el dashboard.
+ */
+function bimOpenPdf(url) {
+    const modal = document.getElementById('pdf-viewer-modal');
+    const iframe = document.getElementById('pdf-viewer-iframe');
+    if (modal && iframe) {
+        iframe.src = url;
+        modal.style.display = 'flex';
+    }
+}
+
+/**
+ * Cierra el visualizador de PDF.
+ */
+function closePdfModal() {
+    const modal = document.getElementById('pdf-viewer-modal');
+    const iframe = document.getElementById('pdf-viewer-iframe');
+    if (modal && iframe) {
+        modal.style.display = 'none';
+        iframe.src = '';
+    }
+}
+
+/**
+ * Obtiene el valor seleccionado en el selector de hojas y lo abre en el visualizador.
+ */
+function bimOpenSelectedPdf() {
+    const select = document.getElementById('bim-pdf-sheets-select');
+    if (select && select.value) {
+        bimOpenPdf(select.value);
     }
 }

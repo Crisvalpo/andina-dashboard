@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { CONFIG, resumenSeguro } = require('./config');
-const { fetchAppSheet } = require('./lib/appsheet');
+const { fetchAppSheet, invalidarCache } = require('./lib/appsheet');
 const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS } = require('./lib/auth');
 const app = express();
 const PORT = CONFIG.PORT;
@@ -396,6 +396,110 @@ app.get('/api/bim/statuses', async (req, res) => {
     }
 });
 
+// GET /api/iso/pdf/:isoId → Obtiene la hoja actual y todas las demás hojas de la misma línea (isométrico multi-hoja) desde LOG_Iso_MS
+app.get('/api/iso/pdf/:isoId', async (req, res) => {
+    const isoId = decodeURIComponent(req.params.isoId).trim();
+
+    try {
+        console.log(`[ISO PDF] Buscando hojas e isométricos para "${isoId}"...`);
+        const rawIso = await fetchAppSheet('LOG_Iso_MS');
+        const appName = CONFIG.APPSHEET_APP_ID || 'LukeAPP_Andina-526211656';
+
+        // 1. Deducir la línea base (prefijo quitando _HOJA-X o similar)
+        let lineaPrefijo = isoId;
+        const hojaIndex = isoId.toUpperCase().lastIndexOf('HOJA');
+        if (hojaIndex > 0) {
+            lineaPrefijo = isoId.substring(0, hojaIndex).replace(/[-_]+$/, '');
+        }
+
+        const normalizar = (s) => String(s || '').trim().replace(/["'\s]+/g, '').toLowerCase();
+        const prefijoNorm = normalizar(lineaPrefijo);
+        const isoIdNorm = normalizar(isoId);
+
+        const sheets = [];
+        let currentSheet = null;
+
+        // Auxiliar para extraer el número de hoja para el ordenamiento
+        const extraerNumeroHoja = (idIso) => {
+            const match = idIso.match(/HOJA[-_](\d+)/i);
+            return match ? parseInt(match[1], 10) : 999;
+        };
+
+        rawIso.forEach(row => {
+            const rowIso = String(row['ID_ISO'] || '').trim();
+            const rowIsoNorm = normalizar(rowIso);
+
+            // Si coincide con el prefijo de la línea
+            if (rowIsoNorm.includes(prefijoNorm) && row['ARCHIVO_PDF_REVISION']) {
+                const fileName = row['ARCHIVO_PDF_REVISION'].trim();
+                let pdfUrl = '';
+                if (fileName.startsWith('http://') || fileName.startsWith('https://')) {
+                    pdfUrl = fileName;
+                } else {
+                    pdfUrl = `https://www.appsheet.com/template/gettablefileurl?appName=${appName}&tableName=LOG_Iso_MS&fileName=${encodeURIComponent(fileName)}`;
+                }
+
+                // Extraer el nombre legible de la hoja (por ejemplo, "Hoja 2" o "HOJA-2")
+                let label = rowIso;
+                const matchHoja = rowIso.match(/HOJA[-_]\d+/i);
+                if (matchHoja) {
+                    label = matchHoja[0].replace('-', ' ');
+                }
+
+                const sheetObj = {
+                    id_iso: rowIso,
+                    hoja_label: label,
+                    hoja_nro: extraerNumeroHoja(rowIso),
+                    pdf_url: pdfUrl
+                };
+
+                sheets.push(sheetObj);
+
+                // Si es la hoja que se solicitó originalmente
+                if (rowIsoNorm === isoIdNorm) {
+                    currentSheet = sheetObj;
+                }
+            }
+        });
+
+        // Ordenar hojas de forma numérica ascendente (Hoja 1, Hoja 2, Hoja 10, etc.)
+        sheets.sort((a, b) => a.hoja_nro - b.hoja_nro);
+
+        if (sheets.length === 0) {
+            return res.json({ success: false, message: 'No se encontraron archivos PDF para esta línea o isométrico' });
+        }
+
+        res.json({
+            success: true,
+            linea: lineaPrefijo,
+            current_sheet: currentSheet || sheets[0], // si no se mapeó exacto, tomar la primera
+            sheets: sheets
+        });
+    } catch (e) {
+        console.error('[ISO PDF Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/bim/mapeo → Obtiene el mapa de GUID -> SPOOL LUKEAPP de todos los elementos mapeados en AppSheet
+app.get('/api/bim/mapeo', async (req, res) => {
+    try {
+        const rawBim = await fetchAppSheet('LIST_Bim_MS');
+        const mapeo = {};
+        rawBim.forEach(row => {
+            const guid = String(row['Elemento GUID'] || row['Elemento\nGUID'] || '').trim();
+            const spool = String(row['SPOOL LUKEAPP'] || '').trim();
+            if (guid && spool) {
+                mapeo[guid.toLowerCase()] = spool;
+            }
+        });
+        res.json(mapeo);
+    } catch (e) {
+        console.error('[BIM Mapeo Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // POST /api/bim/vincular → Vincula uno o múltiples Elementos GUID a un SPOOL LUKEAPP en AppSheet (LIST_Bim_MS)
 // Escritura protegida: requiere clave de edición BIM.
 app.post('/api/bim/vincular', requerirPermiso('bim'), async (req, res) => {
@@ -428,24 +532,160 @@ app.post('/api/bim/vincular', requerirPermiso('bim'), async (req, res) => {
             console.error('[BIM Vincular] Advertencia al buscar maestro spools para traducción:', masterErr.message);
         }
 
-        console.log(`[BIM] Guardando en AppSheet (LIST_Bim_MS): ${elements.length} vinculaciones para Spool "${finalSpoolTag}"`);
+        console.log(`[BIM] Validando y guardando vinculaciones para Spool "${finalSpoolTag}" en AppSheet...`);
         
-        // Mapear cada elemento a la estructura de la fila de AppSheet
-        const rows = elements.map(el => ({
-            "Elemento GUID": el.guid,
-            "SPOOL LUKEAPP": finalSpoolTag,
-            "CWP": el.cwp || "",
-            "DESCRIPCIÓN": el.descripcion || el.name || "",
-            "Line Number": el.line_number || el.layer || "",
-            "TAG": el.tag || el.layer || "",
-            "AutoCad Size": el.autocad_size || ""
-        }));
+        // 1. Obtener todas las filas actuales de LIST_Bim_MS
+        let currentBimRows = [];
+        try {
+            currentBimRows = await fetchAppSheet('LIST_Bim_MS');
+        } catch (fetchErr) {
+            console.error('[BIM Vincular] Error al leer LIST_Bim_MS para validación:', fetchErr.message);
+            throw new Error(`No se pudo validar el estado de los elementos en AppSheet: ${fetchErr.message}`);
+        }
 
-        // Enviar la inserción en bloque (batch)
-        const result = await fetchAppSheet('LIST_Bim_MS', 'Add', rows);
-        res.json({ success: true, count: rows.length, result });
+        // Crear un mapa de GUIDs existentes para búsquedas rápidas de O(1)
+        const existingGuidsMap = new Map();
+        currentBimRows.forEach(row => {
+            const guid = String(row['Elemento GUID'] || '').trim();
+            if (guid) {
+                existingGuidsMap.set(guid.toLowerCase(), row);
+            }
+        });
+
+        const rowsToAdd = [];
+        const rowsToEdit = [];
+
+        for (const el of elements) {
+            if (!el.guid) continue;
+            const guidKey = String(el.guid).trim().toLowerCase();
+            const existingRow = existingGuidsMap.get(guidKey);
+
+            if (existingRow) {
+                // Si el elemento ya existe, lo editamos para asignarle el SPOOL LUKEAPP.
+                // Conservamos los datos existentes y actualizamos/asignamos el SPOOL LUKEAPP
+                rowsToEdit.push({
+                    "Elemento GUID": existingRow["Elemento GUID"],
+                    "SPOOL LUKEAPP": finalSpoolTag,
+                    "CWP": existingRow["CWP"] || el.cwp || "",
+                    "DESCRIPCIÓN": existingRow["DESCRIPCIÓN"] || el.descripcion || el.name || "",
+                    "Line Number": existingRow["Line Number"] || el.line_number || el.layer || "",
+                    "TAG": existingRow["TAG"] || el.tag || el.layer || "",
+                    "AutoCad Size": existingRow["AutoCad Size"] || el.autocad_size || ""
+                });
+            } else {
+                // Si el elemento no existe, lo creamos nuevo
+                rowsToAdd.push({
+                    "Elemento GUID": el.guid,
+                    "SPOOL LUKEAPP": finalSpoolTag,
+                    "CWP": el.cwp || "",
+                    "DESCRIPCIÓN": el.descripcion || el.name || "",
+                    "Line Number": el.line_number || el.layer || "",
+                    "TAG": el.tag || el.layer || "",
+                    "AutoCad Size": el.autocad_size || ""
+                });
+            }
+        }
+
+        let addResult = null;
+        let editResult = null;
+
+        if (rowsToAdd.length > 0) {
+            console.log(`[BIM Vincular] Agregando (Add) ${rowsToAdd.length} elementos nuevos en AppSheet`);
+            addResult = await fetchAppSheet('LIST_Bim_MS', 'Add', rowsToAdd);
+        }
+
+        if (rowsToEdit.length > 0) {
+            console.log(`[BIM Vincular] Actualizando (Edit) ${rowsToEdit.length} elementos existentes en AppSheet`);
+            editResult = await fetchAppSheet('LIST_Bim_MS', 'Edit', rowsToEdit);
+        }
+
+        // Invalidar cachés
+        invalidarCache('LIST_Bim_MS');
+        delete cache['LIST_Bim_MS'];
+
+        res.json({
+            success: true,
+            count: elements.length,
+            addedCount: rowsToAdd.length,
+            editedCount: rowsToEdit.length,
+            addResult,
+            editResult
+        });
     } catch (e) {
         console.error('[BIM Vincular Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/bim/desvincular → Desvincula múltiples Elementos GUID en AppSheet (pone SPOOL LUKEAPP = "")
+// Escritura protegida: requiere clave de edición BIM.
+app.post('/api/bim/desvincular', requerirPermiso('bim'), async (req, res) => {
+    const elements = req.body.elements;
+
+    if (!elements || elements.length === 0) {
+        return res.status(400).json({ error: "Elementos son requeridos." });
+    }
+
+    try {
+        console.log(`[BIM] Desvinculando en AppSheet (LIST_Bim_MS): ${elements.length} elementos`);
+
+        // 1. Obtener todas las filas actuales de LIST_Bim_MS
+        let currentBimRows = [];
+        try {
+            currentBimRows = await fetchAppSheet('LIST_Bim_MS');
+        } catch (fetchErr) {
+            console.error('[BIM Desvincular] Error al leer LIST_Bim_MS:', fetchErr.message);
+            throw new Error(`No se pudo leer la base de datos de AppSheet: ${fetchErr.message}`);
+        }
+
+        // Crear mapa de GUIDs existentes para búsquedas rápidas
+        const existingGuidsMap = new Map();
+        currentBimRows.forEach(row => {
+            const guid = String(row['Elemento GUID'] || '').trim();
+            if (guid) {
+                existingGuidsMap.set(guid.toLowerCase(), row);
+            }
+        });
+
+        const rowsToEdit = [];
+
+        for (const el of elements) {
+            if (!el.guid) continue;
+            const guidKey = String(el.guid).trim().toLowerCase();
+            const existingRow = existingGuidsMap.get(guidKey);
+
+            if (existingRow) {
+                // Solo si el elemento existe en AppSheet lo editamos para establecer SPOOL LUKEAPP en vacío
+                rowsToEdit.push({
+                    "Elemento GUID": existingRow["Elemento GUID"],
+                    "SPOOL LUKEAPP": "",
+                    "CWP": existingRow["CWP"] || "",
+                    "DESCRIPCIÓN": existingRow["DESCRIPCIÓN"] || "",
+                    "Line Number": existingRow["Line Number"] || "",
+                    "TAG": existingRow["TAG"] || "",
+                    "AutoCad Size": existingRow["AutoCad Size"] || ""
+                });
+            }
+        }
+
+        let editResult = null;
+        if (rowsToEdit.length > 0) {
+            console.log(`[BIM Desvincular] Limpiando SPOOL LUKEAPP para ${rowsToEdit.length} elementos en AppSheet`);
+            editResult = await fetchAppSheet('LIST_Bim_MS', 'Edit', rowsToEdit);
+        }
+
+        // Invalidar cachés
+        invalidarCache('LIST_Bim_MS');
+        delete cache['LIST_Bim_MS'];
+
+        res.json({
+            success: true,
+            count: elements.length,
+            desvinculadosCount: rowsToEdit.length,
+            editResult
+        });
+    } catch (e) {
+        console.error('[BIM Desvincular Error]', e.message);
         res.status(500).json({ error: e.message });
     }
 });
