@@ -2585,8 +2585,17 @@ async function bimRemoveLink() {
         }
 
         if (!resp.ok) {
-            const errData = await resp.json();
-            throw new Error(errData.error || `Error ${resp.status}`);
+            let errMsg = `Error ${resp.status}`;
+            try {
+                const errData = await resp.json();
+                errMsg = errData.error || errMsg;
+            } catch (jsonErr) {
+                try {
+                    const textErr = await resp.text();
+                    errMsg = textErr || errMsg;
+                } catch (txtErr) {}
+            }
+            throw new Error(errMsg);
         }
 
         console.log(`[BIM] ${elements.length} elementos desvinculados con éxito en AppSheet.`);
@@ -2941,8 +2950,17 @@ async function bimSaveLink() {
         }
 
         if (!resp.ok) {
-            const errData = await resp.json();
-            throw new Error(errData.error || `Error ${resp.status}`);
+            let errMsg = `Error ${resp.status}`;
+            try {
+                const errData = await resp.json();
+                errMsg = errData.error || errMsg;
+            } catch (jsonErr) {
+                try {
+                    const textErr = await resp.text();
+                    errMsg = textErr || errMsg;
+                } catch (txtErr) {}
+            }
+            throw new Error(errMsg);
         }
 
         console.log(`[BIM] Mapeo de ${elements.length} elementos guardado con éxito en AppSheet.`);
