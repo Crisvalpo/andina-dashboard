@@ -258,8 +258,6 @@ function toggleWelderHistory() {
     const container = document.getElementById('welder-history-container');
     const icon = document.getElementById('hist-toggle-icon');
     if(container.style.display === 'none' || container.style.display === '') {
-        container.style.display = 'block';
-        icon.style.transform = 'rotate(180deg)';
     } else {
         container.style.display = 'none';
         icon.style.transform = 'rotate(0deg)';
@@ -278,6 +276,16 @@ function showSection(name) {
         sectionEl.style.display = '';
     }
     if (navEl) navEl.classList.add('active');
+
+    // Colapsar barra lateral principal en sección BIM para maximizar el espacio de visualización 3D
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+        if (name === 'bim') {
+            sidebar.classList.add('collapsed');
+        } else {
+            sidebar.classList.remove('collapsed');
+        }
+    }
 
     const titles = {
         overview:  'Dashboard Overview',
@@ -2068,9 +2076,30 @@ function bimStartViewer() {
                                                 if (currentSpoolEl) currentSpoolEl.textContent = commonSpool;
                                                 if (statusContainer) statusContainer.style.display = 'flex';
                                                 if (linkSpoolInput) linkSpoolInput.value = commonSpool !== "Múltiples Spools" ? commonSpool : '';
+
+                                                if (commonSpool !== "Múltiples Spools") {
+                                                    // Cargar asíncronamente metadatos del spool para mostrar detalles e isométricos (PDF)
+                                                    fetch(`/api/bim/spool/${encodeURIComponent(commonSpool)}`)
+                                                        .then(r => r.json())
+                                                        .then(spoolData => {
+                                                            if (spoolData && spoolData.spool_id) {
+                                                                bimRenderMeta(spoolData);
+                                                            }
+                                                        })
+                                                        .catch(err => console.error('[BIM] Error cargando metadata del spool seleccionado:', err));
+                                                }
                                             } else {
                                                 if (statusContainer) statusContainer.style.display = 'none';
                                                 if (linkSpoolInput) linkSpoolInput.value = '';
+
+                                                // Limpiar panel de metadatos cuando no hay selección de spool válida
+                                                bimSetMeta(`
+                                                    <div class="bim-meta-placeholder">
+                                                        <i class="fas fa-cube bim-meta-icon"></i>
+                                                        <p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p>
+                                                    </div>`);
+                                                const listEl = document.getElementById('bim-elements-list');
+                                                if (listEl) listEl.style.display = 'none';
                                             }
                                             // ---------------------------------------------
                                             
