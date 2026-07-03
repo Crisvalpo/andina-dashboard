@@ -282,9 +282,9 @@ app.post("/restart", async (req, res) => {
   }
 });
 
-// Enviar mensaje de texto o audio (PCM base64 de Gemini TTS → OGG Opus)
+// Enviar mensaje de texto, audio (PCM base64 → OGG Opus), documento o imagen
 app.post("/send", async (req, res) => {
-  const { to, text, audioBase64 } = req.body;
+  const { to, text, audioBase64, fileUrl, fileName, mimetype, caption, tipo } = req.body;
 
   if (!to) return res.status(400).json({ success: false, message: "Falta destinatario (to)" });
   if (connectionState !== "connected" || !sock) {
@@ -295,7 +295,27 @@ app.post("/send", async (req, res) => {
     const formattedNum = to.includes("@") ? to : `${to.replace(/[^0-9]/g, "")}@s.whatsapp.net`;
     let sentMsg;
 
-    if (audioBase64) {
+    if (fileUrl) {
+      // Documento o imagen desde URL (ej: isométricos PDF / fotos de terreno en AppSheet)
+      console.log(`${TAG} 📎 Enviando ${tipo || "document"} desde URL: ${fileName || fileUrl.substring(0, 60)}`);
+      const fResp = await fetch(fileUrl);
+      if (!fResp.ok) throw new Error(`No se pudo descargar el archivo (HTTP ${fResp.status})`);
+      const buffer = Buffer.from(await fResp.arrayBuffer());
+
+      if ((tipo || "document") === "image") {
+        sentMsg = await sock.sendMessage(formattedNum, {
+          image: buffer,
+          caption: caption || "",
+        });
+      } else {
+        sentMsg = await sock.sendMessage(formattedNum, {
+          document: buffer,
+          mimetype: mimetype || "application/pdf",
+          fileName: fileName || "documento.pdf",
+          caption: caption || "",
+        });
+      }
+    } else if (audioBase64) {
       const pcmBuffer = Buffer.from(audioBase64, "base64");
       const tempId = crypto.randomBytes(16).toString("hex");
       const tempPcmPath = path.join(__dirname, `temp_${tempId}.pcm`);
