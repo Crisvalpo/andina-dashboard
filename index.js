@@ -481,6 +481,33 @@ app.get('/api/iso/pdf/:isoId', async (req, res) => {
     }
 });
 
+// GET /api/iso/proxy-pdf → Actúa como proxy para servir el PDF de AppSheet sin restricciones de X-Frame-Options
+app.get('/api/iso/proxy-pdf', async (req, res) => {
+    const fileUrl = req.query.url;
+    if (!fileUrl) {
+        return res.status(400).send('Falta el parámetro url');
+    }
+
+    try {
+        console.log(`[Proxy PDF] Descargando y sirviendo: ${fileUrl}`);
+        const response = await fetch(fileUrl);
+        if (!response.ok) {
+            throw new Error(`Error de AppSheet: ${response.status}`);
+        }
+
+        // Propagar cabeceras HTTP de tipo de contenido
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="isometrico.pdf"');
+
+        // Descargar el stream y enviarlo
+        const arrayBuffer = await response.arrayBuffer();
+        res.send(Buffer.from(arrayBuffer));
+    } catch (e) {
+        console.error('[Proxy PDF Error]', e.message);
+        res.status(500).send(`Error al cargar el PDF a través del proxy: ${e.message}`);
+    }
+});
+
 // GET /api/bim/mapeo → Obtiene el mapa de GUID -> SPOOL LUKEAPP de todos los elementos mapeados en AppSheet
 app.get('/api/bim/mapeo', async (req, res) => {
     try {

@@ -3410,19 +3410,60 @@ async function botBorrarTool(nombre) {
 }
 
 /**
- * Abre el visualizador de PDF incrustado en el dashboard.
+ * Abre el visualizador de PDF.
+ * En PC divide la pantalla (Split Screen), en móviles abre un modal emergente.
+ * Usa el proxy del backend para evitar restricciones de X-Frame-Options.
  */
 function bimOpenPdf(url) {
-    const modal = document.getElementById('pdf-viewer-modal');
-    const iframe = document.getElementById('pdf-viewer-iframe');
-    if (modal && iframe) {
-        iframe.src = url;
-        modal.style.display = 'flex';
+    const proxyUrl = `/api/iso/proxy-pdf?url=${encodeURIComponent(url)}`;
+
+    if (window.innerWidth > 1024) {
+        // En PC: Pantalla dividida (Split Screen)
+        const splitPanel = document.getElementById('bim-pdf-split-panel');
+        const splitIframe = document.getElementById('bim-pdf-split-iframe');
+        if (splitPanel && splitIframe) {
+            splitIframe.src = proxyUrl;
+            splitPanel.style.display = 'flex';
+            
+            // Forzar resize del visor 3D para ajustarse al nuevo ancho
+            if (bimState.viewer) {
+                setTimeout(() => {
+                    bimState.viewer.resize();
+                }, 150);
+            }
+        }
+    } else {
+        // En Móvil: Modal flotante
+        const modal = document.getElementById('pdf-viewer-modal');
+        const iframe = document.getElementById('pdf-viewer-iframe');
+        if (modal && iframe) {
+            iframe.src = proxyUrl;
+            modal.style.display = 'flex';
+        }
     }
 }
 
 /**
- * Cierra el visualizador de PDF.
+ * Cierra la visualización en pantalla dividida (PC).
+ */
+function closePdfSplit() {
+    const splitPanel = document.getElementById('bim-pdf-split-panel');
+    const splitIframe = document.getElementById('bim-pdf-split-iframe');
+    if (splitPanel && splitIframe) {
+        splitPanel.style.display = 'none';
+        splitIframe.src = '';
+        
+        // Forzar resize del visor 3D para ocupar el 100% de nuevo
+        if (bimState.viewer) {
+            setTimeout(() => {
+                bimState.viewer.resize();
+            }, 150);
+        }
+    }
+}
+
+/**
+ * Cierra el visualizador de PDF (ambos modos).
  */
 function closePdfModal() {
     const modal = document.getElementById('pdf-viewer-modal');
@@ -3431,6 +3472,7 @@ function closePdfModal() {
         modal.style.display = 'none';
         iframe.src = '';
     }
+    closePdfSplit();
 }
 
 /**

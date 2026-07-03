@@ -2459,3 +2459,22 @@ tr:hover td {
 body.sidebar-collapsed #bim-section {
     left: 60px;
 }
+
+/* ============ SPLIT SCREEN PDF PANEL ============ */
+.bim-pdf-split-panel {
+    width: 48%;
+    min-width: 450px;
+    background: rgba(30, 41, 59, 0.95);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    z-index: 6;
+    animation: slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: -5px 0 25px rgba(0, 0, 0, 0.3);
+}
+
+@keyframes slideInRight {
+    from { transform: translateX(100%); }
+    to { transform: translateX(0); }
+}

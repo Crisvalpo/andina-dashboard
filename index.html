@@ -966,6 +966,17 @@
                 <div id="forgeViewer" class="forge-viewer"></div>
             </div>
 
+            <!-- Panel Split Screen de PDF (para PC) -->
+            <div id="bim-pdf-split-panel" class="bim-pdf-split-panel glass" style="display: none;">
+                <div class="pdf-modal-header" style="padding: 12px 16px; background: rgba(15, 23, 42, 0.4);">
+                    <h3><i class="fas fa-file-pdf"></i> Plano Isométrico</h3>
+                    <button class="pdf-modal-close" onclick="closePdfSplit()" style="font-size: 1rem;"><i class="fas fa-times"></i></button>
+                </div>
+                <div class="pdf-modal-body" style="flex: 1; position: relative;">
+                    <iframe id="bim-pdf-split-iframe" src="" width="100%" height="100%" frameborder="0"></iframe>
+                </div>
+            </div>
+
         </div>
     </section>
 
