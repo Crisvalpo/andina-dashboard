@@ -2062,7 +2062,7 @@ function bimStartViewer() {
                                 // Obtener propiedades de todos los elementos seleccionados en un único bloque
                                 viewer.model.getBulkProperties(
                                     dbIdArray,
-                                    { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'Layer'] },
+                                    { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'Layer', 'PnPGuid', 'PnPGUID'] },
                                     (results) => {
                                         const selectedList = [];
                                         const uniqueLayers = new Set();
@@ -2075,7 +2075,7 @@ function bimStartViewer() {
                                             if (pResult.properties) {
                                                 pResult.properties.forEach(prop => {
                                                     const propName = String(prop.displayName || prop.attributeName || '').toLowerCase();
-                                                    if (['guid', 'element guid', 'revit guid'].includes(propName)) {
+                                                    if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(propName)) {
                                                         guid = String(prop.displayValue || '').trim();
                                                     }
                                                     if (propName === 'layer') {
@@ -2367,10 +2367,10 @@ function bimGuidsToDbIds(guids, callback) {
     
     console.log('[BIM] Buscando dbIds para los GUIDs:', guids);
     
-    // Solicitamos externalId y propiedades comunes que almacenan el GUID de Revit
+    // Solicitamos externalId y propiedades comunes que almacenan el GUID de Revit/AutoCAD
     bimState.viewer.model.getBulkProperties(
         null, // todos los objetos
-        { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID'] },
+        { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'PnPGuid', 'PnPGUID'] },
         (results) => {
             const guidSet = new Set(guids.map(g => g.toLowerCase()));
             const dbIds = [];
@@ -2386,7 +2386,7 @@ function bimGuidsToDbIds(guids, callback) {
                 if (r.properties && r.properties.length > 0) {
                     for (const prop of r.properties) {
                         const name = String(prop.displayName || prop.attributeName || '').toLowerCase();
-                        if (['guid', 'element guid', 'revit guid'].includes(name)) {
+                        if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(name)) {
                             const val = String(prop.displayValue || '').trim().toLowerCase();
                             if (guidSet.has(val)) {
                                 dbIds.push(r.dbId);
