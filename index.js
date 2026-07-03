@@ -739,6 +739,262 @@ app.post('/api/bim/desvincular', requerirPermiso('bim'), async (req, res) => {
     }
 });
 
+// =================================================================
+// BIM — CAPAS VÁLVULAS Y SOPORTES (misma lógica que spools)
+// Vínculo GUID→ítem guardado en columnas de LIST_Bim_MS:
+//   válvulas → "VALVULA LUKEAPP" = ID_VALVULA
+//   soportes → "SOPORTE LUKEAPP" = ID_Soporte
+// El estado de montaje vive en las tablas REG_Montaje*.
+// =================================================================
+const BIM_CAPAS = {
+    valvula: {
+        col:         'VALVULA LUKEAPP',
+        listTable:   'LIST_Valvulas_MS',
+        listKey:     'ID_VALVULA',
+        labelCols:   ['ID_VALVULA', 'ID_LINEA'],  // etiqueta visible: VAL113_03351-CT-...
+        montajeTable:'REG_MontajeValvulas_MS',
+        montajeKey:  'ID_VALVULA',
+        montajeStatusCol: 'Status',   // "Montada" | (sin fila) → pendiente
+    },
+    soporte: {
+        col:         'SOPORTE LUKEAPP',
+        listTable:   'LIST_Soportes_MS',
+        listKey:     'ID_Soporte',
+        labelCols:   ['ITEM', 'ID_LINEA'],
+        montajeTable:'REG_MontajeSoportes_MS',
+        montajeKey:  'ID_Soporte',
+        montajeStatusCol: null,        // presencia de fila = montado
+    }
+};
+
+// Etiqueta visible para el usuario que vincula (llave real + contexto de línea)
+function bimItemLabel(capa, row) {
+    if (!row) return '';
+    const parts = (capa.labelCols || [capa.listKey])
+        .map(c => String(row[c] || '').trim())
+        .filter(Boolean);
+    return parts.join('_');
+}
+
+// Columnas reales de LIST_Bim_MS (para preservar valores al editar)
+const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP',
+    'CWP', 'DESCRIPCIÓN', 'Line Number', 'TAG', 'AutoCad Size'];
+
+function bimBuildEditRow(existingRow, colName, valor) {
+    const out = {};
+    for (const c of BIM_REAL_COLS) {
+        if (existingRow[c] !== undefined) out[c] = existingRow[c];
+    }
+    out['Elemento GUID'] = existingRow['Elemento GUID'];
+    out[colName] = valor;
+    return out;
+}
+
+// GET /api/bim/:capa/mapeo → { [guidLower]: idItem }
+app.get('/api/bim/:capa/mapeo', async (req, res) => {
+    const capa = BIM_CAPAS[req.params.capa];
+    if (!capa) return res.status(404).json({ error: 'Capa no válida' });
+    try {
+        const rows = await fetchAppSheet('LIST_Bim_MS');
+        const mapeo = {};
+        rows.forEach(row => {
+            const guid = String(row['Elemento GUID'] || '').trim();
+            const val  = String(row[capa.col] || '').trim();
+            if (guid && val) mapeo[guid.toLowerCase()] = val;
+        });
+        res.json(mapeo);
+    } catch (e) {
+        console.error(`[BIM ${req.params.capa} mapeo]`, e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/bim/:capa/index → { [idLower]: { id, ...campos maestros } }
+app.get('/api/bim/:capa/index', async (req, res) => {
+    const capa = BIM_CAPAS[req.params.capa];
+    if (!capa) return res.status(404).json({ error: 'Capa no válida' });
+    try {
+        const rows = await fetchAppSheet(capa.listTable);
+        const index = {};
+        rows.forEach(r => {
+            const id = String(r[capa.listKey] || '').trim();
+            if (id) index[id.toLowerCase()] = { ...r, _label: bimItemLabel(capa, r) };
+        });
+        res.json(index);
+    } catch (e) {
+        console.error(`[BIM ${req.params.capa} index]`, e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/bim/:capa/item/:id → metadata del ítem + GUIDs vinculados + estado de montaje
+app.get('/api/bim/:capa/item/:id', async (req, res) => {
+    const capa = BIM_CAPAS[req.params.capa];
+    if (!capa) return res.status(404).json({ error: 'Capa no válida' });
+    const id = decodeURIComponent(req.params.id).trim();
+    try {
+        const [listRows, bimRows, montajeRows] = await Promise.all([
+            fetchAppSheet(capa.listTable),
+            fetchAppSheet('LIST_Bim_MS'),
+            fetchAppSheet(capa.montajeTable).catch(() => [])
+        ]);
+
+        const meta = listRows.find(r => String(r[capa.listKey] || '').trim().toLowerCase() === id.toLowerCase()) || null;
+
+        const elements = bimRows
+            .filter(r => String(r[capa.col] || '').trim().toLowerCase() === id.toLowerCase())
+            .map(r => ({
+                guid: String(r['Elemento GUID'] || '').trim(),
+                cwp:  String(r['CWP'] || '').trim(),
+                tag:  String(r['TAG'] || '').trim()
+            }));
+
+        // Estado de montaje: fila en REG_Montaje* con ese id
+        const montajes = montajeRows.filter(r => String(r[capa.montajeKey] || '').trim().toLowerCase() === id.toLowerCase());
+        let montado = montajes.length > 0;
+        let statusMontaje = montado ? (capa.montajeStatusCol ? String(montajes[0][capa.montajeStatusCol] || 'Montada').trim() : 'Montado') : 'Pendiente';
+
+        res.json({
+            id,
+            label: bimItemLabel(capa, meta),
+            metadata: meta,
+            guids: elements.map(e => e.guid).filter(Boolean),
+            elements,
+            montado,
+            status: statusMontaje
+        });
+    } catch (e) {
+        console.error(`[BIM ${req.params.capa} item]`, e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/bim/:capa/statuses → { Montado:[guids], Pendiente:[guids] } para colorear
+app.get('/api/bim/:capa/statuses', async (req, res) => {
+    const capa = BIM_CAPAS[req.params.capa];
+    if (!capa) return res.status(404).json({ error: 'Capa no válida' });
+    try {
+        const [bimRows, montajeRows] = await Promise.all([
+            fetchAppSheet('LIST_Bim_MS'),
+            fetchAppSheet(capa.montajeTable).catch(() => [])
+        ]);
+
+        // Set de ids montados
+        const montados = new Set(
+            montajeRows.map(r => String(r[capa.montajeKey] || '').trim().toLowerCase()).filter(Boolean)
+        );
+
+        const result = { 'MONTADO': [], 'PENDIENTE': [] };
+        bimRows.forEach(row => {
+            const guid = String(row['Elemento GUID'] || '').trim();
+            const id   = String(row[capa.col] || '').trim().toLowerCase();
+            if (!guid || !id) return;
+            (montados.has(id) ? result['MONTADO'] : result['PENDIENTE']).push(guid);
+        });
+        res.json(result);
+    } catch (e) {
+        console.error(`[BIM ${req.params.capa} statuses]`, e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/bim/:capa/vincular → asocia GUIDs a un ítem (ID_VALVULA / ID_Soporte)
+app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => {
+    const capa = BIM_CAPAS[req.params.capa];
+    if (!capa) return res.status(404).json({ error: 'Capa no válida' });
+
+    let elements = req.body.elements;
+    const itemId = String(req.body.item || req.body.id || '').trim();
+    if (!elements && req.body.guid) elements = [req.body];
+    if (!elements || elements.length === 0 || !itemId) {
+        return res.status(400).json({ error: 'Elementos e ítem son requeridos.' });
+    }
+
+    try {
+        // Validar que el ítem exista en la lista maestra
+        const listRows = await fetchAppSheet(capa.listTable);
+        const existeItem = listRows.some(r => String(r[capa.listKey] || '').trim().toLowerCase() === itemId.toLowerCase());
+        if (!existeItem) {
+            return res.status(404).json({ error: `${req.params.capa} "${itemId}" no existe en ${capa.listTable}.` });
+        }
+
+        const currentBimRows = await fetchAppSheet('LIST_Bim_MS');
+        const existing = new Map();
+        currentBimRows.forEach(row => {
+            const g = String(row['Elemento GUID'] || '').trim();
+            if (g) existing.set(g.toLowerCase(), row);
+        });
+
+        const rowsToAdd = [], rowsToEdit = [];
+        for (const el of elements) {
+            if (!el.guid) continue;
+            const k = String(el.guid).trim().toLowerCase();
+            const row = existing.get(k);
+            if (row) {
+                rowsToEdit.push(bimBuildEditRow(row, capa.col, itemId));
+            } else {
+                rowsToAdd.push({
+                    'Elemento GUID': el.guid,
+                    [capa.col]:      itemId,
+                    'CWP':           el.cwp || '',
+                    'DESCRIPCIÓN':   el.descripcion || el.name || '',
+                    'Line Number':   el.line_number || el.layer || '',
+                    'TAG':           el.tag || el.layer || '',
+                    'AutoCad Size':  el.autocad_size || ''
+                });
+            }
+        }
+
+        let addResult = null, editResult = null;
+        if (rowsToAdd.length)  addResult  = await fetchAppSheet('LIST_Bim_MS', 'Add', rowsToAdd);
+        if (rowsToEdit.length) editResult = await fetchAppSheet('LIST_Bim_MS', 'Edit', rowsToEdit);
+
+        invalidarCache('LIST_Bim_MS');
+        delete cache['LIST_Bim_MS'];
+
+        res.json({ success: true, count: elements.length, addedCount: rowsToAdd.length, editedCount: rowsToEdit.length });
+    } catch (e) {
+        console.error(`[BIM ${req.params.capa} vincular]`, e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/bim/:capa/desvincular → limpia la columna de vínculo de los GUIDs
+app.post('/api/bim/:capa/desvincular', requerirPermiso('bim'), async (req, res) => {
+    const capa = BIM_CAPAS[req.params.capa];
+    if (!capa) return res.status(404).json({ error: 'Capa no válida' });
+
+    const elements = req.body.elements;
+    if (!elements || elements.length === 0) return res.status(400).json({ error: 'Elementos son requeridos.' });
+
+    try {
+        const currentBimRows = await fetchAppSheet('LIST_Bim_MS');
+        const existing = new Map();
+        currentBimRows.forEach(row => {
+            const g = String(row['Elemento GUID'] || '').trim();
+            if (g) existing.set(g.toLowerCase(), row);
+        });
+
+        const rowsToEdit = [];
+        for (const el of elements) {
+            if (!el.guid) continue;
+            const row = existing.get(String(el.guid).trim().toLowerCase());
+            if (row) rowsToEdit.push(bimBuildEditRow(row, capa.col, ''));
+        }
+
+        let editResult = null;
+        if (rowsToEdit.length) editResult = await fetchAppSheet('LIST_Bim_MS', 'Edit', rowsToEdit);
+
+        invalidarCache('LIST_Bim_MS');
+        delete cache['LIST_Bim_MS'];
+
+        res.json({ success: true, count: elements.length, desvinculadosCount: rowsToEdit.length });
+    } catch (e) {
+        console.error(`[BIM ${req.params.capa} desvincular]`, e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 
 // =================================================================
