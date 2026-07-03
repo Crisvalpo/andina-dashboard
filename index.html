@@ -899,10 +899,8 @@
                         <span class="bim-link-label">Línea (Capa):</span>
                         <span class="bim-link-val" id="bim-link-layer">--</span>
                     </div>
-                    <div id="bim-link-status-container" style="display: none; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 10px; border-radius: 6px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3); text-align: center;">
-                        <span style="font-size: 0.85rem; color: #fbbf24; font-weight: 600;">
-                            <i class="fas fa-exclamation-triangle"></i> Vinculado a Spool: <span id="bim-link-current-spool">-</span>
-                        </span>
+                    <div id="bim-link-status-container" style="display: none; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 10px; border-radius: 6px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                        <div id="bim-link-spool-info" style="font-size: 0.8rem; color: #fbbf24;">-</div>
                         <button class="bim-scan-btn" onclick="bimRemoveLink()" id="bim-unlink-btn" style="background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.3); color: #fca5a5; font-size: 0.8rem; padding: 6px 12px; margin-top: 4px; display: inline-flex; justify-content: center; align-items: center; gap: 6px; width: 100%;">
                             <i class="fas fa-unlink"></i> Desvincular de Spool
                         </button>

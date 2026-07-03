@@ -1844,6 +1844,7 @@ const bimState = {
     statusesCache: null,   // Caché de { status: [guids] }
     selectedElement: null, // Elemento 3D clickeado actualmente
     mapeoSpools:   null,   // Caché de { [guid]: spoolTag }
+    spoolIndex:    null,   // Caché de { [tagLower]: { id_spool, tag_gestion, id_iso } }
     isAutoSelecting: false // Bandera para evitar bucle de selección
 };
 
@@ -1967,13 +1968,22 @@ function bimStartViewer() {
                             .then(data => { bimState.mapeoSpools = data; })
                             .catch(err => console.error('[BIM] Error precargando mapeo de spools:', err));
 
+                        // Pre-cargar el índice TAG -> { id_spool, tag_gestion } para mostrar el ID largo
+                        fetch('/api/bim/spool-index')
+                            .then(r => r.json())
+                            .then(data => { bimState.spoolIndex = data; })
+                            .catch(err => console.error('[BIM] Error precargando índice de spools:', err));
+
                         // Listener de selección: captura propiedades para vinculación en tiempo real (admite selección múltiple con CTRL)
                         viewer.addEventListener(Autodesk.Viewing.SELECTION_CHANGED_EVENT, (event) => {
                             const dbIdArray = event.dbIdArray;
                             const panel = document.getElementById('bim-link-panel');
                             
                             if (dbIdArray && dbIdArray.length > 0) {
-                                if (bimState.isAutoSelecting) return;
+                                // Capturamos si esta es la re-entrada provocada por la auto-selección
+                                // de grupo. En ese caso NO volvemos a auto-seleccionar, pero SÍ pintamos
+                                // el panel con el grupo completo (antes se retornaba y quedaba sin info).
+                                const skipAuto = bimState.isAutoSelecting;
 
                                 // Obtener propiedades de todos los elementos seleccionados en un único bloque
                                 viewer.model.getBulkProperties(
@@ -2019,7 +2029,7 @@ function bimStartViewer() {
                                             bimState.selectedElements = selectedList;
 
                                             // --- AUTOSELECCIÓN POR SPOOL EXISTENTE ---
-                                            if (selectedList.length === 1 && bimState.mapeoSpools) {
+                                            if (selectedList.length === 1 && bimState.mapeoSpools && !skipAuto) {
                                                 const selectedGuid = selectedList[0].guid.toLowerCase();
                                                 const spoolTag = bimState.mapeoSpools[selectedGuid];
                                                 if (spoolTag) {
@@ -2061,29 +2071,34 @@ function bimStartViewer() {
                                                 : 'N/A';
 
                                             // --- ACTUALIZAR UI DE VINCULACIÓN EXISTENTE ---
-                                            let commonSpool = null;
+                                            // Agrupar la selección por su SPOOL LUKEAPP (tag corto) y resolver
+                                            // el ID_SPOOL largo + TAG GESTIÓN desde el índice precargado.
+                                            const gruposPorSpool = {}; // tagLower -> { tag, count }
                                             if (bimState.mapeoSpools) {
-                                                const spoolsSet = new Set(
-                                                    selectedList.map(el => bimState.mapeoSpools[el.guid.toLowerCase()]).filter(Boolean)
-                                                );
-                                                if (spoolsSet.size === 1) {
-                                                    commonSpool = Array.from(spoolsSet)[0];
-                                                } else if (spoolsSet.size > 1) {
-                                                    commonSpool = "Múltiples Spools";
-                                                }
+                                                selectedList.forEach(el => {
+                                                    const tag = bimState.mapeoSpools[el.guid.toLowerCase()];
+                                                    if (tag) {
+                                                        const k = tag.toLowerCase();
+                                                        if (!gruposPorSpool[k]) gruposPorSpool[k] = { tag, count: 0 };
+                                                        gruposPorSpool[k].count++;
+                                                    }
+                                                });
                                             }
+                                            const spoolsDistintos = Object.values(gruposPorSpool);
+                                            const commonSpool = spoolsDistintos.length === 1 ? spoolsDistintos[0].tag
+                                                : (spoolsDistintos.length > 1 ? 'Múltiples Spools' : null);
 
                                             const statusContainer = document.getElementById('bim-link-status-container');
-                                            const currentSpoolEl = document.getElementById('bim-link-current-spool');
+                                            const infoEl = document.getElementById('bim-link-spool-info');
                                             const linkSpoolInput = document.getElementById('bim-link-spool');
 
-                                            if (commonSpool) {
-                                                if (currentSpoolEl) currentSpoolEl.textContent = commonSpool;
+                                            if (spoolsDistintos.length > 0) {
                                                 if (statusContainer) statusContainer.style.display = 'flex';
-                                                if (linkSpoolInput) linkSpoolInput.value = commonSpool !== "Múltiples Spools" ? commonSpool : '';
+                                                if (infoEl) infoEl.innerHTML = bimRenderSpoolInfo(spoolsDistintos);
+                                                if (linkSpoolInput) linkSpoolInput.value = commonSpool !== 'Múltiples Spools' ? commonSpool : '';
 
-                                                if (commonSpool !== "Múltiples Spools") {
-                                                    // Cargar asíncronamente metadatos del spool para mostrar detalles e isométricos (PDF)
+                                                if (commonSpool !== 'Múltiples Spools') {
+                                                    // Cargar metadatos del spool para detalles e isométricos (PDF)
                                                     fetch(`/api/bim/spool/${encodeURIComponent(commonSpool)}`)
                                                         .then(r => r.json())
                                                         .then(spoolData => {
@@ -2092,16 +2107,21 @@ function bimStartViewer() {
                                                             }
                                                         })
                                                         .catch(err => console.error('[BIM] Error cargando metadata del spool seleccionado:', err));
+                                                } else {
+                                                    // Varios spools: el panel de metadata muestra el desglose
+                                                    bimSetMeta(bimRenderMultiSpoolMeta(spoolsDistintos));
+                                                    const listEl = document.getElementById('bim-elements-list');
+                                                    if (listEl) listEl.style.display = 'none';
                                                 }
                                             } else {
                                                 if (statusContainer) statusContainer.style.display = 'none';
                                                 if (linkSpoolInput) linkSpoolInput.value = '';
 
-                                                // Limpiar panel de metadatos cuando no hay selección de spool válida
+                                                // Sin spool asignado: elementos libres para vincular
                                                 bimSetMeta(`
                                                     <div class="bim-meta-placeholder">
                                                         <i class="fas fa-cube bim-meta-icon"></i>
-                                                        <p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p>
+                                                        <p>${selectedList.length} elemento(s) sin spool asignado. Ingresa un código de Spool abajo para vincularlos.</p>
                                                     </div>`);
                                                 const listEl = document.getElementById('bim-elements-list');
                                                 if (listEl) listEl.style.display = 'none';
@@ -2419,6 +2439,80 @@ async function bimFilterByStatus() {
     }
 }
 
+/**
+ * Devuelve el ID_SPOOL largo y demás datos de un tag corto (SPOOL LUKEAPP),
+ * resolviéndolo contra el índice precargado.
+ */
+function bimResolverSpool(tag) {
+    if (!tag || !bimState.spoolIndex) return null;
+    return bimState.spoolIndex[String(tag).toLowerCase()] || null;
+}
+
+/** HTML del recuadro de estado: muestra TAG GESTIÓN + ID_SPOOL de los agrupados. */
+function bimRenderSpoolInfo(spoolsDistintos) {
+    if (spoolsDistintos.length === 1) {
+        const { tag, count } = spoolsDistintos[0];
+        const info = bimResolverSpool(tag);
+        const idSpool = info?.id_spool || '—';
+        return `
+            <div style="display:flex;align-items:center;gap:6px;font-weight:600;margin-bottom:4px;">
+                <i class="fas fa-link"></i> Vinculado a Spool
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:8px;">
+                <span style="opacity:0.75;">TAG Gestión:</span>
+                <span style="font-weight:700;color:#fde68a;">${tag}</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:8px;margin-top:2px;">
+                <span style="opacity:0.75;">ID_SPOOL:</span>
+                <span style="font-family:monospace;font-size:0.72rem;text-align:right;word-break:break-all;color:#fde68a;">${idSpool}</span>
+            </div>
+            <div style="opacity:0.6;font-size:0.72rem;margin-top:4px;">${count} elemento(s) agrupado(s)</div>`;
+    }
+
+    // Varios spools en la selección: listar cada uno con su ID_SPOOL
+    const filas = spoolsDistintos.map(({ tag, count }) => {
+        const info = bimResolverSpool(tag);
+        const idSpool = info?.id_spool || '—';
+        return `
+            <div style="padding:6px 0;border-top:1px solid rgba(245,158,11,0.2);">
+                <div style="display:flex;justify-content:space-between;">
+                    <span style="font-weight:700;color:#fde68a;">${tag}</span>
+                    <span style="opacity:0.6;font-size:0.72rem;">${count} elem.</span>
+                </div>
+                <div style="font-family:monospace;font-size:0.68rem;opacity:0.8;word-break:break-all;">${idSpool}</div>
+            </div>`;
+    }).join('');
+
+    return `
+        <div style="display:flex;align-items:center;gap:6px;font-weight:600;margin-bottom:2px;">
+            <i class="fas fa-exclamation-triangle"></i> ${spoolsDistintos.length} spools en la selección
+        </div>
+        ${filas}
+        <div style="opacity:0.6;font-size:0.72rem;margin-top:4px;">Desvincular afectará a todos los agrupados.</div>`;
+}
+
+/** Panel de metadata cuando la selección abarca varios spools. */
+function bimRenderMultiSpoolMeta(spoolsDistintos) {
+    const cards = spoolsDistintos.map(({ tag, count }) => {
+        const info = bimResolverSpool(tag);
+        return `
+            <div class="bim-meta-card">
+                <span class="bim-meta-icon-sm"><i class="fas fa-tag"></i></span>
+                <div>
+                    <span class="bim-meta-label">TAG ${tag} · ${count} elem.</span>
+                    <span class="bim-meta-value" style="font-family:monospace;font-size:0.72rem;word-break:break-all;">${info?.id_spool || '—'}</span>
+                </div>
+            </div>`;
+    }).join('');
+    return `
+        <div class="bim-meta-header">
+            <i class="fas fa-layer-group"></i>
+            <span>Selección múltiple</span>
+            <span class="bim-badge">${spoolsDistintos.length} spools</span>
+        </div>
+        <div class="bim-meta-cards">${cards}</div>`;
+}
+
 /** Renderiza las tarjetas de metadata en el panel lateral */
 function bimRenderMeta(data) {
     const meta = data.metadata || {};
@@ -2426,7 +2520,8 @@ function bimRenderMeta(data) {
 
     // Tarjetas de metadata
     const fields = [
-        { label: 'ID Spool',    value: data.spool_id,              icon: 'fa-barcode' },
+        { label: 'TAG Gestión', value: meta['TAG GESTION'] || data.spool_id, icon: 'fa-tag' },
+        { label: 'ID_SPOOL',    value: meta['ID_SPOOL'] || data.spool_id, icon: 'fa-barcode' },
         { label: 'CWP',         value: els[0]?.cwp,                icon: 'fa-map-marker-alt' },
         { label: 'Línea',       value: els[0]?.numero_linea,        icon: 'fa-route' },
         { label: 'TAG',         value: els[0]?.tag,                 icon: 'fa-tag' },

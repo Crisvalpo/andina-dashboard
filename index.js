@@ -527,6 +527,28 @@ app.get('/api/bim/mapeo', async (req, res) => {
     }
 });
 
+// GET /api/bim/spool-index → Índice { tagLower: { id_spool, tag_gestion, id_iso } }
+// Permite mostrar el ID_SPOOL largo y el TAG GESTIÓN a partir del SPOOL LUKEAPP (tag corto).
+app.get('/api/bim/spool-index', async (req, res) => {
+    try {
+        const spools = await fetchAppSheet('LIST_Spools_MS_');
+        const index = {};
+        spools.forEach(s => {
+            const tag     = String(s['TAG GESTION'] || '').trim();
+            const idSpool = String(s['ID_SPOOL'] || '').trim();
+            const idIso   = String(s['ID_ISO'] || '').trim() ||
+                (idSpool.includes('_') ? idSpool.substring(0, idSpool.lastIndexOf('_')) : '');
+            if (tag) {
+                index[tag.toLowerCase()] = { id_spool: idSpool, tag_gestion: tag, id_iso: idIso };
+            }
+        });
+        res.json(index);
+    } catch (e) {
+        console.error('[BIM Spool-Index Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // POST /api/bim/vincular → Vincula uno o múltiples Elementos GUID a un SPOOL LUKEAPP en AppSheet (LIST_Bim_MS)
 // Escritura protegida: requiere clave de edición BIM.
 app.post('/api/bim/vincular', requerirPermiso('bim'), async (req, res) => {
