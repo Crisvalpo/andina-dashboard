@@ -2454,3 +2454,8 @@ tr:hover td {
     from { transform: scale(0.95); opacity: 0; }
     to { transform: scale(1); opacity: 1; }
 }
+
+/* Reajustar posición del visor BIM al colapsar la barra lateral */
+body.sidebar-collapsed #bim-section {
+    left: 60px;
+}

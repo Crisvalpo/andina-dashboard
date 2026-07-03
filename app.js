@@ -282,8 +282,10 @@ function showSection(name) {
     if (sidebar) {
         if (name === 'bim') {
             sidebar.classList.add('collapsed');
+            document.body.classList.add('sidebar-collapsed');
         } else {
             sidebar.classList.remove('collapsed');
+            document.body.classList.remove('sidebar-collapsed');
         }
     }
 
