@@ -2478,3 +2478,37 @@ body.sidebar-collapsed #bim-section {
     from { transform: translateX(100%); }
     to { transform: translateX(0); }
 }
+
+/* ============ SPLIT RESIZER BAR ============ */
+.bim-pdf-resize-bar {
+    width: 8px;
+    background: rgba(15, 23, 42, 0.7);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    cursor: col-resize;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+    user-select: none;
+    z-index: 10;
+}
+
+.bim-pdf-resize-bar:hover,
+.bim-pdf-resize-bar.dragging {
+    background: var(--accent) !important;
+}
+
+.resize-bar-handle {
+    width: 2px;
+    height: 32px;
+    background: var(--text-dim);
+    border-radius: 1px;
+    transition: background 0.15s;
+}
+
+.bim-pdf-resize-bar:hover .resize-bar-handle,
+.bim-pdf-resize-bar.dragging .resize-bar-handle {
+    background: #ffffff;
+}

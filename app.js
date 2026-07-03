@@ -155,6 +155,9 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshData();
     }
 
+    // Inicializar barra divisoria de PDFs
+    initBimSplitResizer();
+
     setInterval(updateTime, 60000);
     updateTime();
 });
@@ -3421,9 +3424,11 @@ function bimOpenPdf(url) {
         // En PC: Pantalla dividida (Split Screen)
         const splitPanel = document.getElementById('bim-pdf-split-panel');
         const splitIframe = document.getElementById('bim-pdf-split-iframe');
+        const resizeBar = document.getElementById('bim-pdf-resize-bar');
         if (splitPanel && splitIframe) {
             splitIframe.src = proxyUrl;
             splitPanel.style.display = 'flex';
+            if (resizeBar) resizeBar.style.display = 'flex';
             
             // Forzar resize del visor 3D para ajustarse al nuevo ancho
             if (bimState.viewer) {
@@ -3449,10 +3454,16 @@ function bimOpenPdf(url) {
 function closePdfSplit() {
     const splitPanel = document.getElementById('bim-pdf-split-panel');
     const splitIframe = document.getElementById('bim-pdf-split-iframe');
+    const resizeBar = document.getElementById('bim-pdf-resize-bar');
     if (splitPanel && splitIframe) {
         splitPanel.style.display = 'none';
+        if (resizeBar) resizeBar.style.display = 'none';
         splitIframe.src = '';
         
+        // Restablecer el ancho del panel por defecto al cerrar
+        splitPanel.style.width = '48%';
+        splitPanel.style.flex = '';
+
         // Forzar resize del visor 3D para ocupar el 100% de nuevo
         if (bimState.viewer) {
             setTimeout(() => {
@@ -3483,4 +3494,83 @@ function bimOpenSelectedPdf() {
     if (select && select.value) {
         bimOpenPdf(select.value);
     }
+}
+
+/**
+ * Inicializa el sistema de redimensionamiento de pantalla dividida (Splitter Bar).
+ * Permite arrastrar el divisor en PC para redimensionar el visor 3D y el plano PDF.
+ */
+function initBimSplitResizer() {
+    const resizeBar = document.getElementById('bim-pdf-resize-bar');
+    const splitPanel = document.getElementById('bim-pdf-split-panel');
+    const bimLayout = document.querySelector('.bim-layout');
+    const bimSidebar = document.querySelector('.bim-sidebar');
+    const splitIframe = document.getElementById('bim-pdf-split-iframe');
+
+    if (!resizeBar || !splitPanel || !bimLayout) return;
+
+    let isDragging = false;
+
+    resizeBar.addEventListener('mousedown', function (e) {
+        e.preventDefault();
+        isDragging = true;
+        resizeBar.classList.add('dragging');
+        
+        // Evitar que el iframe capture eventos del mouse durante el arrastre
+        if (splitIframe) {
+            splitIframe.style.pointerEvents = 'none';
+        }
+        
+        document.body.style.cursor = 'col-resize';
+    });
+
+    document.addEventListener('mousemove', function (e) {
+        if (!isDragging) return;
+
+        // Calcular anchos dinámicos
+        const layoutRect = bimLayout.getBoundingClientRect();
+        const sidebarWidth = bimSidebar ? bimSidebar.clientWidth : 0;
+        
+        // Ancho total divisible restante (Visor 3D + Divisor + PDF)
+        const totalDivisibleWidth = layoutRect.width - sidebarWidth - resizeBar.clientWidth;
+        
+        // Posición del cursor respecto a la sección divisible
+        const mouseX = e.clientX - layoutRect.left - sidebarWidth;
+        
+        // El ancho asignado al PDF (derecha)
+        const pdfWidth = totalDivisibleWidth - mouseX;
+
+        // Límites de seguridad (mínimo 300px para cada lado)
+        const minWidth = 300;
+        const maxWidth = totalDivisibleWidth - 300;
+        const finalWidth = Math.max(minWidth, Math.min(maxWidth, pdfWidth));
+
+        // Aplicar ancho exacto al panel de PDF
+        splitPanel.style.width = finalWidth + 'px';
+        splitPanel.style.flex = 'none';
+
+        // Redimensionar el visor 3D de Autodesk al vuelo
+        if (bimState.viewer) {
+            bimState.viewer.resize();
+        }
+    });
+
+    document.addEventListener('mouseup', function () {
+        if (isDragging) {
+            isDragging = false;
+            resizeBar.classList.remove('dragging');
+            
+            // Reactivar eventos del mouse en el iframe
+            if (splitIframe) {
+                splitIframe.style.pointerEvents = 'auto';
+            }
+            
+            document.body.style.cursor = '';
+            
+            // Redimensionar una vez más al final
+            if (bimState.viewer) {
+                bimState.viewer.resize();
+            }
+        }
+    });
 }
