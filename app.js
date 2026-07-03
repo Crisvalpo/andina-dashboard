@@ -2258,19 +2258,34 @@ function bimSearchSpool() {
     else bimLoadCapaItem(bimState.capa, val);
 }
 
-/** Busca una válvula/soporte por ID (o etiqueta) y resalta sus elementos vinculados en el modelo. */
+/**
+ * Resuelve el texto que escribe el usuario a la LLAVE canónica del ítem
+ * (ID_VALVULA / ID_Soporte). Acepta: la llave exacta, la etiqueta (_label),
+ * o el ITEM amigable (soportes) / prefijo (válvulas).
+ */
+function bimResolveCapaId(capa, typed) {
+    const index = bimState.capaIndex[capa] || {};
+    const keyCol = capa === 'valvula' ? 'ID_VALVULA' : 'ID_Soporte';
+    const t = String(typed || '').trim().toLowerCase();
+    if (!t) return typed;
+    if (index[t]) return index[t][keyCol];                                  // llave exacta
+    let hit = Object.values(index).find(r => (r._label || '').toLowerCase() === t); // etiqueta completa
+    if (hit) return hit[keyCol];
+    if (capa === 'soporte') {                                                // ITEM amigable (148)
+        hit = Object.values(index).find(r => String(r.ITEM || '').toLowerCase() === t);
+        if (hit) return hit.ID_Soporte;
+    } else {                                                                 // prefijo antes del "_"
+        hit = Object.values(index).find(r => String(r[keyCol] || '').toLowerCase() === t.split('_')[0]);
+        if (hit) return hit[keyCol];
+    }
+    return typed; // fallback: enviar tal cual
+}
+
+/** Busca una válvula/soporte por ID/ITEM/etiqueta y resalta sus elementos vinculados en el modelo. */
 async function bimLoadCapaItem(capa, termino) {
     if (!bimState.initialized) return;
     const ui = BIM_CAPA_UI[capa];
-    // Aceptar tanto el ID (VAL113) como la etiqueta (VAL113_03351-...): tomar la parte antes del primer "_" si no existe tal cual
-    const index = bimState.capaIndex[capa] || {};
-    let id = termino.trim();
-    if (!index[id.toLowerCase()]) {
-        // buscar por etiqueta o prefijo
-        const hit = Object.values(index).find(r => (r._label || '').toLowerCase() === id.toLowerCase())
-            || Object.values(index).find(r => String(r[capa === 'valvula' ? 'ID_VALVULA' : 'ID_Soporte'] || '').toLowerCase() === id.split('_')[0].toLowerCase());
-        if (hit) id = hit[capa === 'valvula' ? 'ID_VALVULA' : 'ID_Soporte'];
-    }
+    const id = bimResolveCapaId(capa, termino);
 
     bimSetMeta('<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando elementos...</div>');
     try {
@@ -2788,7 +2803,7 @@ function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
 
     // Etiqueta del campo de entrada
     const fieldLabel = document.querySelector('#bim-link-panel label[for="bim-link-spool"]');
-    if (fieldLabel) fieldLabel.textContent = `ID ${ui.label} (${capa === 'valvula' ? 'ID_VALVULA' : 'ID_Soporte'}):`;
+    if (fieldLabel) fieldLabel.textContent = capa === 'valvula' ? 'ID Válvula (ID_VALVULA):' : 'ITEM Soporte (ej: 148):';
     if (inputEl) inputEl.placeholder = ui.placeholder;
 
     if (idsSel.length > 0) {
@@ -3262,10 +3277,12 @@ async function bimSaveLink() {
         }));
 
         // Spools usan /api/bim/vincular {spool}; válvulas/soportes /api/bim/:capa/vincular {item}
+        // Para válvula/soporte resolvemos lo tecleado (ITEM/etiqueta) a la llave canónica.
         const endpoint = capa === 'spool' ? '/api/bim/vincular' : `/api/bim/${capa}/vincular`;
+        const itemId = capa === 'spool' ? spoolVal : bimResolveCapaId(capa, spoolVal);
         const payload = capa === 'spool'
             ? { spool: spoolVal, elements: elementsPayload }
-            : { item: spoolVal, elements: elementsPayload };
+            : { item: itemId, elements: elementsPayload };
 
         const resp = await fetch(endpoint, {
             method: 'POST',
@@ -3301,7 +3318,7 @@ async function bimSaveLink() {
             if (bimState.mapeoSpools) elements.forEach(el => { bimState.mapeoSpools[el.guid.toLowerCase()] = spoolVal; });
         } else {
             if (!bimState.capaMapeo[capa]) bimState.capaMapeo[capa] = {};
-            elements.forEach(el => { bimState.capaMapeo[capa][el.guid.toLowerCase()] = spoolVal; });
+            elements.forEach(el => { bimState.capaMapeo[capa][el.guid.toLowerCase()] = itemId; });
         }
         
         // Feedback visual en el botón
