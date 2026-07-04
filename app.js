@@ -3000,25 +3000,113 @@ function bimDividirToggle() {
     divState.activo ? bimDividirSalir() : bimDividirEntrar();
 }
 
-function bimDividirEntrar() {
+async function bimDividirEntrar() {
+    // Clave BIM por adelantado: así el AUTO-GUARDADO es silencioso después
+    const ok = await authAsegurar('bim');
+    if (!ok) return;
     divState.activo = true;
     if (divState._btn) divState._btn.setState(Autodesk.Viewing.UI.Button.State.ACTIVE);
     const canvas = bimState.viewer.canvas;
     canvas.addEventListener('pointerdown', bimDivPointerDown, true);
     canvas.addEventListener('pointerup', bimDivPointerUp, true);
     canvas.addEventListener('click', bimDivClickBlock, true);
+
+    // Si ya había un elemento SELECCIONADO → dividirlo a la mitad DE UNA VEZ
+    const sel = (bimState.selectedElements && bimState.selectedElements.length === 1) ? bimState.selectedElements[0] : null;
+    if (sel && sel.dbId != null && sel.guid) {
+        bimDivIniciarEdicion(sel.dbId, sel.guid);
+        return;
+    }
     bimSetMeta(`
         <div class="bim-meta-header" style="background:rgba(245,158,11,0.15);border-color:rgba(245,158,11,0.35);">
             <i class="fas fa-scissors"></i><span>Dividir tramo</span>
         </div>
         <div class="bim-meta-placeholder" style="padding:1.2rem 0.5rem;">
-            <p style="font-size:0.8rem;">1️⃣ Haz clic sobre el tubo a dividir.<br>2️⃣ Cada clic siguiente marca un corte en ese punto.<br>3️⃣ Guarda cuando termines.</p>
+            <p style="font-size:0.8rem;">Haz clic sobre el tubo a dividir: se corta a la mitad al instante.<br>Luego arrastra las <strong>esferas naranjas</strong> para ajustar los tamaños — todo se guarda solo.</p>
         </div>`);
 }
 
+/** Arranca la edición de un elemento: mitad automática (o su división previa). */
+function bimDivIniciarEdicion(dbId, guid) {
+    const eje = bimEjeDeElemento(dbId);
+    if (!eje) {
+        bimSetMeta('<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>No pude leer la geometría de ese elemento. Intenta con otro.</p></div>');
+        return;
+    }
+    divState.dbId = dbId;
+    divState.eje = eje;
+    divState.guid = String(guid).trim();
+    const gl = divState.guid.toLowerCase();
+
+    // Si tenía división persistida: cargarla para editar (retirando sus trozos fijos)
+    const previas = bimDivNormalizarPartes(divState.guardadas[gl]);
+    if (previas) {
+        divState.piezasGuardadas = divState.piezasGuardadas.filter(m => {
+            if (String(m.userData?.guid || '').toLowerCase() === gl) {
+                try { bimState.viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {}
+                if (m.userData.key) delete divState.trozoMeshes[m.userData.key];
+                return false;
+            }
+            return true;
+        });
+        divState.ext0 = previas[0][0];
+        divState.ext1 = previas[previas.length - 1][1];
+        divState.cortes = previas.slice(0, -1).map(p => p[1]);
+    } else {
+        divState.ext0 = 0; divState.ext1 = 1;
+        divState.cortes = [0.5]; // ← división a la MITAD de inmediato
+    }
+    bimState.viewer.hide(dbId);
+    bimState.viewer.select([]);
+    bimDivRedibujarClon();
+    bimDivRenderPanel();
+    bimDivAutoGuardar(); // persistir desde el primer momento
+}
+
+/** Variante desde un clic (sin selección previa): resuelve el guid primero. */
+function bimDivIniciarEdicionDesdeDbId(dbId) {
+    bimState.viewer.model.getProperties(dbId, (props) => {
+        const p = (props.properties || []).find(x => ['GUID', 'Element GUID', 'Revit GUID', 'PnPGuid', 'PnPGUID'].includes(x.displayName));
+        const guid = (p ? String(p.displayValue) : props.externalId || '').trim();
+        if (guid) bimDivIniciarEdicion(dbId, guid);
+    }, () => {});
+}
+
+/** AUTO-GUARDADO con debounce: cada cambio queda persistido solo. */
+function bimDivAutoGuardar() {
+    clearTimeout(divState._saveTimer);
+    const st = document.getElementById('div-save-status');
+    if (st) { st.textContent = 'Guardando…'; st.style.color = 'var(--warning)'; }
+    divState._saveTimer = setTimeout(bimDivGuardarAhora, 1200);
+}
+
+async function bimDivGuardarAhora() {
+    if (!divState.guid) return;
+    const partes = bimDivPartesSesion();
+    try {
+        const resp = await fetch('/api/bim/divisiones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({ guid: divState.guid, partes })
+        });
+        const d = await resp.json();
+        if (!d.success) throw new Error(d.error || 'Error');
+        divState.guardadas[divState.guid.toLowerCase()] = partes;
+        if (!divState.ocultos.includes(divState.dbId)) divState.ocultos.push(divState.dbId);
+        const st = document.getElementById('div-save-status');
+        if (st) { st.textContent = '✓ Guardado'; st.style.color = 'var(--accent)'; }
+    } catch (e) {
+        const st = document.getElementById('div-save-status');
+        if (st) { st.textContent = '⚠ Error al guardar'; st.style.color = 'var(--danger)'; }
+    }
+}
+
 function bimDividirSalir(conSesionAbierta = true) {
-    // Si estaba a medio editar, comportarse como cancelar (restaurar lo persistido u original)
-    if (conSesionAbierta && divState.dbId !== null) { bimDividirCancelar(); return; }
+    // Con auto-guardado, salir a media edición = FINALIZAR (los cambios ya persisten)
+    if (conSesionAbierta && divState.dbId !== null) {
+        bimDividirFinalizar().then(() => bimDividirSalir(false));
+        return;
+    }
     divState.activo = false;
     if (divState._btn) divState._btn.setState(Autodesk.Viewing.UI.Button.State.INACTIVE);
     const canvas = bimState.viewer?.canvas;
@@ -3034,13 +3122,97 @@ function bimDividirSalir(conSesionAbierta = true) {
 function bimDivLimpiarSesion() {
     const viewer = bimState.viewer;
     divState.piezas.forEach(m => { try { viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
+    (divState.handles || []).forEach(m => { try { viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
     divState.piezas = [];
+    divState.handles = [];
     viewer?.impl.invalidate(false, false, true);
 }
 
 function bimDivPointerDown(ev) {
     if (!divState.activo) return;
     divState._down = { x: ev.clientX, y: ev.clientY };
+
+    // ¿Agarró una manilla? → iniciar arrastre (y bloquear la órbita de APS)
+    if (divState.handles && divState.handles.length) {
+        try {
+            const viewer = bimState.viewer;
+            const rect = viewer.canvas.getBoundingClientRect();
+            const ray = viewer.impl.viewportToRay(viewer.impl.clientToViewport(ev.clientX - rect.left, ev.clientY - rect.top));
+            const rc = new THREE.Raycaster(ray.origin.clone(), ray.direction.clone().normalize());
+            const hits = rc.intersectObjects(divState.handles, false);
+            if (hits.length) {
+                divState._drag = hits[0].object;
+                ev.stopPropagation(); ev.preventDefault();
+                window.addEventListener('pointermove', bimDivDragMove, true);
+                window.addEventListener('pointerup', bimDivDragEnd, true);
+            }
+        } catch (e) { /* sin drag */ }
+    }
+}
+
+/** Parámetro t sobre el eje a partir de un evento de puntero (sin límites). */
+function bimDivTdeEvento(ev) {
+    try {
+        const viewer = bimState.viewer;
+        const rect = viewer.canvas.getBoundingClientRect();
+        const ray = viewer.impl.viewportToRay(viewer.impl.clientToViewport(ev.clientX - rect.left, ev.clientY - rect.top));
+        const eje = divState.eje;
+        const o = ray.origin, d1 = ray.direction.clone().normalize(), d2 = eje.dir;
+        const r = new THREE.Vector3().subVectors(o, eje.p0);
+        const a = d1.dot(d1), b = d1.dot(d2), c = d2.dot(d2);
+        const den = a * c - b * b;
+        if (Math.abs(den) < 1e-9) return null;
+        const u = (a * d2.dot(r) - b * d1.dot(r)) / den;
+        return u / eje.len;
+    } catch (e) { return null; }
+}
+
+function bimDivDragMove(ev) {
+    if (!divState._drag) return;
+    ev.stopPropagation(); ev.preventDefault();
+    let t = bimDivTdeEvento(ev);
+    if (t === null) return;
+    const h = divState._drag;
+    const MARGEN = 0.04;
+
+    if (h.userData.tipo === 'corte') {
+        // Limitar entre sus vecinos (otros cortes o extremos)
+        const otros = divState.cortes.filter((c, i) => i !== h.userData.idx);
+        const izq = Math.max(divState.ext0, ...otros.filter(c => c < divState.cortes[h.userData.idx]));
+        const der = Math.min(divState.ext1, ...otros.filter(c => c > divState.cortes[h.userData.idx]));
+        t = Math.min(Math.max(t, izq + MARGEN), der - MARGEN);
+        divState.cortes[h.userData.idx] = Math.round(t * 1000) / 1000;
+    } else if (h.userData.tipo === 'ext0') {
+        const tope = divState.cortes.length ? Math.min(...divState.cortes) : divState.ext1;
+        t = Math.min(Math.max(t, -0.5), tope - MARGEN);
+        divState.ext0 = Math.round(t * 1000) / 1000;
+    } else if (h.userData.tipo === 'ext1') {
+        const tope = divState.cortes.length ? Math.max(...divState.cortes) : divState.ext0;
+        t = Math.max(Math.min(t, 1.5), tope + MARGEN);
+        divState.ext1 = Math.round(t * 1000) / 1000;
+    }
+
+    // Redibujo fluido (throttle por frame)
+    if (!divState._rafPend) {
+        divState._rafPend = true;
+        requestAnimationFrame(() => {
+            divState._rafPend = false;
+            bimDivRedibujarClon();
+        });
+    }
+}
+
+function bimDivDragEnd(ev) {
+    if (!divState._drag) return;
+    ev.stopPropagation(); ev.preventDefault();
+    divState._drag = null;
+    divState._consume = true; // que el click posterior no seleccione
+    window.removeEventListener('pointermove', bimDivDragMove, true);
+    window.removeEventListener('pointerup', bimDivDragEnd, true);
+    divState.cortes.sort((a, b) => a - b);
+    bimDivRedibujarClon();
+    bimDivRenderPanel();
+    bimDivAutoGuardar();
 }
 
 /** Consume el 'click' que sigue a un corte para que APS no seleccione. */
@@ -3068,28 +3240,8 @@ function bimDivPointerUp(ev) {
     divState._consume = true;
 
     if (divState.dbId === null) {
-        // Primer clic: elegir el tubo → crear el CLON y ocultar el original
-        const eje = bimEjeDeElemento(hit.dbId);
-        if (!eje) { bimSetMeta('<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>No pude leer la geometría de ese elemento. Intenta con otro.</p></div>'); return; }
-        divState.dbId = hit.dbId;
-        divState.eje = eje;
-        viewer.model.getProperties(hit.dbId, (props) => {
-            const p = (props.properties || []).find(x => ['GUID', 'Element GUID', 'Revit GUID', 'PnPGuid', 'PnPGUID'].includes(x.displayName));
-            divState.guid = (p ? String(p.displayValue) : props.externalId || '').trim();
-            // División previa guardada → precargarla como editable
-            const previas = bimDivNormalizarPartes(divState.guardadas[divState.guid.toLowerCase()]);
-            if (previas) {
-                divState.ext0 = previas[0][0];
-                divState.ext1 = previas[previas.length - 1][1];
-                divState.cortes = previas.slice(0, -1).map(par => par[1]);
-            } else {
-                divState.ext0 = 0; divState.ext1 = 1; divState.cortes = [];
-            }
-            viewer.hide(divState.dbId);            // el original desaparece
-            bimDivRedibujarClon();                 // …y nace el clon
-            bimDivRenderPanel();
-        }, () => {});
-        viewer.select([]);
+        // Primer clic: elegir el tubo → mitad automática + manillas + auto-guardado
+        bimDivIniciarEdicionDesdeDbId(hit.dbId);
         return;
     }
 
@@ -3104,6 +3256,7 @@ function bimDivPointerUp(ev) {
     bimBeep();
     bimDivRedibujarClon();
     bimDivRenderPanel();
+    bimDivAutoGuardar();
 }
 
 /**
@@ -3243,11 +3396,14 @@ function bimCrearPieza(eje, a, b, colorHex, opacidad = 1) {
     }
 }
 
-/** Redibuja el clon de la sesión (todas las piezas) según cortes/extremos. */
+/** Redibuja el clon de la sesión (piezas + manillas de ajuste). */
 function bimDivRedibujarClon() {
     const viewer = bimState.viewer;
     divState.piezas.forEach(m => { try { viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
+    (divState.handles || []).forEach(m => { try { viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
     divState.piezas = [];
+    divState.handles = [];
+
     bimDivPartesSesion().forEach(([a, b], i) => {
         const m = bimCrearPieza(divState.eje, a, b, DIV_COLORES[i % DIV_COLORES.length]);
         if (m) {
@@ -3255,6 +3411,31 @@ function bimDivRedibujarClon() {
             divState.piezas.push(m);
         }
     });
+
+    // Manillas: esferas naranjas en cada corte (ajustan tamaños arrastrando)
+    // y celestes en los extremos (alargar/acortar el clon).
+    divState.cortes.forEach((t, i) => {
+        const h = bimCrearManilla(divState.eje, t, 0xf59e0b);
+        if (h) { h.userData = { tipo: 'corte', idx: i }; divState.handles.push(h); }
+    });
+    [['ext0', divState.ext0], ['ext1', divState.ext1]].forEach(([tipo, t]) => {
+        const h = bimCrearManilla(divState.eje, t, 0x38bdf8);
+        if (h) { h.userData = { tipo }; divState.handles.push(h); }
+    });
+}
+
+/** Esfera-manilla arrastrable sobre el eje en la fracción t. */
+function bimCrearManilla(eje, t, colorHex) {
+    const viewer = bimState.viewer;
+    try {
+        const geo = new THREE.SphereGeometry(eje.radio * 1.45, 18, 14);
+        const mat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9, depthTest: false });
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.position.copy(eje.p0.clone().add(eje.dir.clone().multiplyScalar(eje.len * t)));
+        viewer.impl.addOverlay(DIV_OVERLAY, mesh);
+        viewer.impl.invalidate(false, false, true);
+        return mesh;
+    } catch (e) { return null; }
 }
 
 // ---- Registro de trozos persistidos: clave `${guidLower}#p${n}` → mesh ----
@@ -3298,26 +3479,23 @@ function bimDivRenderPanel() {
     const tag = bimState.mapeoSpools ? bimState.mapeoSpools[String(divState.guid || '').toLowerCase()] : null;
     bimSetMeta(`
         <div class="bim-meta-header" style="background:rgba(245,158,11,0.15);border-color:rgba(245,158,11,0.35);">
-            <i class="fas fa-scissors"></i><span>Clon en edición</span>
+            <i class="fas fa-scissors"></i><span>Editando división</span>
             <span class="bim-badge">${partes.length} trozo(s)</span>
         </div>
-        <div style="font-size:0.72rem;opacity:0.7;margin:6px 2px;word-break:break-all;">
-            ${tag ? `Spool actual: <strong>${tag}</strong> · ` : ''}El original está oculto; editas su clon.
+        <div style="display:flex;justify-content:space-between;align-items:center;font-size:0.72rem;margin:6px 2px;">
+            <span style="opacity:0.7;">${tag ? `Spool actual: <strong>${tag}</strong>` : 'El original está oculto'}</span>
+            <span id="div-save-status" style="font-weight:700;color:var(--accent);">✓ Guardado</span>
         </div>
         <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px;">${filas.join('')}</div>
-        <p style="font-size:0.74rem;opacity:0.65;margin-bottom:8px;">Clic sobre el tubo = nuevo corte. Alarga o acorta el clon por sus extremos:</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
-            <button class="bim-scan-btn" onclick="bimDividirExtender('ext0',-0.05)" style="justify-content:center;padding:6px;"><i class="fas fa-left-long"></i> Alargar inicio</button>
-            <button class="bim-scan-btn" onclick="bimDividirExtender('ext0',0.05)" style="justify-content:center;padding:6px;">Acortar inicio <i class="fas fa-right-long"></i></button>
-            <button class="bim-scan-btn" onclick="bimDividirExtender('ext1',-0.05)" style="justify-content:center;padding:6px;"><i class="fas fa-left-long"></i> Acortar fin</button>
-            <button class="bim-scan-btn" onclick="bimDividirExtender('ext1',0.05)" style="justify-content:center;padding:6px;">Alargar fin <i class="fas fa-right-long"></i></button>
-        </div>
+        <p style="font-size:0.74rem;opacity:0.65;margin-bottom:8px;">
+            🟠 Arrastra las <strong>esferas naranjas</strong> para ajustar los tamaños.<br>
+            🔵 Las <strong>celestes</strong> alargan/acortan los extremos.<br>
+            Un clic sobre el tubo agrega otro corte. Todo se guarda solo.</p>
         <div style="display:flex;flex-direction:column;gap:6px;">
-            <button class="bim-scan-btn" onclick="bimDividirGuardar()" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.35);color:#6ee7b7;justify-content:center;">
-                <i class="fas fa-save"></i> Guardar (${partes.length} trozos, original oculto)</button>
-            <button class="bim-scan-btn" onclick="bimDividirDeshacer()" style="justify-content:center;"><i class="fas fa-rotate-left"></i> Deshacer último corte</button>
+            <button class="bim-scan-btn" onclick="bimDividirFinalizar()" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.35);color:#6ee7b7;justify-content:center;">
+                <i class="fas fa-check"></i> Listo (${partes.length} trozos)</button>
+            <button class="bim-scan-btn" onclick="bimDividirDeshacer()" style="justify-content:center;"><i class="fas fa-rotate-left"></i> Quitar último corte</button>
             <button class="bim-scan-btn" onclick="bimDividirRestaurar()" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;justify-content:center;"><i class="fas fa-trash-arrow-up"></i> Eliminar división (restaurar original)</button>
-            <button class="bim-scan-btn" onclick="bimDividirCancelar()" style="justify-content:center;"><i class="fas fa-times"></i> Cancelar edición</button>
         </div>`);
 }
 
@@ -3337,35 +3515,31 @@ function bimDividirDeshacer() {
     divState.cortes.pop();
     bimDivRedibujarClon();
     bimDivRenderPanel();
+    bimDivAutoGuardar();
 }
 
-async function bimDividirGuardar() {
+/**
+ * "Listo": los cambios YA están auto-guardados — aquí solo se fijan los
+ * trozos como definitivos (quedan clicables/asignables) y se cierra la edición.
+ */
+async function bimDividirFinalizar() {
     if (!divState.guid) return;
-    const desbloqueado = await authAsegurar('bim');
-    if (!desbloqueado) return;
+    clearTimeout(divState._saveTimer);
+    await bimDivGuardarAhora(); // flush final por si había un cambio en vuelo
+
     const partes = bimDivPartesSesion();
-    try {
-        const resp = await fetch('/api/bim/divisiones', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
-            body: JSON.stringify({ guid: divState.guid, partes })
-        });
-        if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
-        const d = await resp.json();
-        if (!d.success) throw new Error(d.error || 'Error');
-        // El clon de la sesión pasa a ser la versión persistida
-        divState.guardadas[divState.guid.toLowerCase()] = partes;
-        divState.ocultos.push(divState.dbId);
-        divState.piezas.forEach((m, i) => bimDivRegistrarTrozo(m, divState.guid, i));
-        divState.piezasGuardadas.push(...divState.piezas);
-        divState.piezas = [];
-        bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-circle-check bim-meta-icon" style="color:var(--accent)"></i>
-            <p>División guardada: <strong>${partes.length} trozos</strong>. El original quedó oculto.<br><small style="opacity:0.7">Puedes dividir otro tramo o salir con las tijeras.</small></p></div>`);
-        divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = [];
-        divState.ext0 = 0; divState.ext1 = 1;
-    } catch (e) {
-        alert('No se pudo guardar la división: ' + e.message);
-    }
+    // Quitar manillas; las piezas pasan a ser trozos persistidos clicables
+    (divState.handles || []).forEach(m => { try { bimState.viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
+    divState.handles = [];
+    divState.piezas.forEach((m, i) => bimDivRegistrarTrozo(m, divState.guid, i));
+    divState.piezasGuardadas.push(...divState.piezas);
+    divState.piezas = [];
+    bimDivColorearTrozos();
+
+    bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-circle-check bim-meta-icon" style="color:var(--accent)"></i>
+        <p>División lista: <strong>${partes.length} trozos</strong>.<br><small style="opacity:0.7">Sal del modo tijeras y haz clic en cada trozo para asignarle su spool. Puedes dividir otro tramo ahora.</small></p></div>`);
+    divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = [];
+    divState.ext0 = 0; divState.ext1 = 1;
 }
 
 /** Elimina la división (persistida o no) y restaura el elemento original. */
