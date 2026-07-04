@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { CONFIG, resumenSeguro } = require('./config');
-const { fetchAppSheet, invalidarCache } = require('./lib/appsheet');
+const { fetchAppSheet, fetchAppSheetCached, invalidarCache } = require('./lib/appsheet');
 const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS } = require('./lib/auth');
 const app = express();
 const PORT = CONFIG.PORT;
@@ -285,13 +285,15 @@ app.get('/api/bim/spool/:spoolId', async (req, res) => {
 });
 
 // GET /api/bim/statuses → Devuelve un mapeo de { [status]: [guid1, guid2, ...] }
+// Usa caché 30s para proteger la cuota (el modo EN VIVO sondea cada 10s).
+// Los registros vía bot invalidan la caché → visibles en el siguiente tick.
 app.get('/api/bim/statuses', async (req, res) => {
     try {
         // 1. Obtener todas las tablas necesarias
         const [rawBim, spools, logs] = await Promise.all([
-            fetchAppSheet('LIST_Bim_MS'),
-            fetchAppSheet('LIST_Spools_MS_'),
-            fetchAppSheet('LOG_Spool_MS')
+            fetchAppSheetCached('LIST_Bim_MS'),
+            fetchAppSheetCached('LIST_Spools_MS_'),
+            fetchAppSheetCached('LOG_Spool_MS')
         ]);
 
         // Normalizar columnas de LIST_Bim_MS
