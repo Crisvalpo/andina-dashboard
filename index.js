@@ -351,15 +351,20 @@ app.get('/api/bim/statuses', async (req, res) => {
             return s;
         }
 
-        const spoolStatuses = {}; // ID_SPOOL -> { status, weight }
+        // Estado ACTUAL de cada spool = registro más RECIENTE (igual que el bot).
+        // Así los estados NUEVOS que agreguen los usuarios aparecen de inmediato
+        // (con el modelo por peso, un estado desconocido —peso 0— nunca ganaba).
+        // Desempate en la misma fecha: gana el de mayor peso conocido.
+        const spoolStatuses = {}; // ID_SPOOL -> { status, weight, fecha }
         logs.forEach(r => {
             const id = String(r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
             const st = String(r.STATUS || r['STATUS '] || '').trim();
             if (!id || !st) return;
             const w = getStatusWeight(st);
+            const fecha = new Date(String(r['FECHA_LEVANTAMIENTO'] || '').trim()).getTime() || 0;
             const prev = spoolStatuses[id];
-            if (!prev || w > prev.weight) {
-                spoolStatuses[id] = { status: normalizeStatus(st), weight: w };
+            if (!prev || fecha > prev.fecha || (fecha === prev.fecha && w > prev.weight)) {
+                spoolStatuses[id] = { status: normalizeStatus(st), weight: w, fecha };
             }
         });
 
@@ -1021,6 +1026,42 @@ app.post('/api/auth/login', (req, res) => {
 
 // Webhook de mensajes entrantes (llamado por el wa-bridge; valida su propio secreto)
 app.post('/api/whatsapp-incoming', handleWhatsappIncoming);
+
+// =================================================================
+// COLORES DE ESTADOS DEL VISOR (dinámicos y editables)
+// Overrides guardados como JSON en bot_config('colores_estados_bim').
+// =================================================================
+app.get('/api/bim/estado-colores', async (req, res) => {
+    try {
+        const supabase = getSupabase();
+        const { data } = await supabase.from('bot_config').select('valor').eq('clave', 'colores_estados_bim').maybeSingle();
+        res.json(data && data.valor ? JSON.parse(data.valor) : {});
+    } catch (e) {
+        res.json({});
+    }
+});
+
+// POST { estado, color: '#rrggbb' } — color null/'' elimina el override
+app.post('/api/bim/estado-colores', requerirPermiso('bim'), async (req, res) => {
+    const estado = String(req.body?.estado || '').trim().toUpperCase();
+    const color = String(req.body?.color || '').trim();
+    if (!estado) return res.status(400).json({ error: 'Falta estado' });
+    if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) return res.status(400).json({ error: 'Color inválido (#rrggbb)' });
+    try {
+        const supabase = getSupabase();
+        const { data } = await supabase.from('bot_config').select('valor').eq('clave', 'colores_estados_bim').maybeSingle();
+        const colores = data && data.valor ? JSON.parse(data.valor) : {};
+        if (color) colores[estado] = color.toLowerCase();
+        else delete colores[estado];
+        await supabase.from('bot_config').upsert(
+            { clave: 'colores_estados_bim', valor: JSON.stringify(colores), descripcion: 'Colores por estado del visor BIM (editables desde el filtro)', updated_at: new Date().toISOString() },
+            { onConflict: 'clave' }
+        );
+        res.json({ success: true, colores });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 // =================================================================
 // DIVISIONES VIRTUALES DE TRAMOS (herramienta "Dividir tramo" del visor)

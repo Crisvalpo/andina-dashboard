@@ -2611,3 +2611,51 @@ body.sidebar-collapsed #bim-section {
     from { opacity: 0; transform: translateX(40px) scale(0.9); }
     to { opacity: 1; transform: translateX(0) scale(1); }
 }
+
+/* ===== BIM: chips de estado dinámicos (filtro multi-selección) ===== */
+.bim-status-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.bim-chip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px 5px 6px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.15s;
+    font-size: 0.72rem;
+}
+.bim-chip:hover { border-color: rgba(99, 102, 241, 0.5); }
+.bim-chip.sel {
+    background: rgba(99, 102, 241, 0.22);
+    border-color: var(--primary);
+    box-shadow: 0 0 8px rgba(99, 102, 241, 0.35);
+}
+.bim-chip input[type="color"] {
+    width: 16px;
+    height: 16px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.bim-chip input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.bim-chip input[type="color"]::-webkit-color-swatch { border: none; border-radius: 4px; }
+.bim-chip-nombre { font-weight: 600; color: var(--text); white-space: nowrap; }
+.bim-chip-n {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 1px 6px;
+    font-size: 0.66rem;
+    color: var(--text-dim);
+    font-weight: 700;
+}
+.bim-chip.sel .bim-chip-n { color: #c7d2fe; }

@@ -883,23 +883,16 @@
                     </button>
                 </div>
 
-                <!-- Filtro por Estado (LOG) -->
+                <!-- Filtro por Estado (dinámico, multi-selección, colores editables) -->
                 <div class="bim-filter-wrapper">
-                    <label class="bim-search-label">
-                        <i class="fas fa-filter"></i> Filtrar por Estado
+                    <label class="bim-search-label" style="display:flex;justify-content:space-between;align-items:center;">
+                        <span><i class="fas fa-filter"></i> Filtrar por Estado</span>
+                        <button onclick="bimLimpiarFiltroEstados()" title="Ver todo el modelo"
+                            style="background:none;border:none;color:var(--text-dim);font-size:0.7rem;cursor:pointer;font-family:inherit;">✕ limpiar</button>
                     </label>
-                    <select id="bim-status-filter" class="bim-status-select" onchange="bimFilterByStatus()">
-                        <option value="">-- Ver Todo el Modelo --</option>
-                        <option value="MONTADO">MONTADO (Verde)</option>
-                        <option value="POSICIONADO">POSICIONADO (Naranja)</option>
-                        <option value="POR MONTAR">POR MONTAR (Amarillo)</option>
-                        <option value="EN PINT/REVEST.">EN PINT/REVEST. (Morado)</option>
-                        <option value="QAQC">QAQC (Azul)</option>
-                        <option value="EN FABRICACIÓN">EN FABRICACIÓN (Celeste)</option>
-                        <option value="RETIRAR">RETIRAR (Rojo)</option>
-                        <option value="ELIMINADO">ELIMINADO (Gris)</option>
-                        <option value="SIN ESTADO">SIN ESTADO (Gris Opaco)</option>
-                    </select>
+                    <div id="bim-status-chips" class="bim-status-chips">
+                        <span style="font-size:0.75rem;opacity:0.5;">Cargando estados…</span>
+                    </div>
                 </div>
 
                 <!-- Formulario de Vinculación de Elementos 3D -->

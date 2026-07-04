@@ -1847,8 +1847,13 @@ const bimState = {
     spoolIndex:    null,   // Caché de { [tagLower]: { id_spool, tag_gestion, id_iso } }
     isAutoSelecting: false,// Bandera para evitar bucle de selección
     liveTimer:     null,   // Interval del modo EN VIVO (filtro por estado + polling)
-    liveStatus:    null,   // Estado que se está siguiendo en vivo
-    liveGuids:     null,   // Set de guids ya mostrados en el filtro activo
+    liveStatus:    null,   // (legado) estado único en vivo
+    liveGuids:     null,   // (legado) set de guids mostrados
+    liveEstados:   null,   // Estados seguidos EN VIVO (multi-selección)
+    liveSets:      null,   // { estado: Set<guid> } ya mostrados
+    filtroEstados: new Set(), // Estados seleccionados en el filtro (chips)
+    coloresEstados: {},    // Overrides de color por estado (servidor)
+    capaStatuses:  null,   // Estados de la capa válvula/soporte activa
     capa:          'spool',// Capa activa: 'spool' | 'valvula' | 'soporte'
     capaMapeo:     {},     // { valvula: {guidLower:id}, soporte: {...} }
     capaIndex:     {}      // { valvula: {idLower:row}, soporte: {...} }
@@ -1903,26 +1908,18 @@ async function bimSetCapa(capa) {
 }
 
 /** Ajusta las opciones del filtro por estado según la capa (spools tienen flujo; válvulas/soportes binario). */
-function bimUpdateStatusFilterOptions(capa) {
-    const sel = document.getElementById('bim-status-filter');
-    if (!sel) return;
+async function bimUpdateStatusFilterOptions(capa) {
+    // Chips dinámicos por capa; limpiar la selección al cambiar de capa
+    bimState.filtroEstados.clear();
     if (capa === 'spool') {
-        sel.innerHTML = `
-            <option value="">-- Ver Todo el Modelo --</option>
-            <option value="MONTADO">MONTADO (Verde)</option>
-            <option value="POSICIONADO">POSICIONADO (Naranja)</option>
-            <option value="POR MONTAR">POR MONTAR (Amarillo)</option>
-            <option value="EN PINT/REVEST.">EN PINT/REVEST. (Morado)</option>
-            <option value="QAQC">QAQC (Azul)</option>
-            <option value="EN FABRICACIÓN">EN FABRICACIÓN (Celeste)</option>
-            <option value="RETIRAR">RETIRAR (Rojo)</option>
-            <option value="ELIMINADO">ELIMINADO (Gris)</option>
-            <option value="SIN ESTADO">SIN ESTADO (Gris Opaco)</option>`;
+        bimRenderStatusChips();
     } else {
-        sel.innerHTML = `
-            <option value="">-- Ver Todo el Modelo --</option>
-            <option value="MONTADO">MONTADO (Verde)</option>
-            <option value="PENDIENTE">PENDIENTE (Gris)</option>`;
+        bimState.capaStatuses = null;
+        bimRenderStatusChips(); // "cargando…"
+        try {
+            bimState.capaStatuses = await (await fetch(`/api/bim/${capa}/statuses`)).json();
+        } catch (e) { bimState.capaStatuses = {}; }
+        bimRenderStatusChips();
     }
 }
 
@@ -2034,11 +2031,14 @@ function bimStartViewer() {
                         bimState.initialized = true;
                         document.getElementById('bim-loader').style.display = 'none';
 
-                        // Pre-cargar caché de estados de spools en background para visualización rápida
-                        fetch('/api/bim/statuses')
-                            .then(r => r.json())
-                            .then(data => { bimState.statusesCache = data; })
-                            .catch(err => console.error('[BIM] Error precargando estados:', err));
+                        // Pre-cargar estados + colores y dibujar los chips dinámicos del filtro
+                        Promise.all([
+                            fetch('/api/bim/statuses').then(r => r.json()).catch(() => null),
+                            bimCargarColoresEstados()
+                        ]).then(([data]) => {
+                            if (data) bimState.statusesCache = data;
+                            bimRenderStatusChips();
+                        }).catch(err => console.error('[BIM] Error precargando estados:', err));
 
                         // Pre-cargar el mapeo de GUID -> Spool en background
                         fetch('/api/bim/mapeo')
@@ -2459,9 +2459,11 @@ function bimResetView() {
     bimState.currentGuids = [];
     bimState.viewer.fitToView();
     
-    // Resetear el select de filtros por estado
-    const select = document.getElementById('bim-status-filter');
-    if (select) select.value = '';
+    // Limpiar la selección de estados en los chips
+    if (bimState.filtroEstados && bimState.filtroEstados.size) {
+        bimState.filtroEstados.clear();
+        bimRenderStatusChips();
+    }
 
     const actionsEl = document.getElementById('bim-actions');
     if (actionsEl) actionsEl.style.display = 'none';
@@ -2488,6 +2490,179 @@ const BIM_STATUS_COLORS = {
     // Válvulas / soportes (estado binario)
     'PENDIENTE':       [0.55, 0.55, 0.55, 0.4]  // Gris (pendiente de montaje)
 };
+
+// =================================================================
+// ESTADOS DINÁMICOS + COLORES EDITABLES + FILTRO MULTI-SELECCIÓN
+// Los estados salen de los DATOS: si los usuarios agregan un estado
+// nuevo en AppSheet, aparece solo, con color auto-asignado y editable.
+// =================================================================
+const BIM_ORDEN_FLUJO = ['EN FABRICACIÓN', 'QAQC', 'EN PINT/REVEST.', 'RETIRAR',
+    'POR MONTAR', 'POSICIONADO', 'MONTADO', 'ELIMINADO', 'PENDIENTE', 'SIN ESTADO'];
+
+function bimHexARgb(hex) {
+    const h = String(hex).replace('#', '');
+    return [parseInt(h.substr(0, 2), 16) / 255, parseInt(h.substr(2, 2), 16) / 255, parseInt(h.substr(4, 2), 16) / 255, 1];
+}
+function bimRgbAHex(arr) {
+    return '#' + arr.slice(0, 3).map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+}
+
+/** Color automático y estable para estados nuevos (hash → tono HSL). */
+function bimColorAuto(st) {
+    let h = 0;
+    for (let i = 0; i < st.length; i++) h = (h * 31 + st.charCodeAt(i)) >>> 0;
+    const hue = h % 360, s = 0.72, l = 0.55;
+    const k = n => (n + hue / 30) % 12;
+    const a = s * Math.min(l, 1 - l);
+    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+    return [f(0), f(8), f(4), 1];
+}
+
+/** Color efectivo de un estado: override guardado > paleta base > auto. */
+function bimColorDeEstado(st) {
+    const key = String(st || '').toUpperCase();
+    if (bimState.coloresEstados && bimState.coloresEstados[key]) return bimHexARgb(bimState.coloresEstados[key]);
+    if (BIM_STATUS_COLORS[key]) return BIM_STATUS_COLORS[key];
+    return bimColorAuto(key);
+}
+
+async function bimCargarColoresEstados() {
+    try { bimState.coloresEstados = await (await fetch('/api/bim/estado-colores')).json(); }
+    catch (e) { bimState.coloresEstados = {}; }
+}
+
+/** Dibuja los chips de estado (dinámicos) según los datos de la capa activa. */
+function bimRenderStatusChips() {
+    const cont = document.getElementById('bim-status-chips');
+    if (!cont) return;
+    const statuses = bimState.capa === 'spool' ? bimState.statusesCache : bimState.capaStatuses;
+    if (!statuses) { cont.innerHTML = '<span style="font-size:0.75rem;opacity:0.5;">Cargando estados…</span>'; return; }
+
+    const nombres = Object.keys(statuses).sort((a, b) => {
+        const ia = BIM_ORDEN_FLUJO.indexOf(a), ib = BIM_ORDEN_FLUJO.indexOf(b);
+        if (ia !== -1 && ib !== -1) return ia - ib;
+        if (ia !== -1) return -1;
+        if (ib !== -1) return 1;
+        return a.localeCompare(b);
+    });
+
+    cont.innerHTML = nombres.map(st => {
+        const n = (statuses[st] || []).length;
+        const sel = bimState.filtroEstados.has(st);
+        const hex = bimRgbAHex(bimColorDeEstado(st));
+        const esc = st.replace(/'/g, "\\'");
+        return `<div class="bim-chip ${sel ? 'sel' : ''}" onclick="bimToggleEstado('${esc}')" title="${n} elementos">
+            <input type="color" value="${hex}" onclick="event.stopPropagation()"
+                   onchange="bimGuardarColorEstado('${esc}', this.value)" title="Editar color de ${st}">
+            <span class="bim-chip-nombre">${st}</span>
+            <span class="bim-chip-n">${n}</span>
+        </div>`;
+    }).join('');
+}
+
+function bimToggleEstado(st) {
+    if (bimState.filtroEstados.has(st)) bimState.filtroEstados.delete(st);
+    else bimState.filtroEstados.add(st);
+    bimRenderStatusChips();
+    bimAplicarFiltroEstados();
+}
+
+function bimLimpiarFiltroEstados() {
+    bimState.filtroEstados.clear();
+    bimRenderStatusChips();
+    bimResetView();
+}
+
+/** Edita el color de un estado (persistido; requiere clave BIM). */
+async function bimGuardarColorEstado(st, hex) {
+    const ok = await authAsegurar('bim');
+    if (!ok) { bimRenderStatusChips(); return; }
+    try {
+        const r = await fetch('/api/bim/estado-colores', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({ estado: st, color: hex })
+        });
+        const d = await r.json();
+        if (d.success) {
+            bimState.coloresEstados = d.colores || {};
+            bimRenderStatusChips();
+            if (bimState.filtroEstados.size) bimAplicarFiltroEstados();
+            if (typeof bimDivColorearTrozos === 'function') bimDivColorearTrozos();
+        } else if (r.status === 401) {
+            authOlvidar('bim');
+            alert('🔒 Clave BIM incorrecta o expirada.');
+        }
+    } catch (e) { console.error('[BIM] Error guardando color:', e); }
+}
+
+/** Aplica el filtro MULTI-estado: unión de elementos, cada estado con su color. */
+async function bimAplicarFiltroEstados() {
+    bimLiveStop();
+    const seleccion = [...bimState.filtroEstados];
+    if (!seleccion.length) { bimResetView(); return; }
+    if (!bimState.initialized) return;
+
+    bimSetMeta('<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Aplicando filtro...</div>');
+    try {
+        let statuses;
+        if (bimState.capa === 'spool') {
+            statuses = await (await fetch('/api/bim/statuses')).json();
+            bimState.statusesCache = statuses;
+        } else {
+            statuses = await (await fetch(`/api/bim/${bimState.capa}/statuses`)).json();
+            bimState.capaStatuses = statuses;
+        }
+        bimRenderStatusChips();
+
+        const viewer = bimState.viewer;
+        viewer.clearThemingColors(viewer.model);
+
+        let acumulados = [];
+        let pendientes = seleccion.length;
+        const finalizar = () => {
+            bimState.dbIds = [...new Set(acumulados)];
+            if (bimState.dbIds.length) {
+                viewer.isolate(bimState.dbIds);
+                viewer.fitToView(bimState.dbIds);
+            } else {
+                viewer.isolate([]);
+            }
+            bimDivColorearTrozos();
+            const actionsEl = document.getElementById('bim-actions');
+            if (actionsEl) actionsEl.style.display = 'flex';
+            if (window.innerWidth <= 1024) bimCloseSidebar();
+
+            const resumen = seleccion.map(st =>
+                `<span style="display:inline-flex;align-items:center;gap:5px;margin:2px 8px 2px 0;font-size:0.78rem;">
+                    <span style="width:10px;height:10px;border-radius:3px;background:${bimRgbAHex(bimColorDeEstado(st))}"></span>
+                    ${st}: <strong>${(statuses[st] || []).length}</strong></span>`).join('');
+            bimSetMeta(`
+                <div class="bim-meta-header" style="background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3);">
+                    <i class="fas fa-filter"></i><span>${seleccion.length} estado(s)</span>
+                    <span class="bim-badge">${bimState.dbIds.length} elem.</span>
+                </div>
+                <div style="padding:8px 2px;">${resumen}</div>
+                <p style="font-size:0.72rem;opacity:0.7;padding:0 2px;"><i class="fas fa-satellite-dish"></i> EN VIVO: los nuevos reportes se suman solos.</p>`);
+            bimLiveStart(seleccion, statuses);
+        };
+
+        seleccion.forEach(st => {
+            const gs = (statuses[st] || []).filter(g => !g.includes('#p'));
+            if (!gs.length) { if (--pendientes === 0) finalizar(); return; }
+            bimGuidsToDbIds(gs, (ids) => {
+                acumulados = acumulados.concat(ids);
+                const [r, g, b, a] = bimColorDeEstado(st);
+                const col = new THREE.Vector4(r, g, b, a);
+                ids.forEach(id => viewer.setThemingColor(id, col, viewer.model, true));
+                if (--pendientes === 0) finalizar();
+            });
+        });
+    } catch (err) {
+        console.error('[BIM Filtro Estados]', err);
+        bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error: ${err.message}</p></div>`);
+    }
+}
 
 /** Filtra e aisla los elementos del modelo 3D según el estado de pre-fabricación seleccionado */
 async function bimFilterByStatus() {
@@ -2608,10 +2783,14 @@ async function bimFilterByStatus() {
 // =================================================================
 const BIM_LIVE_INTERVALO_MS = 10000; // 10s (el backend consulta AppSheet fresco)
 
-function bimLiveStart(status, guidsIniciales) {
+/** Arranca el seguimiento EN VIVO de uno o varios estados. */
+function bimLiveStart(estados, statuses) {
     bimLiveStop();
-    bimState.liveStatus = status;
-    bimState.liveGuids = new Set((guidsIniciales || []).map(g => g.toLowerCase()));
+    bimState.liveEstados = Array.isArray(estados) ? [...estados] : [estados];
+    bimState.liveSets = {};
+    bimState.liveEstados.forEach(st => {
+        bimState.liveSets[st] = new Set((((statuses || {})[st]) || []).map(g => g.toLowerCase()));
+    });
     bimLiveChipUpdate();
     bimState.liveTimer = setInterval(bimLiveTick, BIM_LIVE_INTERVALO_MS);
 }
@@ -2621,12 +2800,98 @@ function bimLiveStop() {
     bimState.liveTimer = null;
     bimState.liveStatus = null;
     bimState.liveGuids = null;
+    bimState.liveEstados = null;
+    bimState.liveSets = null;
     const chip = document.getElementById('bim-live-chip');
     if (chip) chip.remove();
 }
 
 async function bimLiveTick() {
-    // No consultar si la sección BIM no está visible (el timer sigue vivo)
+    // v2 multi-estado: los estados y colores son dinámicos
+    const seccion = document.getElementById('bim-section');
+    if (!seccion || seccion.style.display === 'none' || !bimState.liveEstados || !bimState.liveEstados.length) return;
+
+    try {
+        const endpoint = bimState.capa === 'spool' ? '/api/bim/statuses' : `/api/bim/${bimState.capa}/statuses`;
+        const resp = await fetch(endpoint);
+        if (!resp.ok) return;
+        const statuses = await resp.json();
+        if (bimState.capa === 'spool') bimState.statusesCache = statuses;
+        else bimState.capaStatuses = statuses;
+
+        const mapeo = bimState.capa === 'spool' ? (bimState.mapeoSpools || {}) : (bimState.capaMapeo[bimState.capa] || {});
+
+        for (const st of bimState.liveEstados) {
+            const setSt = bimState.liveSets[st] || (bimState.liveSets[st] = new Set());
+            const actuales = (statuses[st] || []).map(g => g.toLowerCase());
+            const nuevos = actuales.filter(g => !setSt.has(g));
+            if (!nuevos.length) continue;
+            nuevos.forEach(g => setSt.add(g));
+            console.log(`[BIM Live] 🎉 ${nuevos.length} nuevo(s) en ${st}`);
+
+            const [cr, cg, cb] = bimColorDeEstado(st);
+
+            // Trozos de tramos divididos: recolorear su mesh con pulso
+            const trozosNuevos = nuevos.filter(g => g.includes('#p'));
+            trozosNuevos.forEach(g => {
+                const mesh = divState.trozoMeshes[g];
+                if (!mesh) return;
+                let p = 0;
+                const pulsarT = () => {
+                    if (p % 2 === 0) mesh.material.color.setRGB(1, 1, 1);
+                    else mesh.material.color.setRGB(cr, cg, cb);
+                    bimState.viewer.impl.invalidate(false, false, true);
+                    p++;
+                    if (p <= 7) setTimeout(pulsarT, 450);
+                    else { mesh.material.color.setRGB(cr, cg, cb); bimState.viewer.impl.invalidate(false, false, true); }
+                };
+                pulsarT();
+            });
+
+            // Elementos del modelo: sumar al aislamiento + pulso + toast + foco B
+            const nuevosModelo = nuevos.filter(g => !g.includes('#p'));
+            if (nuevosModelo.length) {
+                bimGuidsToDbIds(nuevosModelo, (dbIdsNuevos) => {
+                    const viewer = bimState.viewer;
+                    if (!viewer || !dbIdsNuevos.length) { bimLiveChipUpdate(); return; }
+                    bimState.dbIds = [...new Set([...(bimState.dbIds || []), ...dbIdsNuevos])];
+                    viewer.isolate(bimState.dbIds);
+
+                    bimState.liveFocusPend = [...new Set([...(bimState.liveFocusPend || []), ...dbIdsNuevos])];
+                    clearTimeout(bimState.liveFocusTimer);
+                    bimState.liveFocusTimer = setTimeout(() => {
+                        if (bimState.viewer && bimState.liveFocusPend?.length) bimState.viewer.fitToView(bimState.liveFocusPend);
+                        bimState.liveFocusPend = [];
+                    }, 1200);
+
+                    const colorFinal = new THREE.Vector4(cr, cg, cb, 1);
+                    const colorFlash = new THREE.Vector4(1, 1, 1, 1);
+                    let pulso = 0;
+                    const pulsar = () => {
+                        const c = (pulso % 2 === 0) ? colorFlash : colorFinal;
+                        dbIdsNuevos.forEach(id => viewer.setThemingColor(id, c, viewer.model, true));
+                        pulso++;
+                        if (pulso <= 7) setTimeout(pulsar, 450);
+                        else dbIdsNuevos.forEach(id => viewer.setThemingColor(id, colorFinal, viewer.model, true));
+                    };
+                    pulsar();
+                    bimLiveChipUpdate();
+                });
+            }
+
+            const tags = [...new Set(nuevos.map(g => mapeo[g]).filter(Boolean))];
+            const etiqueta = tags.length ? tags.join(', ') : `${nuevos.length} elemento(s)`;
+            bimLiveToast(`🎉 ${etiqueta} → ${st}`, []);
+            bimBeep();
+        }
+        bimLiveChipUpdate();
+    } catch (e) {
+        console.error('[BIM Live] Error en tick:', e.message);
+    }
+    return; // (código legado de un solo estado, inalcanzable)
+}
+
+async function bimLiveTickLegacy() {
     const seccion = document.getElementById('bim-section');
     if (!seccion || seccion.style.display === 'none' || !bimState.liveStatus) return;
 
@@ -2715,10 +2980,10 @@ async function bimLiveTick() {
     }
 }
 
-/** Chip flotante "EN VIVO · ESTADO: N" sobre el visor. */
+/** Chip flotante "EN VIVO · ..." sobre el visor (multi-estado). */
 function bimLiveChipUpdate() {
     const wrapper = document.querySelector('.bim-viewer-wrapper');
-    if (!wrapper || !bimState.liveStatus) return;
+    if (!wrapper || !bimState.liveEstados || !bimState.liveEstados.length) return;
     let chip = document.getElementById('bim-live-chip');
     if (!chip) {
         chip = document.createElement('div');
@@ -2726,7 +2991,11 @@ function bimLiveChipUpdate() {
         chip.className = 'bim-live-chip';
         wrapper.appendChild(chip);
     }
-    chip.innerHTML = `<span class="bim-live-dot"></span> EN VIVO · ${bimState.liveStatus}: <strong>${bimState.liveGuids ? bimState.liveGuids.size : 0}</strong>`;
+    const total = Object.values(bimState.liveSets || {}).reduce((s, set) => s + set.size, 0);
+    const etiqueta = bimState.liveEstados.length === 1
+        ? bimState.liveEstados[0]
+        : `${bimState.liveEstados.length} estados`;
+    chip.innerHTML = `<span class="bim-live-dot"></span> EN VIVO · ${etiqueta}: <strong>${total}</strong>`;
 }
 
 /** Toast flotante; clic = volar a los elementos nuevos. */
@@ -3579,8 +3848,8 @@ function bimDivColorearTrozos() {
     }
     for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
         const status = statusDeGuid[key];
-        if (status && BIM_STATUS_COLORS[status]) {
-            const [r, g, b] = BIM_STATUS_COLORS[status];
+        if (status) {
+            const [r, g, b] = bimColorDeEstado(status);
             mesh.material.color.setRGB(r, g, b);
         }
     }
