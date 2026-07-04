@@ -2644,6 +2644,31 @@ async function bimLiveTick() {
         nuevos.forEach(g => bimState.liveGuids.add(g));
         console.log(`[BIM Live] 🎉 ${nuevos.length} elemento(s) nuevo(s) en ${bimState.liveStatus}`);
 
+        // Trozos de tramos divididos (guid#pN): no existen en el modelo APS,
+        // se recolorean con pulso directamente sobre sus meshes overlay.
+        const trozosNuevos = nuevos.filter(g => g.includes('#p'));
+        if (trozosNuevos.length && typeof divState !== 'undefined') {
+            const raw = BIM_STATUS_COLORS[bimState.liveStatus] || [0.06, 0.75, 0.35, 1];
+            trozosNuevos.forEach(g => {
+                const mesh = divState.trozoMeshes[g];
+                if (!mesh) return;
+                let p = 0;
+                const pulsarT = () => {
+                    if (p % 2 === 0) mesh.material.color.setRGB(1, 1, 1);
+                    else mesh.material.color.setRGB(raw[0], raw[1], raw[2]);
+                    bimState.viewer.impl.invalidate(false, false, true);
+                    p++;
+                    if (p <= 7) setTimeout(pulsarT, 450);
+                    else { mesh.material.color.setRGB(raw[0], raw[1], raw[2]); bimState.viewer.impl.invalidate(false, false, true); }
+                };
+                pulsarT();
+            });
+            const mapeoT = bimState.mapeoSpools || {};
+            const tagsT = [...new Set(trozosNuevos.map(g => mapeoT[g]).filter(Boolean))];
+            if (tagsT.length) { bimLiveToast(`🎉 Spool ${tagsT.join(', ')} (trozo) → ${bimState.liveStatus}`, []); bimBeep(); }
+            bimLiveChipUpdate();
+        }
+
         bimGuidsToDbIds(nuevos, (dbIdsNuevos) => {
             const viewer = bimState.viewer;
             if (!viewer || !dbIdsNuevos.length) { bimLiveChipUpdate(); return; }
@@ -2799,6 +2824,145 @@ function bimDividirInit() {
     // Dibujar divisiones ya guardadas
     try { viewer.impl.createOverlayScene(DIV_OVERLAY); } catch (e) { /* ya existe */ }
     bimDividirCargarGuardadas();
+
+    // Selección de TROZOS (los overlays no son seleccionables por APS → raycast propio).
+    // Siempre activo salvo en modo dividir (ahí los clics cortan).
+    viewer.canvas.addEventListener('pointerdown', (ev) => { divState._downSel = { x: ev.clientX, y: ev.clientY }; }, true);
+    viewer.canvas.addEventListener('pointerup', bimTrozoPointerUp, true);
+}
+
+/** Detecta clic sobre un trozo persistido y abre su panel de asignación. */
+function bimTrozoPointerUp(ev) {
+    if (divState.activo || !divState._downSel) return;
+    const dx = Math.abs(ev.clientX - divState._downSel.x);
+    const dy = Math.abs(ev.clientY - divState._downSel.y);
+    divState._downSel = null;
+    if (dx > 6 || dy > 6) return; // drag de navegación
+
+    const meshes = Object.values(divState.trozoMeshes);
+    if (!meshes.length) return;
+    const viewer = bimState.viewer;
+    try {
+        const rect = viewer.canvas.getBoundingClientRect();
+        const ray = viewer.impl.viewportToRay(viewer.impl.clientToViewport(ev.clientX - rect.left, ev.clientY - rect.top));
+        if (!ray) return;
+        const rc = new THREE.Raycaster(ray.origin.clone(), ray.direction.clone().normalize());
+        const hits = rc.intersectObjects(meshes, false);
+        if (!hits.length) return;
+
+        // ¿Hay un elemento del modelo MÁS CERCA que el trozo? → dejar pasar el clic normal
+        const hitAPS = viewer.impl.hitTest(ev.clientX - rect.left, ev.clientY - rect.top, true);
+        if (hitAPS && hitAPS.intersectPoint) {
+            const dAPS = ray.origin.distanceTo(hitAPS.intersectPoint);
+            if (dAPS < hits[0].distance - 0.01) return;
+        }
+
+        // El trozo gana: consumir el clic y abrir su panel
+        ev.stopPropagation(); ev.preventDefault();
+        divState._consume = true;
+        viewer.select([]);
+        bimTrozoSeleccionar(hits[0].object);
+    } catch (e) { /* raycast fallido: clic normal */ }
+}
+
+function bimTrozoSeleccionar(mesh) {
+    // Quitar highlight previo
+    if (divState._trozoSel && divState._trozoSel.material.emissive) {
+        divState._trozoSel.material.emissive.setHex(0x000000);
+    }
+    divState._trozoSel = mesh;
+    if (mesh.material.emissive) mesh.material.emissive.setHex(0x333333);
+    bimState.viewer.impl.invalidate(false, false, true);
+    bimTrozoRenderPanel(mesh);
+}
+
+/** Panel del trozo: spool asignado, estado y asignación/desvinculación. */
+function bimTrozoRenderPanel(mesh) {
+    const { guid, idx, a, b, key } = mesh.userData;
+    const pct = Math.round((b - a) * 100);
+    const tagAsignado = bimState.mapeoSpools ? bimState.mapeoSpools[key] : null;
+    const info = tagAsignado && bimState.spoolIndex ? bimState.spoolIndex[String(tagAsignado).toLowerCase()] : null;
+
+    // Estado actual (desde el caché de estados, que ya incluye los trozos)
+    let status = null;
+    if (bimState.statusesCache) {
+        for (const [st, guids] of Object.entries(bimState.statusesCache)) {
+            if (guids.some(g => g.toLowerCase() === key)) { status = st; break; }
+        }
+    }
+
+    bimSetMeta(`
+        <div class="bim-meta-header" style="background:rgba(96,165,250,0.15);border-color:rgba(96,165,250,0.35);">
+            <i class="fas fa-puzzle-piece"></i><span>Trozo ${idx + 1}</span>
+            <span class="bim-badge">${pct}% del tramo</span>
+        </div>
+        ${tagAsignado ? `
+        <div style="padding:10px;border-radius:8px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:0.85rem;"><span style="opacity:0.7;">Spool:</span><strong style="color:#6ee7b7;">${tagAsignado}</strong></div>
+            ${info ? `<div style="font-family:monospace;font-size:0.68rem;opacity:0.7;word-break:break-all;margin-top:3px;">${info.id_spool}</div>` : ''}
+            ${status ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-top:4px;"><span style="opacity:0.7;">Estado:</span><strong>${status}</strong></div>` : ''}
+        </div>
+        <button class="bim-scan-btn" onclick="bimTrozoDesvincular('${key}')" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;justify-content:center;width:100%;margin-bottom:8px;">
+            <i class="fas fa-unlink"></i> Desvincular de ${tagAsignado}</button>`
+        : `<p style="font-size:0.8rem;opacity:0.7;margin-bottom:10px;">Este trozo aún no tiene spool asignado.</p>`}
+        <div class="bim-link-field" style="margin-bottom:8px;">
+            <label style="font-size:0.75rem;opacity:0.8;">TAG del spool para este trozo:</label>
+            <input type="text" id="trozo-spool-input" class="bim-search-input" placeholder="Ej: 511" value="" style="width:100%;margin-top:4px;">
+        </div>
+        <button class="bim-scan-btn" onclick="bimTrozoVincular('${key}')" style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:var(--primary-light);justify-content:center;width:100%;">
+            <i class="fas fa-link"></i> Vincular trozo al spool</button>
+        <div style="font-size:0.68rem;opacity:0.5;margin-top:8px;word-break:break-all;">ID interno: ${key}</div>`);
+}
+
+async function bimTrozoVincular(key) {
+    const mesh = divState.trozoMeshes[key];
+    const input = document.getElementById('trozo-spool-input');
+    const tag = input ? input.value.trim() : '';
+    if (!mesh || !tag) { alert('Ingresa el TAG del spool.'); return; }
+    const desbloqueado = await authAsegurar('bim');
+    if (!desbloqueado) return;
+    try {
+        const resp = await fetch('/api/bim/vincular', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({ spool: tag, elements: [{ guid: key, cwp: '', line_number: '', tag: '', autocad_size: '' }] })
+        });
+        if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
+        const d = await resp.json();
+        if (!d.success && !d.count) throw new Error(d.error || 'Error');
+        if (bimState.mapeoSpools) bimState.mapeoSpools[key] = tag;
+        // Refrescar estados para pintar el trozo con el estado real de su spool
+        fetch('/api/bim/statuses').then(r => r.json()).then(data => {
+            bimState.statusesCache = data;
+            bimDivColorearTrozos();
+            bimTrozoRenderPanel(mesh);
+        }).catch(() => bimTrozoRenderPanel(mesh));
+    } catch (e) {
+        alert('No se pudo vincular el trozo: ' + e.message);
+    }
+}
+
+async function bimTrozoDesvincular(key) {
+    const mesh = divState.trozoMeshes[key];
+    if (!mesh) return;
+    const desbloqueado = await authAsegurar('bim');
+    if (!desbloqueado) return;
+    try {
+        const resp = await fetch('/api/bim/desvincular', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({ elements: [{ guid: key }] })
+        });
+        if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
+        if (bimState.mapeoSpools) delete bimState.mapeoSpools[key];
+        // Color neutro de vuelta
+        const { idx } = mesh.userData;
+        mesh.material.color.setHex(DIV_COLORES[idx % DIV_COLORES.length]);
+        bimState.viewer.impl.invalidate(false, false, true);
+        bimTrozoRenderPanel(mesh);
+    } catch (e) {
+        alert('No se pudo desvincular: ' + e.message);
+    }
 }
 
 async function bimDividirCargarGuardadas() {
@@ -2819,10 +2983,16 @@ async function bimDividirCargarGuardadas() {
                 const partes = bimDivNormalizarPartes(divState.guardadas[g]) || [];
                 partes.forEach(([a, b], i) => {
                     const m = bimCrearPieza(eje, a, b, DIV_COLORES[i % DIV_COLORES.length]);
-                    if (m) divState.piezasGuardadas.push(m);
+                    if (m) {
+                        m.userData = { guid: g, idx: i, a, b, eje };
+                        bimDivRegistrarTrozo(m, g, i);
+                        divState.piezasGuardadas.push(m);
+                    }
                 });
             });
         });
+        // Cuando estados+mapeo estén listos, pintar los trozos por su estado
+        setTimeout(bimDivColorearTrozos, 2500);
     } catch (e) { console.error('[Dividir] Error cargando divisiones:', e.message); }
 }
 
@@ -3080,8 +3250,39 @@ function bimDivRedibujarClon() {
     divState.piezas = [];
     bimDivPartesSesion().forEach(([a, b], i) => {
         const m = bimCrearPieza(divState.eje, a, b, DIV_COLORES[i % DIV_COLORES.length]);
-        if (m) divState.piezas.push(m);
+        if (m) {
+            m.userData = { guid: divState.guid, idx: i, a, b, eje: divState.eje };
+            divState.piezas.push(m);
+        }
     });
+}
+
+// ---- Registro de trozos persistidos: clave `${guidLower}#p${n}` → mesh ----
+divState.trozoMeshes = {};
+
+function bimDivRegistrarTrozo(mesh, guid, idx) {
+    const key = `${String(guid).toLowerCase()}#p${idx + 1}`;
+    mesh.userData.key = key;
+    divState.trozoMeshes[key] = mesh;
+    return key;
+}
+
+/** Colorea cada trozo asignado según el estado actual de su spool. */
+function bimDivColorearTrozos() {
+    if (!bimState.statusesCache || !bimState.mapeoSpools) return;
+    // Mapa inverso guid→status a partir del caché de estados
+    const statusDeGuid = {};
+    for (const [status, guids] of Object.entries(bimState.statusesCache)) {
+        guids.forEach(g => { statusDeGuid[g.toLowerCase()] = status; });
+    }
+    for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
+        const status = statusDeGuid[key];
+        if (status && BIM_STATUS_COLORS[status]) {
+            const [r, g, b] = BIM_STATUS_COLORS[status];
+            mesh.material.color.setRGB(r, g, b);
+        }
+    }
+    bimState.viewer?.impl.invalidate(false, false, true);
 }
 
 /** Panel lateral: trozos del clon + alargar/acortar + acciones. */
@@ -3155,6 +3356,7 @@ async function bimDividirGuardar() {
         // El clon de la sesión pasa a ser la versión persistida
         divState.guardadas[divState.guid.toLowerCase()] = partes;
         divState.ocultos.push(divState.dbId);
+        divState.piezas.forEach((m, i) => bimDivRegistrarTrozo(m, divState.guid, i));
         divState.piezasGuardadas.push(...divState.piezas);
         divState.piezas = [];
         bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-circle-check bim-meta-icon" style="color:var(--accent)"></i>
@@ -3181,6 +3383,16 @@ async function bimDividirRestaurar() {
         delete divState.guardadas[divState.guid.toLowerCase()];
     }
     bimDivLimpiarSesion();
+    // Quitar también los trozos persistidos de este guid (mesh + registro)
+    const gl = divState.guid.toLowerCase();
+    divState.piezasGuardadas = divState.piezasGuardadas.filter(m => {
+        if (String(m.userData?.guid || '').toLowerCase() === gl) {
+            try { bimState.viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {}
+            if (m.userData.key) delete divState.trozoMeshes[m.userData.key];
+            return false;
+        }
+        return true;
+    });
     if (divState.dbId !== null) {
         bimState.viewer.show(divState.dbId);
         divState.ocultos = divState.ocultos.filter(id => id !== divState.dbId);
@@ -3200,8 +3412,13 @@ function bimDividirCancelar() {
             const partes = bimDivNormalizarPartes(guardada) || [];
             partes.forEach(([a, b], i) => {
                 const m = bimCrearPieza(divState.eje, a, b, DIV_COLORES[i % DIV_COLORES.length]);
-                if (m) divState.piezasGuardadas.push(m);
+                if (m) {
+                    m.userData = { guid: divState.guid, idx: i, a, b, eje: divState.eje };
+                    bimDivRegistrarTrozo(m, divState.guid, i);
+                    divState.piezasGuardadas.push(m);
+                }
             });
+            bimDivColorearTrozos();
         } else {
             bimState.viewer.show(divState.dbId); // sin persistencia: vuelve el original
         }
