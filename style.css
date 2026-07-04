@@ -993,8 +993,8 @@ tr:hover td {
     }
 }
 
-/* ---- Mobile (≤ 640px) ---- */
-@media (max-width: 640px) {
+/* ---- Mobile (≤ 640px) y móvil HORIZONTAL (pantallas bajas ≤ 500px de alto) ---- */
+@media (max-width: 640px), (max-height: 500px) {
 
     /* Sidebar: icon-only strip */
     :root {
@@ -1245,7 +1245,7 @@ tr:hover td {
     line-height: 1;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 640px), (max-height: 500px) {
     .badge-sidebar {
         right: 4px;
         top: 4px;
@@ -1700,6 +1700,11 @@ tr:hover td {
 @media (max-width: 1024px) {
     #bim-section {
         left: var(--sidebar-w) !important; /* Empezar a la derecha del menú lateral principal para no solaparse */
+    }
+
+    /* Si el menú principal está colapsado (manual o por pantalla baja), no reservar su ancho completo */
+    body.sidebar-collapsed #bim-section {
+        left: 60px !important;
     }
 
     .bim-layout {
