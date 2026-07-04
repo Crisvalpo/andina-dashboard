@@ -1043,23 +1043,38 @@ app.get('/api/bim/divisiones', async (req, res) => {
     }
 });
 
-// POST { guid, cortes: [0.42, 0.71] } — cortes vacío elimina la división
+// POST { guid, partes: [[a,b],...] } (o legado { cortes:[t...] }).
+// partes/cortes vacíos elimina la división (restaura el original).
 app.post('/api/bim/divisiones', requerirPermiso('bim'), async (req, res) => {
     const guid = String(req.body?.guid || '').trim().toLowerCase();
-    const cortes = Array.isArray(req.body?.cortes) ? req.body.cortes.filter(t => typeof t === 'number' && t > 0 && t < 1) : [];
     if (!guid) return res.status(400).json({ error: 'Falta guid' });
+
+    // Formato nuevo: partes = pares [a,b] con a<b (pueden salir de [0,1] al alargar el clon)
+    let partes = null;
+    if (Array.isArray(req.body?.partes)) {
+        partes = req.body.partes.filter(p => Array.isArray(p) && p.length === 2 &&
+            typeof p[0] === 'number' && typeof p[1] === 'number' && p[1] > p[0] &&
+            p[0] > -1 && p[1] < 2);
+    } else if (Array.isArray(req.body?.cortes)) {
+        const cortes = req.body.cortes.filter(t => typeof t === 'number' && t > 0 && t < 1).sort((a, b) => a - b);
+        if (cortes.length) {
+            const bordes = [0, ...cortes, 1];
+            partes = bordes.slice(0, -1).map((a, i) => [a, bordes[i + 1]]);
+        } else partes = [];
+    }
+
     try {
         const supabase = getSupabase();
-        if (!cortes.length) {
+        if (!partes || !partes.length) {
             await supabase.from('bim_divisiones').delete().eq('guid', guid);
             return res.json({ success: true, eliminada: true });
         }
         const { error } = await supabase.from('bim_divisiones').upsert(
-            { guid, cortes: cortes.sort((a, b) => a - b), updated_at: new Date().toISOString() },
+            { guid, cortes: partes, updated_at: new Date().toISOString() },
             { onConflict: 'guid' }
         );
         if (error) throw new Error(error.message);
-        res.json({ success: true, guid, cortes, partes: cortes.length + 1 });
+        res.json({ success: true, guid, partes: partes.length });
     } catch (e) {
         console.error('[BIM Divisiones POST]', e.message);
         res.status(500).json({ error: e.message });

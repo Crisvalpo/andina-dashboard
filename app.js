@@ -2450,6 +2450,10 @@ function bimResetView() {
     bimLiveStop();
     if (!bimState.viewer) return;
     bimState.viewer.showAll();
+    // Los originales divididos permanecen ocultos PARA SIEMPRE (los reemplaza su clon)
+    if (typeof divState !== 'undefined' && divState.ocultos.length) {
+        divState.ocultos.forEach(id => bimState.viewer.hide(id));
+    }
     bimState.viewer.clearThemingColors(bimState.viewer.model);
     bimState.dbIds  = [];
     bimState.currentGuids = [];
@@ -2745,17 +2749,34 @@ function bimBeep() {
 // el servidor y se dibujan como discos overlay sobre el tubo.
 // =================================================================
 const DIV_OVERLAY = 'andinaDivisiones';
+const DIV_COLORES = [0x60a5fa, 0x34d399, 0xfbbf24, 0xa78bfa, 0xf87171, 0x38bdf8]; // trozos alternados
 const divState = {
     activo: false,          // modo corte encendido
     dbId: null,             // elemento en edición
     guid: null,
-    eje: null,              // { axis:'x'|'y'|'z', min, len, centro:THREE.Vector3, radio }
-    cortes: [],             // fracciones de la sesión de edición
-    markers: [],            // meshes overlay de la edición
-    guardadas: {},          // { guidLower: [t...] } ya persistidas
-    markersGuardados: [],   // meshes overlay de divisiones guardadas
+    eje: null,              // { p0:Vector3, dir:Vector3 (unit), len, radio } — eje REAL (PCA)
+    cortes: [],             // fracciones internas de la sesión
+    ext0: 0, ext1: 1,       // extremos (alargar/acortar el clon más allá del original)
+    piezas: [],             // meshes overlay del clon en edición
+    guardadas: {},          // { guidLower: [[a,b],...] } persistidas
+    piezasGuardadas: [],    // meshes de divisiones guardadas
+    ocultos: [],            // dbIds de originales ocultos (para re-ocultar tras showAll)
     _down: null
 };
+
+/** Normaliza el formato guardado: [0.42] (cortes viejos) o [[a,b],...] (partes). */
+function bimDivNormalizarPartes(raw) {
+    if (!Array.isArray(raw) || !raw.length) return null;
+    if (Array.isArray(raw[0])) return raw;
+    const bordes = [0, ...raw, 1];
+    return bordes.slice(0, -1).map((a, i) => [a, bordes[i + 1]]);
+}
+
+/** Partes actuales de la sesión de edición (extremos + cortes internos). */
+function bimDivPartesSesion() {
+    const bordes = [divState.ext0, ...divState.cortes.filter(c => c > divState.ext0 && c < divState.ext1), divState.ext1];
+    return bordes.slice(0, -1).map((a, i) => [a, bordes[i + 1]]);
+}
 
 /** Crea el botón en la toolbar de APS (junto a las herramientas nativas). */
 function bimDividirInit() {
@@ -2786,15 +2807,19 @@ async function bimDividirCargarGuardadas() {
         divState.guardadas = await r.json();
         const guids = Object.keys(divState.guardadas);
         if (!guids.length) return;
-        // Resolver cada guid a su dbId por separado (para asociar sus cortes)
+        // Por cada división guardada: ocultar el original PARA SIEMPRE y
+        // dibujar sus trozos (el clon reemplaza al elemento).
         guids.forEach(g => {
             bimGuidsToDbIds([g], (ids) => {
                 if (!ids.length) return;
                 const eje = bimEjeDeElemento(ids[0]);
                 if (!eje) return;
-                divState.guardadas[g].forEach(t => {
-                    const m = bimCrearDisco(eje, t, 0x10b981, 0.55);
-                    if (m) divState.markersGuardados.push(m);
+                bimState.viewer.hide(ids[0]);
+                divState.ocultos.push(ids[0]);
+                const partes = bimDivNormalizarPartes(divState.guardadas[g]) || [];
+                partes.forEach(([a, b], i) => {
+                    const m = bimCrearPieza(eje, a, b, DIV_COLORES[i % DIV_COLORES.length]);
+                    if (m) divState.piezasGuardadas.push(m);
                 });
             });
         });
@@ -2821,7 +2846,9 @@ function bimDividirEntrar() {
         </div>`);
 }
 
-function bimDividirSalir(limpiarMarkers = true) {
+function bimDividirSalir(conSesionAbierta = true) {
+    // Si estaba a medio editar, comportarse como cancelar (restaurar lo persistido u original)
+    if (conSesionAbierta && divState.dbId !== null) { bimDividirCancelar(); return; }
     divState.activo = false;
     if (divState._btn) divState._btn.setState(Autodesk.Viewing.UI.Button.State.INACTIVE);
     const canvas = bimState.viewer?.canvas;
@@ -2830,14 +2857,14 @@ function bimDividirSalir(limpiarMarkers = true) {
         canvas.removeEventListener('pointerup', bimDivPointerUp, true);
         canvas.removeEventListener('click', bimDivClickBlock, true);
     }
-    if (limpiarMarkers) bimDivLimpiarSesion();
     divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = [];
+    divState.ext0 = 0; divState.ext1 = 1;
 }
 
 function bimDivLimpiarSesion() {
     const viewer = bimState.viewer;
-    divState.markers.forEach(m => { try { viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
-    divState.markers = [];
+    divState.piezas.forEach(m => { try { viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
+    divState.piezas = [];
     viewer?.impl.invalidate(false, false, true);
 }
 
@@ -2871,133 +2898,243 @@ function bimDivPointerUp(ev) {
     divState._consume = true;
 
     if (divState.dbId === null) {
-        // Primer clic: elegir el elemento a dividir
+        // Primer clic: elegir el tubo → crear el CLON y ocultar el original
         const eje = bimEjeDeElemento(hit.dbId);
-        if (!eje) return;
+        if (!eje) { bimSetMeta('<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>No pude leer la geometría de ese elemento. Intenta con otro.</p></div>'); return; }
         divState.dbId = hit.dbId;
         divState.eje = eje;
         viewer.model.getProperties(hit.dbId, (props) => {
             const p = (props.properties || []).find(x => ['GUID', 'Element GUID', 'Revit GUID', 'PnPGuid', 'PnPGUID'].includes(x.displayName));
             divState.guid = (p ? String(p.displayValue) : props.externalId || '').trim();
-            // Cortes previos guardados de este elemento → precargarlos como editables
-            const previos = divState.guardadas[divState.guid.toLowerCase()] || [];
-            divState.cortes = [...previos];
-            divState.cortes.forEach(t => {
-                const m = bimCrearDisco(divState.eje, t, 0xf59e0b, 0.9);
-                if (m) divState.markers.push(m);
-            });
+            // División previa guardada → precargarla como editable
+            const previas = bimDivNormalizarPartes(divState.guardadas[divState.guid.toLowerCase()]);
+            if (previas) {
+                divState.ext0 = previas[0][0];
+                divState.ext1 = previas[previas.length - 1][1];
+                divState.cortes = previas.slice(0, -1).map(par => par[1]);
+            } else {
+                divState.ext0 = 0; divState.ext1 = 1; divState.cortes = [];
+            }
+            viewer.hide(divState.dbId);            // el original desaparece
+            bimDivRedibujarClon();                 // …y nace el clon
             bimDivRenderPanel();
         }, () => {});
-        viewer.select([]); // sin selección visual que estorbe
+        viewer.select([]);
         return;
     }
 
-    if (hit.dbId !== divState.dbId) return; // clic fuera del tubo elegido: ignorar
-
-    // Clic sobre el tubo → proyectar el punto al eje y agregar corte
-    const t = bimProyectarT(divState.eje, hit.intersectPoint);
+    // Clic sobre el CLON (el original está oculto): raycast contra el eje conocido.
+    // hit.dbId será otro elemento detrás, así que proyectamos el punto del rayo
+    // sobre el eje del clon si pasa suficientemente cerca del tubo.
+    const t = bimProyectarTDesdeRayo(ev, viewer);
     if (t === null) return;
-    if (divState.cortes.some(c => Math.abs(c - t) < 0.03)) return; // muy cerca de un corte existente
+    if (divState.cortes.some(c => Math.abs(c - t) < 0.03)) return;
     divState.cortes.push(t);
     divState.cortes.sort((a, b) => a - b);
-    const m = bimCrearDisco(divState.eje, t, 0xf59e0b, 0.9);
-    if (m) divState.markers.push(m);
     bimBeep();
+    bimDivRedibujarClon();
     bimDivRenderPanel();
 }
 
-/** Eje dominante del elemento a partir del bbox de sus fragmentos. */
+/**
+ * Con el original oculto, el hitTest ya no lo ve. Lanzamos el rayo de la
+ * cámara y calculamos el punto más cercano entre el rayo y el eje del clon;
+ * si pasa a menos de ~2.5 radios del eje, es un clic válido sobre el tubo.
+ */
+function bimProyectarTDesdeRayo(ev, viewer) {
+    try {
+        const rect = viewer.canvas.getBoundingClientRect();
+        const ray = viewer.impl.viewportToRay(viewer.impl.clientToViewport(ev.clientX - rect.left, ev.clientY - rect.top));
+        if (!ray) return null;
+        const eje = divState.eje;
+        // Punto más cercano entre recta del rayo (o, d1) y recta del eje (p0, d2)
+        const o = ray.origin, d1 = ray.direction.clone().normalize(), d2 = eje.dir;
+        const r = new THREE.Vector3().subVectors(o, eje.p0);
+        const a = d1.dot(d1), b = d1.dot(d2), c = d2.dot(d2);
+        const d = d1.dot(r), e = d2.dot(r);
+        const den = a * c - b * b;
+        if (Math.abs(den) < 1e-9) return null; // paralelos
+        const s = (b * e - c * d) / den;   // sobre el rayo
+        const u = (a * e - b * d) / den;   // sobre el eje (distancia absoluta)
+        const pRayo = o.clone().add(d1.clone().multiplyScalar(s));
+        const pEje = eje.p0.clone().add(d2.clone().multiplyScalar(u));
+        if (pRayo.distanceTo(pEje) > eje.radio * 2.5) return null; // clic lejos del tubo
+        let t = u / eje.len;
+        if (t < divState.ext0 + 0.02 || t > divState.ext1 - 0.02) return null;
+        return Math.round(t * 1000) / 1000;
+    } catch (e) {
+        return null;
+    }
+}
+
+/**
+ * Eje REAL del elemento por PCA sobre los vértices del mesh (funciona con
+ * tubos diagonales, no solo ortogonales). Devuelve { p0, dir, len, radio }.
+ */
 function bimEjeDeElemento(dbId) {
     const viewer = bimState.viewer;
     try {
         const it = viewer.model.getInstanceTree();
         const frags = viewer.model.getFragmentList();
-        const total = new THREE.Box3();
-        const b = new THREE.Box3();
+        const pts = [];
+        const m4 = new THREE.Matrix4();
+
         it.enumNodeFragments(dbId, (fragId) => {
-            frags.getWorldBounds(fragId, b);
-            total.union(b.clone());
+            const geom = frags.getGeometry(fragId);
+            if (!geom || !geom.vb) return;
+            frags.getWorldMatrix(fragId, m4);
+            const vb = geom.vb, stride = geom.vbstride || 3;
+            const count = Math.floor(vb.length / stride);
+            const paso = Math.max(1, Math.floor(count / 400));
+            for (let i = 0; i < count; i += paso) {
+                const v = new THREE.Vector3(vb[i * stride], vb[i * stride + 1], vb[i * stride + 2]);
+                v.applyMatrix4(m4);
+                pts.push(v);
+            }
         }, true);
-        if (total.isEmpty && total.isEmpty()) return null;
-        const size = total.size ? total.size() : total.getSize(new THREE.Vector3());
-        const dims = { x: size.x, y: size.y, z: size.z };
-        const axis = dims.x >= dims.y && dims.x >= dims.z ? 'x' : (dims.y >= dims.z ? 'y' : 'z');
-        const otras = ['x', 'y', 'z'].filter(a => a !== axis);
-        const radio = Math.max(dims[otras[0]], dims[otras[1]]) / 2 || 0.1;
-        const centro = total.center ? total.center() : total.getCenter(new THREE.Vector3());
-        return { axis, min: total.min[axis], len: dims[axis], centro, radio };
+
+        if (pts.length < 8) return null;
+
+        // Centroide
+        const c = new THREE.Vector3();
+        pts.forEach(p => c.add(p));
+        c.divideScalar(pts.length);
+
+        // Covarianza 3x3 + iteración de potencia → dirección principal
+        let xx = 0, xy = 0, xz = 0, yy = 0, yz = 0, zz = 0;
+        pts.forEach(p => {
+            const dx = p.x - c.x, dy = p.y - c.y, dz = p.z - c.z;
+            xx += dx * dx; xy += dx * dy; xz += dx * dz;
+            yy += dy * dy; yz += dy * dz; zz += dz * dz;
+        });
+        let dir = new THREE.Vector3(1, 1, 1).normalize();
+        for (let i = 0; i < 25; i++) {
+            dir = new THREE.Vector3(
+                xx * dir.x + xy * dir.y + xz * dir.z,
+                xy * dir.x + yy * dir.y + yz * dir.z,
+                xz * dir.x + yz * dir.y + zz * dir.z
+            );
+            if (dir.length() < 1e-9) return null;
+            dir.normalize();
+        }
+
+        // Extremos: proyección min/max sobre el eje. Radio: distancia media al eje.
+        let tMin = Infinity, tMax = -Infinity, sumaR = 0;
+        const tmp = new THREE.Vector3();
+        pts.forEach(p => {
+            tmp.subVectors(p, c);
+            const t = tmp.dot(dir);
+            if (t < tMin) tMin = t;
+            if (t > tMax) tMax = t;
+            sumaR += tmp.clone().sub(dir.clone().multiplyScalar(t)).length();
+        });
+        const len = tMax - tMin;
+        if (len <= 0) return null;
+        const radio = Math.max(sumaR / pts.length, 0.01);
+        const p0 = c.clone().add(dir.clone().multiplyScalar(tMin));
+        return { p0, dir, len, radio };
     } catch (e) {
         console.error('[Dividir] Error calculando eje:', e.message);
         return null;
     }
 }
 
-/** Proyecta un punto 3D del hit al eje dominante → fracción t (0..1). */
+/** Proyecta un punto 3D del hit al eje → fracción t (0..1). */
 function bimProyectarT(eje, punto) {
     if (!eje || !punto || !eje.len) return null;
-    let t = (punto[eje.axis] - eje.min) / eje.len;
+    const t = new THREE.Vector3().subVectors(punto, eje.p0).dot(eje.dir) / eje.len;
     if (t < 0.02 || t > 0.98) return null; // demasiado cerca de los extremos
     return Math.round(t * 1000) / 1000;
 }
 
-/** Disco perpendicular al eje en la fracción t (marcador de corte). */
-function bimCrearDisco(eje, t, colorHex, opacidad) {
+/** Crea el trozo de clon (cilindro sólido) entre las fracciones a..b del eje. */
+function bimCrearPieza(eje, a, b, colorHex, opacidad = 1) {
     const viewer = bimState.viewer;
     try {
-        const r = eje.radio * 1.5;
-        const geo = new THREE.CylinderGeometry(r, r, Math.max(eje.radio * 0.12, 0.02), 24);
-        const mat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: opacidad, depthTest: false, side: THREE.DoubleSide });
+        const GAP = 0.004; // separación visual entre trozos (fracción del largo)
+        const a2 = a + GAP / 2, b2 = b - GAP / 2;
+        const largo = eje.len * Math.max(b2 - a2, 0.002);
+        const geo = new THREE.CylinderGeometry(eje.radio, eje.radio, largo, 20, 1, false);
+        const mat = new THREE.MeshPhongMaterial({
+            color: colorHex, transparent: opacidad < 1, opacity: opacidad,
+            specular: 0x222222, shininess: 40
+        });
         const mesh = new THREE.Mesh(geo, mat);
-        // Cylinder nace alineado a Y → rotarlo al eje del tubo
-        if (eje.axis === 'x') mesh.rotation.z = Math.PI / 2;
-        if (eje.axis === 'z') mesh.rotation.x = Math.PI / 2;
-        const pos = eje.centro.clone();
-        pos[eje.axis] = eje.min + t * eje.len;
-        mesh.position.copy(pos);
+        // Cylinder nace alineado a +Y → orientarlo a la dirección real del tubo
+        mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), eje.dir);
+        const centro = eje.p0.clone().add(eje.dir.clone().multiplyScalar(eje.len * (a2 + b2) / 2));
+        mesh.position.copy(centro);
         viewer.impl.addOverlay(DIV_OVERLAY, mesh);
         viewer.impl.invalidate(false, false, true);
         return mesh;
     } catch (e) {
-        console.error('[Dividir] Error creando marcador:', e.message);
+        console.error('[Dividir] Error creando pieza:', e.message);
         return null;
     }
 }
 
-/** Panel lateral: partes resultantes + acciones. */
+/** Redibuja el clon de la sesión (todas las piezas) según cortes/extremos. */
+function bimDivRedibujarClon() {
+    const viewer = bimState.viewer;
+    divState.piezas.forEach(m => { try { viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
+    divState.piezas = [];
+    bimDivPartesSesion().forEach(([a, b], i) => {
+        const m = bimCrearPieza(divState.eje, a, b, DIV_COLORES[i % DIV_COLORES.length]);
+        if (m) divState.piezas.push(m);
+    });
+}
+
+/** Panel lateral: trozos del clon + alargar/acortar + acciones. */
 function bimDivRenderPanel() {
-    const cortes = divState.cortes;
-    const bordes = [0, ...cortes, 1];
-    const filas = [];
-    for (let i = 0; i < bordes.length - 1; i++) {
-        const pct = Math.round((bordes[i + 1] - bordes[i]) * 100);
-        filas.push(`<div style="display:flex;justify-content:space-between;padding:5px 8px;border-bottom:1px solid var(--border);font-size:0.82rem;">
-            <span style="font-weight:700;">Parte ${i + 1}</span><span style="opacity:0.75;">${pct}% del largo</span></div>`);
-    }
+    const partes = bimDivPartesSesion();
+    const filas = partes.map(([a, b], i) => {
+        const pct = Math.round((b - a) * 100);
+        const color = '#' + DIV_COLORES[i % DIV_COLORES.length].toString(16).padStart(6, '0');
+        return `<div style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-bottom:1px solid var(--border);font-size:0.82rem;">
+            <span style="width:12px;height:12px;border-radius:3px;background:${color};flex-shrink:0;"></span>
+            <span style="font-weight:700;">Trozo ${i + 1}</span><span style="opacity:0.7;margin-left:auto;">${pct}% del largo</span></div>`;
+    });
     const tag = bimState.mapeoSpools ? bimState.mapeoSpools[String(divState.guid || '').toLowerCase()] : null;
     bimSetMeta(`
         <div class="bim-meta-header" style="background:rgba(245,158,11,0.15);border-color:rgba(245,158,11,0.35);">
-            <i class="fas fa-scissors"></i><span>Dividiendo tramo</span>
-            <span class="bim-badge">${cortes.length} corte(s)</span>
+            <i class="fas fa-scissors"></i><span>Clon en edición</span>
+            <span class="bim-badge">${partes.length} trozo(s)</span>
         </div>
         <div style="font-size:0.72rem;opacity:0.7;margin:6px 2px;word-break:break-all;">
-            ${tag ? `Spool actual: <strong>${tag}</strong> · ` : ''}GUID: ${divState.guid || '—'}
+            ${tag ? `Spool actual: <strong>${tag}</strong> · ` : ''}El original está oculto; editas su clon.
         </div>
-        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px;">${filas.join('')}</div>
-        <p style="font-size:0.74rem;opacity:0.65;margin-bottom:10px;">Haz clic sobre el tubo para agregar más cortes.</p>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:8px;">${filas.join('')}</div>
+        <p style="font-size:0.74rem;opacity:0.65;margin-bottom:8px;">Clic sobre el tubo = nuevo corte. Alarga o acorta el clon por sus extremos:</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px;">
+            <button class="bim-scan-btn" onclick="bimDividirExtender('ext0',-0.05)" style="justify-content:center;padding:6px;"><i class="fas fa-left-long"></i> Alargar inicio</button>
+            <button class="bim-scan-btn" onclick="bimDividirExtender('ext0',0.05)" style="justify-content:center;padding:6px;">Acortar inicio <i class="fas fa-right-long"></i></button>
+            <button class="bim-scan-btn" onclick="bimDividirExtender('ext1',-0.05)" style="justify-content:center;padding:6px;"><i class="fas fa-left-long"></i> Acortar fin</button>
+            <button class="bim-scan-btn" onclick="bimDividirExtender('ext1',0.05)" style="justify-content:center;padding:6px;">Alargar fin <i class="fas fa-right-long"></i></button>
+        </div>
         <div style="display:flex;flex-direction:column;gap:6px;">
             <button class="bim-scan-btn" onclick="bimDividirGuardar()" style="background:rgba(16,185,129,0.15);border-color:rgba(16,185,129,0.35);color:#6ee7b7;justify-content:center;">
-                <i class="fas fa-save"></i> Guardar división (${bordes.length - 1} partes)</button>
+                <i class="fas fa-save"></i> Guardar (${partes.length} trozos, original oculto)</button>
             <button class="bim-scan-btn" onclick="bimDividirDeshacer()" style="justify-content:center;"><i class="fas fa-rotate-left"></i> Deshacer último corte</button>
-            <button class="bim-scan-btn" onclick="bimDividirCancelar()" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;justify-content:center;"><i class="fas fa-times"></i> ${divState.cortes.length ? 'Quitar división y salir' : 'Salir del modo dividir'}</button>
+            <button class="bim-scan-btn" onclick="bimDividirRestaurar()" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;justify-content:center;"><i class="fas fa-trash-arrow-up"></i> Eliminar división (restaurar original)</button>
+            <button class="bim-scan-btn" onclick="bimDividirCancelar()" style="justify-content:center;"><i class="fas fa-times"></i> Cancelar edición</button>
         </div>`);
+}
+
+/** Alarga/acorta el clon moviendo un extremo (paso en fracción del largo). */
+function bimDividirExtender(cual, delta) {
+    const v = divState[cual] + delta;
+    if (cual === 'ext0' && v >= divState.ext1 - 0.05) return;
+    if (cual === 'ext1' && v <= divState.ext0 + 0.05) return;
+    if (v < -0.5 || v > 1.5) return; // máx. media longitud extra por lado
+    divState[cual] = Math.round(v * 1000) / 1000;
+    bimDivRedibujarClon();
+    bimDivRenderPanel();
 }
 
 function bimDividirDeshacer() {
     if (!divState.cortes.length) return;
     divState.cortes.pop();
-    const m = divState.markers.pop();
-    if (m) { try { bimState.viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} }
-    bimState.viewer.impl.invalidate(false, false, true);
+    bimDivRedibujarClon();
     bimDivRenderPanel();
 }
 
@@ -3005,44 +3142,71 @@ async function bimDividirGuardar() {
     if (!divState.guid) return;
     const desbloqueado = await authAsegurar('bim');
     if (!desbloqueado) return;
+    const partes = bimDivPartesSesion();
     try {
         const resp = await fetch('/api/bim/divisiones', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
-            body: JSON.stringify({ guid: divState.guid, cortes: divState.cortes })
+            body: JSON.stringify({ guid: divState.guid, partes })
         });
         if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
         const d = await resp.json();
         if (!d.success) throw new Error(d.error || 'Error');
-        // Actualizar caché local y fijar los marcadores como "guardados" (verdes)
-        divState.guardadas[divState.guid.toLowerCase()] = [...divState.cortes];
-        bimDivLimpiarSesion();
-        divState.cortes.forEach(t => {
-            const m = bimCrearDisco(divState.eje, t, 0x10b981, 0.55);
-            if (m) divState.markersGuardados.push(m);
-        });
+        // El clon de la sesión pasa a ser la versión persistida
+        divState.guardadas[divState.guid.toLowerCase()] = partes;
+        divState.ocultos.push(divState.dbId);
+        divState.piezasGuardadas.push(...divState.piezas);
+        divState.piezas = [];
         bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-circle-check bim-meta-icon" style="color:var(--accent)"></i>
-            <p>División guardada: <strong>${divState.cortes.length + 1} partes</strong>.<br><small style="opacity:0.7">Puedes dividir otro tramo o salir con el botón de tijeras.</small></p></div>`);
+            <p>División guardada: <strong>${partes.length} trozos</strong>. El original quedó oculto.<br><small style="opacity:0.7">Puedes dividir otro tramo o salir con las tijeras.</small></p></div>`);
         divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = [];
+        divState.ext0 = 0; divState.ext1 = 1;
     } catch (e) {
         alert('No se pudo guardar la división: ' + e.message);
     }
 }
 
-async function bimDividirCancelar() {
-    // Si el elemento tenía división guardada y el usuario cancela con 0 cortes → eliminarla
-    if (divState.guid && !divState.cortes.length && divState.guardadas[divState.guid.toLowerCase()]) {
+/** Elimina la división (persistida o no) y restaura el elemento original. */
+async function bimDividirRestaurar() {
+    if (!divState.guid) return;
+    if (!confirm('¿Eliminar la división y volver a mostrar el elemento original?')) return;
+    if (divState.guardadas[divState.guid.toLowerCase()]) {
         const desbloqueado = await authAsegurar('bim');
-        if (desbloqueado) {
-            await fetch('/api/bim/divisiones', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
-                body: JSON.stringify({ guid: divState.guid, cortes: [] })
-            }).catch(() => {});
-            delete divState.guardadas[divState.guid.toLowerCase()];
+        if (!desbloqueado) return;
+        await fetch('/api/bim/divisiones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({ guid: divState.guid, cortes: [] })
+        }).catch(() => {});
+        delete divState.guardadas[divState.guid.toLowerCase()];
+    }
+    bimDivLimpiarSesion();
+    if (divState.dbId !== null) {
+        bimState.viewer.show(divState.dbId);
+        divState.ocultos = divState.ocultos.filter(id => id !== divState.dbId);
+    }
+    divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = [];
+    divState.ext0 = 0; divState.ext1 = 1;
+    bimSetMeta('<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Original restaurado. Haz clic en otro tubo para dividirlo, o sal con las tijeras.</p></div>');
+}
+
+/** Cancela la edición actual sin tocar lo persistido. */
+function bimDividirCancelar() {
+    bimDivLimpiarSesion();
+    if (divState.dbId !== null) {
+        const guardada = divState.guid && divState.guardadas[divState.guid.toLowerCase()];
+        if (guardada) {
+            // Tenía división persistida: re-dibujar la versión guardada
+            const partes = bimDivNormalizarPartes(guardada) || [];
+            partes.forEach(([a, b], i) => {
+                const m = bimCrearPieza(divState.eje, a, b, DIV_COLORES[i % DIV_COLORES.length]);
+                if (m) divState.piezasGuardadas.push(m);
+            });
+        } else {
+            bimState.viewer.show(divState.dbId); // sin persistencia: vuelve el original
         }
     }
-    bimDividirSalir(true);
+    bimDividirSalir(false);
     bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p></div>`);
 }
 
