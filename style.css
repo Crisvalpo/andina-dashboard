@@ -2661,3 +2661,24 @@ body.sidebar-collapsed #bim-section {
     font-weight: 700;
 }
 .bim-chip.sel .bim-chip-n { color: #c7d2fe; }
+
+/* Botón "ver más detalles" de las tarjetas de metadata */
+.bim-meta-toggle {
+    width: 100%;
+    margin-top: 6px;
+    padding: 7px 10px;
+    background: rgba(99, 102, 241, 0.08);
+    border: 1px dashed rgba(99, 102, 241, 0.35);
+    border-radius: 8px;
+    color: var(--primary-light);
+    font-family: inherit;
+    font-size: 0.74rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.15s;
+}
+.bim-meta-toggle:hover { background: rgba(99, 102, 241, 0.16); }

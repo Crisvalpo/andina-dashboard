@@ -4019,25 +4019,51 @@ function bimResolverSpool(tag) {
     return bimState.spoolIndex[String(tag).toLowerCase()] || null;
 }
 
+/** Despliega/contrae las tarjetas de detalle adicionales del spool. */
+function bimToggleMetaExtra(btn) {
+    const extra = document.getElementById('bim-meta-extra');
+    if (!extra) return;
+    const abierto = extra.style.display !== 'none';
+    extra.style.display = abierto ? 'none' : 'block';
+    const n = extra.querySelectorAll('.bim-meta-card').length;
+    btn.innerHTML = abierto
+        ? `<i class="fas fa-chevron-down"></i> Ver ${n} detalles más`
+        : `<i class="fas fa-chevron-up"></i> Ver menos`;
+}
+
+/** Muestra/oculta el menú del ⋮ (donde vive el Desvincular). */
+function bimToggleUnlinkMenu(ev) {
+    if (ev) ev.stopPropagation();
+    const menu = document.getElementById('bim-unlink-menu');
+    if (menu) menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+}
+
+/** Cierra el menú ⋮ (se llama al re-renderizar la info del vínculo). */
+function bimResetUnlinkMenu() {
+    const menu = document.getElementById('bim-unlink-menu');
+    if (menu) menu.style.display = 'none';
+}
+
 /** HTML del recuadro de estado: muestra TAG GESTIÓN + ID_SPOOL de los agrupados. */
 function bimRenderSpoolInfo(spoolsDistintos) {
+    bimResetUnlinkMenu();
     if (spoolsDistintos.length === 1) {
         const { tag, count } = spoolsDistintos[0];
         const info = bimResolverSpool(tag);
         const idSpool = info?.id_spool || '—';
         return `
-            <div style="display:flex;align-items:center;gap:6px;font-weight:600;margin-bottom:4px;">
+            <div style="display:flex;align-items:center;gap:6px;font-weight:600;margin-bottom:6px;">
                 <i class="fas fa-link"></i> Vinculado a Spool
             </div>
             <div style="display:flex;justify-content:space-between;gap:8px;">
                 <span style="opacity:0.75;">TAG Gestión:</span>
                 <span style="font-weight:700;color:#fde68a;">${tag}</span>
             </div>
-            <div style="display:flex;justify-content:space-between;gap:8px;margin-top:2px;">
-                <span style="opacity:0.75;">ID_SPOOL:</span>
-                <span style="font-family:monospace;font-size:0.72rem;text-align:right;word-break:break-all;color:#fde68a;">${idSpool}</span>
+            <div style="margin-top:6px;">
+                <div style="opacity:0.7;font-size:0.7rem;letter-spacing:0.5px;">ID_SPOOL</div>
+                <div style="font-family:monospace;font-size:0.74rem;word-break:break-all;color:#fde68a;">${idSpool}</div>
             </div>
-            <div style="opacity:0.6;font-size:0.72rem;margin-top:4px;">${count} elemento(s) agrupado(s)</div>`;
+            <div style="opacity:0.6;font-size:0.72rem;margin-top:6px;">${count} elemento(s) agrupado(s)</div>`;
     }
 
     // Varios spools en la selección: listar cada uno con su ID_SPOOL
@@ -4105,14 +4131,22 @@ function bimRenderMeta(data) {
         { label: 'Proceso',     value: meta['Proceso'],             icon: 'fa-cogs' }
     ].filter(f => f.value);
 
-    const metaHtml = fields.map(f => `
+    const card = f => `
         <div class="bim-meta-card">
             <span class="bim-meta-icon-sm"><i class="fas ${f.icon}"></i></span>
             <div>
                 <span class="bim-meta-label">${f.label}</span>
                 <span class="bim-meta-value">${f.value}</span>
             </div>
-        </div>`).join('');
+        </div>`;
+
+    // Solo TAG Gestión e ID_SPOOL a la vista; el resto contraído (tap para desplegar)
+    const principales = fields.slice(0, 2).map(card).join('');
+    const extras = fields.slice(2);
+    const extrasHtml = extras.length ? `
+        <div id="bim-meta-extra" style="display:none;">${extras.map(card).join('')}</div>
+        <button class="bim-meta-toggle" onclick="bimToggleMetaExtra(this)">
+            <i class="fas fa-chevron-down"></i> Ver ${extras.length} detalles más</button>` : '';
 
     bimSetMeta(`
         <div class="bim-meta-header">
@@ -4120,7 +4154,7 @@ function bimRenderMeta(data) {
             <span>${data.spool_id}</span>
             <span class="bim-badge">${data.guids.length} elemento${data.guids.length !== 1 ? 's' : ''}</span>
         </div>
-        <div class="bim-meta-cards">${metaHtml}</div>`);
+        <div class="bim-meta-cards">${principales}${extrasHtml}</div>`);
 
     // Carga asíncrona de hojas de isométricos PDF (multi-hoja)
     const isoId = meta['ID_ISO'];
@@ -4208,6 +4242,7 @@ function bimSetLoader(msg, isError = false) {
  * A diferencia de spools, aquí 1 elemento = 1 ítem (sin auto-grupo).
  */
 function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
+    bimResetUnlinkMenu();
     const ui = BIM_CAPA_UI[capa];
     const mapeo = bimState.capaMapeo[capa] || {};
     const index = bimState.capaIndex[capa] || {};

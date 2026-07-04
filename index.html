@@ -906,11 +906,20 @@
                         <span class="bim-link-label">Línea (Capa):</span>
                         <span class="bim-link-val" id="bim-link-layer">--</span>
                     </div>
-                    <div id="bim-link-status-container" style="display: none; flex-direction: column; gap: 8px; margin-bottom: 12px; padding: 10px; border-radius: 6px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
-                        <div id="bim-link-spool-info" style="font-size: 0.8rem; color: #fbbf24;">-</div>
-                        <button class="bim-scan-btn" onclick="bimRemoveLink()" id="bim-unlink-btn" style="background: rgba(239, 68, 68, 0.15); border-color: rgba(239, 68, 68, 0.3); color: #fca5a5; font-size: 0.8rem; padding: 6px 12px; margin-top: 4px; display: inline-flex; justify-content: center; align-items: center; gap: 6px; width: 100%;">
-                            <i class="fas fa-unlink"></i> Desvincular de Spool
-                        </button>
+                    <div id="bim-link-status-container" style="display: none; flex-direction: column; gap: 6px; margin-bottom: 12px; padding: 10px; border-radius: 6px; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.3);">
+                        <div style="display: flex; align-items: flex-start; gap: 4px;">
+                            <div id="bim-link-spool-info" style="font-size: 0.8rem; color: #fbbf24; flex: 1; min-width: 0;">-</div>
+                            <button id="bim-link-menu-btn" onclick="bimToggleUnlinkMenu(event)" title="Más opciones"
+                                style="background: none; border: none; color: #fbbf24; cursor: pointer; padding: 2px 8px; font-size: 1.05rem; line-height: 1; flex-shrink: 0;">
+                                <i class="fas fa-ellipsis-vertical"></i>
+                            </button>
+                        </div>
+                        <div id="bim-unlink-menu" style="display: none;">
+                            <button onclick="bimRemoveLink()" id="bim-unlink-btn"
+                                style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #f87171; font-size: 0.72rem; font-weight: 600; font-family: inherit; padding: 5px 12px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                                <i class="fas fa-unlink"></i> Desvincular de Spool
+                            </button>
+                        </div>
                     </div>
                     <div class="bim-link-field">
                         <label for="bim-link-spool">Código Spool (LUKEAPP):</label>
