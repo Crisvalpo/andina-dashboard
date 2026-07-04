@@ -2615,22 +2615,24 @@ body.sidebar-collapsed #bim-section {
 /* ===== BIM: chips de estado dinámicos (filtro multi-selección) ===== */
 .bim-status-chips {
     display: flex;
-    flex-wrap: wrap;
-    gap: 5px;
+    flex-direction: column; /* lista vertical ordenada: flujo → nuevos → SIN ESTADO */
+    gap: 4px;
 }
 .bim-chip {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 5px 9px 5px 6px;
-    border-radius: 999px;
+    gap: 8px;
+    width: 100%;
+    padding: 6px 10px 6px 7px;
+    border-radius: 8px;
     background: rgba(15, 23, 42, 0.55);
     border: 1px solid var(--border);
     cursor: pointer;
     user-select: none;
     transition: all 0.15s;
-    font-size: 0.72rem;
+    font-size: 0.74rem;
 }
+.bim-chip .bim-chip-n { margin-left: auto; } /* contador a la derecha */
 .bim-chip:hover { border-color: rgba(99, 102, 241, 0.5); }
 .bim-chip.sel {
     background: rgba(99, 102, 241, 0.22);

@@ -2554,12 +2554,15 @@ function bimRenderStatusChips() {
     const statuses = bimState.capa === 'spool' ? bimState.statusesCache : bimState.capaStatuses;
     if (!statuses) { cont.innerHTML = '<span style="font-size:0.75rem;opacity:0.5;">Cargando estados…</span>'; return; }
 
+    // Orden forzado: flujo conocido → estados nuevos (alfabético) → SIN ESTADO al final
+    const rango = (st) => {
+        if (st === 'SIN ESTADO') return 9999;
+        const i = BIM_ORDEN_FLUJO.indexOf(st);
+        return i !== -1 ? i : 500;
+    };
     const nombres = Object.keys(statuses).sort((a, b) => {
-        const ia = BIM_ORDEN_FLUJO.indexOf(a), ib = BIM_ORDEN_FLUJO.indexOf(b);
-        if (ia !== -1 && ib !== -1) return ia - ib;
-        if (ia !== -1) return -1;
-        if (ib !== -1) return 1;
-        return a.localeCompare(b);
+        const ra = rango(a), rb = rango(b);
+        return ra !== rb ? ra - rb : a.localeCompare(b);
     });
 
     cont.innerHTML = nombres.map(st => {
