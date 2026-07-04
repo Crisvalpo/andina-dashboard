@@ -2911,7 +2911,80 @@ function bimTrozoRenderPanel(mesh) {
         </div>
         <button class="bim-scan-btn" onclick="bimTrozoVincular('${key}')" style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:var(--primary-light);justify-content:center;width:100%;">
             <i class="fas fa-link"></i> Vincular trozo al spool</button>
+        <div style="display:flex;gap:6px;margin-top:10px;">
+            <button class="bim-scan-btn" onclick="bimTrozoEditarDivision('${key}')" style="flex:1;justify-content:center;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.3);color:#fcd34d;">
+                <i class="fas fa-scissors"></i> Editar división</button>
+            <button class="bim-scan-btn" onclick="bimTrozoEliminarDivision('${key}')" style="flex:1;justify-content:center;background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;">
+                <i class="fas fa-trash-arrow-up"></i> Deshacer división</button>
+        </div>
         <div style="font-size:0.68rem;opacity:0.5;margin-top:8px;word-break:break-all;">ID interno: ${key}</div>`);
+}
+
+/** Reabre la edición (manillas) de la división a la que pertenece este trozo. */
+async function bimTrozoEditarDivision(key) {
+    const mesh = divState.trozoMeshes[key];
+    if (!mesh) return;
+    const guid = mesh.userData.guid;
+    const ok = await authAsegurar('bim');
+    if (!ok) return;
+    bimGuidsToDbIds([guid], (ids) => {
+        if (!ids.length) { alert('No encontré el elemento original en el modelo.'); return; }
+        bimDivActivarModo();
+        bimDivIniciarEdicion(ids[0], guid); // retira los trozos fijos y monta las manillas
+    });
+}
+
+/** DESHACE la división completa: restaura el original y limpia trozos + vínculos hijos. */
+async function bimTrozoEliminarDivision(key) {
+    const mesh = divState.trozoMeshes[key];
+    if (!mesh) return;
+    const guid = mesh.userData.guid;
+    const gl = String(guid).toLowerCase();
+    if (!confirm('¿Deshacer la división completa y volver a mostrar el elemento original?')) return;
+    const ok = await authAsegurar('bim');
+    if (!ok) return;
+    try {
+        // 1. Borrar la división persistida
+        await fetch('/api/bim/divisiones', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({ guid, partes: [] })
+        });
+        delete divState.guardadas[gl];
+
+        // 2. Desvincular los trozos hijos que tuvieran spool (limpia LIST_Bim)
+        const keysDelGuid = Object.keys(divState.trozoMeshes).filter(k => k.startsWith(gl + '#'));
+        const conVinculo = keysDelGuid.filter(k => bimState.mapeoSpools && bimState.mapeoSpools[k]);
+        if (conVinculo.length) {
+            await fetch('/api/bim/desvincular', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+                body: JSON.stringify({ elements: conVinculo.map(g => ({ guid: g })) })
+            }).catch(() => {});
+            conVinculo.forEach(k => { if (bimState.mapeoSpools) delete bimState.mapeoSpools[k]; });
+        }
+
+        // 3. Quitar los meshes de los trozos y restaurar el original
+        divState.piezasGuardadas = divState.piezasGuardadas.filter(m => {
+            if (String(m.userData?.guid || '').toLowerCase() === gl) {
+                try { bimState.viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {}
+                return false;
+            }
+            return true;
+        });
+        keysDelGuid.forEach(k => delete divState.trozoMeshes[k]);
+        bimGuidsToDbIds([guid], (ids) => {
+            if (ids.length) {
+                bimState.viewer.show(ids[0]);
+                divState.ocultos = divState.ocultos.filter(id => id !== ids[0]);
+            }
+            bimState.viewer.impl.invalidate(false, false, true);
+        });
+        divState._trozoSel = null;
+        bimSetMeta('<div class="bim-meta-placeholder"><i class="fas fa-circle-check bim-meta-icon" style="color:var(--accent)"></i><p>División deshecha: el elemento original volvió al modelo.</p></div>');
+    } catch (e) {
+        alert('No se pudo deshacer la división: ' + e.message);
+    }
 }
 
 async function bimTrozoVincular(key) {
@@ -3000,16 +3073,22 @@ function bimDividirToggle() {
     divState.activo ? bimDividirSalir() : bimDividirEntrar();
 }
 
-async function bimDividirEntrar() {
-    // Clave BIM por adelantado: así el AUTO-GUARDADO es silencioso después
-    const ok = await authAsegurar('bim');
-    if (!ok) return;
+/** Activa el modo dividir (botón + listeners). Requiere clave ya validada. */
+function bimDivActivarModo() {
+    if (divState.activo) return;
     divState.activo = true;
     if (divState._btn) divState._btn.setState(Autodesk.Viewing.UI.Button.State.ACTIVE);
     const canvas = bimState.viewer.canvas;
     canvas.addEventListener('pointerdown', bimDivPointerDown, true);
     canvas.addEventListener('pointerup', bimDivPointerUp, true);
     canvas.addEventListener('click', bimDivClickBlock, true);
+}
+
+async function bimDividirEntrar() {
+    // Clave BIM por adelantado: así el AUTO-GUARDADO es silencioso después
+    const ok = await authAsegurar('bim');
+    if (!ok) return;
+    bimDivActivarModo();
 
     // Si ya había un elemento SELECCIONADO → dividirlo a la mitad DE UNA VEZ
     const sel = (bimState.selectedElements && bimState.selectedElements.length === 1) ? bimState.selectedElements[0] : null;
