@@ -2551,3 +2551,63 @@ body.sidebar-collapsed #bim-section {
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4);
 }
 .bim-capa-btn i { font-size: 0.9rem; }
+
+/* ===== BIM: modo EN VIVO (presentación) ===== */
+.bim-live-chip {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(16, 185, 129, 0.5);
+    color: #e2e8f0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+}
+.bim-live-chip strong { color: #34d399; font-size: 1rem; }
+.bim-live-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ef4444;
+    animation: bimLivePulse 1.4s ease-in-out infinite;
+}
+@keyframes bimLivePulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.6); }
+    50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+.bim-live-toasts {
+    position: absolute;
+    bottom: 90px;
+    right: 16px;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-end;
+}
+.bim-live-toast {
+    padding: 10px 16px;
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(6, 95, 70, 0.95), rgba(16, 185, 129, 0.9));
+    color: #fff;
+    font-size: 0.88rem;
+    font-weight: 600;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+    cursor: pointer;
+    animation: bimToastIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    max-width: 340px;
+}
+.bim-live-toast.saliendo { opacity: 0; transform: translateX(20px); transition: all 0.5s; }
+@keyframes bimToastIn {
+    from { opacity: 0; transform: translateX(40px) scale(0.9); }
+    to { opacity: 1; transform: translateX(0) scale(1); }
+}

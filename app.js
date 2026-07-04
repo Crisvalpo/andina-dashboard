@@ -1846,6 +1846,9 @@ const bimState = {
     mapeoSpools:   null,   // Caché de { [guid]: spoolTag }
     spoolIndex:    null,   // Caché de { [tagLower]: { id_spool, tag_gestion, id_iso } }
     isAutoSelecting: false,// Bandera para evitar bucle de selección
+    liveTimer:     null,   // Interval del modo EN VIVO (filtro por estado + polling)
+    liveStatus:    null,   // Estado que se está siguiendo en vivo
+    liveGuids:     null,   // Set de guids ya mostrados en el filtro activo
     capa:          'spool',// Capa activa: 'spool' | 'valvula' | 'soporte'
     capaMapeo:     {},     // { valvula: {guidLower:id}, soporte: {...} }
     capaIndex:     {}      // { valvula: {idLower:row}, soporte: {...} }
@@ -1861,6 +1864,7 @@ const BIM_CAPA_UI = {
 /** Cambia la capa activa (Spools / Válvulas / Soportes) y recarga su mapeo+índice. */
 async function bimSetCapa(capa) {
     if (!BIM_CAPA_UI[capa]) return;
+    bimLiveStop();
     bimState.capa = capa;
 
     // UI: botones activos
@@ -2440,6 +2444,7 @@ function bimFitToView() {
 
 /** Restablece la vista del modelo completo */
 function bimResetView() {
+    bimLiveStop();
     if (!bimState.viewer) return;
     bimState.viewer.showAll();
     bimState.viewer.clearThemingColors(bimState.viewer.model);
@@ -2481,7 +2486,9 @@ const BIM_STATUS_COLORS = {
 async function bimFilterByStatus() {
     const select = document.getElementById('bim-status-filter');
     const status = select ? select.value : '';
-    
+
+    bimLiveStop(); // reiniciar cualquier seguimiento en vivo anterior
+
     if (!status) {
         bimResetView();
         return;
@@ -2565,8 +2572,12 @@ async function bimFilterByStatus() {
                     </div>
                     <div class="bim-meta-placeholder" style="padding: 1.5rem 0.5rem;">
                         <p style="font-size:0.78rem;">Se muestran solo los elementos del modelo que actualmente se registran en estado <strong>${status}</strong> en la tabla de control (LOG_Spool_MS).</p>
+                        <p style="font-size:0.72rem;opacity:0.7;margin-top:6px;"><i class="fas fa-satellite-dish"></i> Modo EN VIVO: los nuevos reportes aparecerán automáticamente.</p>
                     </div>
                 `);
+
+                // Activar seguimiento EN VIVO: los reportes nuevos se suman solos
+                bimLiveStart(status, guids);
             } else {
                 bimSetMeta(`
                     <div class="bim-meta-empty">
@@ -2581,6 +2592,136 @@ async function bimFilterByStatus() {
         console.error('[BIM Status Filter Error]', err);
         bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error: ${err.message}</p></div>`);
     }
+}
+
+// =================================================================
+// MODO EN VIVO — el filtro por estado se actualiza solo:
+// los spools reportados (por la app de terreno o por el bot, voz o texto)
+// aparecen en el modelo con pulso de destaque, aviso y contador.
+// =================================================================
+const BIM_LIVE_INTERVALO_MS = 10000; // 10s (el backend consulta AppSheet fresco)
+
+function bimLiveStart(status, guidsIniciales) {
+    bimLiveStop();
+    bimState.liveStatus = status;
+    bimState.liveGuids = new Set((guidsIniciales || []).map(g => g.toLowerCase()));
+    bimLiveChipUpdate();
+    bimState.liveTimer = setInterval(bimLiveTick, BIM_LIVE_INTERVALO_MS);
+}
+
+function bimLiveStop() {
+    if (bimState.liveTimer) clearInterval(bimState.liveTimer);
+    bimState.liveTimer = null;
+    bimState.liveStatus = null;
+    bimState.liveGuids = null;
+    const chip = document.getElementById('bim-live-chip');
+    if (chip) chip.remove();
+}
+
+async function bimLiveTick() {
+    // No consultar si la sección BIM no está visible (el timer sigue vivo)
+    const seccion = document.getElementById('bim-section');
+    if (!seccion || seccion.style.display === 'none' || !bimState.liveStatus) return;
+
+    try {
+        const endpoint = bimState.capa === 'spool' ? '/api/bim/statuses' : `/api/bim/${bimState.capa}/statuses`;
+        const resp = await fetch(endpoint);
+        if (!resp.ok) return;
+        const statuses = await resp.json();
+        if (bimState.capa === 'spool') bimState.statusesCache = statuses;
+
+        const actuales = (statuses[bimState.liveStatus] || []).map(g => g.toLowerCase());
+        const nuevos = actuales.filter(g => !bimState.liveGuids.has(g));
+        if (!nuevos.length) return;
+
+        nuevos.forEach(g => bimState.liveGuids.add(g));
+        console.log(`[BIM Live] 🎉 ${nuevos.length} elemento(s) nuevo(s) en ${bimState.liveStatus}`);
+
+        bimGuidsToDbIds(nuevos, (dbIdsNuevos) => {
+            const viewer = bimState.viewer;
+            if (!viewer || !dbIdsNuevos.length) { bimLiveChipUpdate(); return; }
+
+            // Sumar a lo aislado sin mover la cámara del presentador
+            bimState.dbIds = [...new Set([...(bimState.dbIds || []), ...dbIdsNuevos])];
+            viewer.isolate(bimState.dbIds);
+
+            // Pulso de destaque: alterna blanco brillante ↔ color del estado
+            const raw = BIM_STATUS_COLORS[bimState.liveStatus] || [0.06, 0.75, 0.35, 1];
+            const colorFinal = new THREE.Vector4(raw[0], raw[1], raw[2], raw[3]);
+            const colorFlash = new THREE.Vector4(1, 1, 1, 1);
+            let pulso = 0;
+            const pulsar = () => {
+                const c = (pulso % 2 === 0) ? colorFlash : colorFinal;
+                dbIdsNuevos.forEach(id => viewer.setThemingColor(id, c, viewer.model, true));
+                pulso++;
+                if (pulso <= 7) setTimeout(pulsar, 450);
+                else dbIdsNuevos.forEach(id => viewer.setThemingColor(id, colorFinal, viewer.model, true));
+            };
+            pulsar();
+
+            // Aviso con los tags de los spools nuevos (clic → volar hacia ellos)
+            const mapeo = bimState.capa === 'spool' ? (bimState.mapeoSpools || {}) : (bimState.capaMapeo[bimState.capa] || {});
+            const tags = [...new Set(nuevos.map(g => mapeo[g]).filter(Boolean))];
+            const etiqueta = tags.length ? tags.join(', ') : `${dbIdsNuevos.length} elemento(s)`;
+            bimLiveToast(`🎉 ${bimState.capa === 'spool' ? 'Spool' : BIM_CAPA_UI[bimState.capa].label} ${etiqueta} → ${bimState.liveStatus}`, dbIdsNuevos);
+            bimBeep();
+            bimLiveChipUpdate();
+        });
+    } catch (e) {
+        console.error('[BIM Live] Error en tick:', e.message);
+    }
+}
+
+/** Chip flotante "EN VIVO · ESTADO: N" sobre el visor. */
+function bimLiveChipUpdate() {
+    const wrapper = document.querySelector('.bim-viewer-wrapper');
+    if (!wrapper || !bimState.liveStatus) return;
+    let chip = document.getElementById('bim-live-chip');
+    if (!chip) {
+        chip = document.createElement('div');
+        chip.id = 'bim-live-chip';
+        chip.className = 'bim-live-chip';
+        wrapper.appendChild(chip);
+    }
+    chip.innerHTML = `<span class="bim-live-dot"></span> EN VIVO · ${bimState.liveStatus}: <strong>${bimState.liveGuids ? bimState.liveGuids.size : 0}</strong>`;
+}
+
+/** Toast flotante; clic = volar a los elementos nuevos. */
+function bimLiveToast(texto, dbIds) {
+    const wrapper = document.querySelector('.bim-viewer-wrapper');
+    if (!wrapper) return;
+    let cont = document.getElementById('bim-live-toasts');
+    if (!cont) {
+        cont = document.createElement('div');
+        cont.id = 'bim-live-toasts';
+        cont.className = 'bim-live-toasts';
+        wrapper.appendChild(cont);
+    }
+    const t = document.createElement('div');
+    t.className = 'bim-live-toast';
+    t.textContent = texto;
+    t.title = 'Clic para acercar la cámara';
+    t.onclick = () => { if (bimState.viewer && dbIds?.length) bimState.viewer.fitToView(dbIds); };
+    cont.appendChild(t);
+    setTimeout(() => { t.classList.add('saliendo'); setTimeout(() => t.remove(), 500); }, 8000);
+}
+
+/** Bip corto de notificación (WebAudio; silencioso si el navegador lo bloquea). */
+function bimBeep() {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        [880, 1320].forEach((freq, i) => {
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.value = freq;
+            osc.type = 'sine';
+            gain.gain.setValueAtTime(0.12, ctx.currentTime + i * 0.14);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + i * 0.14 + 0.13);
+            osc.connect(gain).connect(ctx.destination);
+            osc.start(ctx.currentTime + i * 0.14);
+            osc.stop(ctx.currentTime + i * 0.14 + 0.15);
+        });
+    } catch (e) { /* sin audio, sin drama */ }
 }
 
 /**
