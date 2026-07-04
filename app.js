@@ -3010,11 +3010,24 @@ function bimLiveChipUpdate() {
         chip.className = 'bim-live-chip';
         wrapper.appendChild(chip);
     }
-    const total = Object.values(bimState.liveSets || {}).reduce((s, set) => s + set.size, 0);
+    // Contar SPOOLS únicos (no elementos BIM: un spool tiene varias piezas 3D)
+    const mapeo = bimState.capa === 'spool' ? (bimState.mapeoSpools || {}) : (bimState.capaMapeo[bimState.capa] || {});
+    const tags = new Set();
+    let sinVinculo = 0;
+    Object.values(bimState.liveSets || {}).forEach(set => {
+        set.forEach(g => {
+            const t = mapeo[g];
+            if (t) tags.add(String(t).toLowerCase());
+            else sinVinculo++;
+        });
+    });
+    const unidad = bimState.capa === 'spool' ? 'spools' : (bimState.capa === 'valvula' ? 'válvulas' : 'soportes');
+    const total = tags.size || 0;
     const etiqueta = bimState.liveEstados.length === 1
         ? bimState.liveEstados[0]
         : `${bimState.liveEstados.length} estados`;
-    chip.innerHTML = `<span class="bim-live-dot"></span> EN VIVO · ${etiqueta}: <strong>${total}</strong>`;
+    chip.innerHTML = `<span class="bim-live-dot"></span> EN VIVO · ${etiqueta}: <strong>${total}</strong> ${unidad}` +
+        (total === 0 && sinVinculo ? ` <span style="opacity:0.6;font-size:0.75rem;">(${sinVinculo} elem.)</span>` : '');
 }
 
 /** Toast flotante; clic = volar a los elementos nuevos. */
