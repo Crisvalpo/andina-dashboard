@@ -14,33 +14,64 @@ app.use(express.json({ limit: '50mb' })); // JSON en POST (audios del bot vienen
 const cache = {};
 const CACHE_TTL = 30 * 1000; // 30 segundos
 
-// Endpoint proxy genérico para las tablas de AppSheet
+// Refrescos en vuelo (evita disparar la misma tabla dos veces en paralelo)
+const refrescosEnVuelo = new Set();
+async function refrescarTabla(tableName) {
+    if (refrescosEnVuelo.has(tableName)) return;
+    refrescosEnVuelo.add(tableName);
+    try {
+        const data = await fetchAppSheet(tableName);
+        cache[tableName] = { timestamp: Date.now(), data };
+    } catch (e) {
+        console.error(`[Cache Refresh] ${tableName}:`, e.message);
+    } finally {
+        refrescosEnVuelo.delete(tableName);
+    }
+}
+
+// Endpoint proxy genérico para las tablas de AppSheet.
+// STALE-WHILE-REVALIDATE: si hay caché (aunque esté vencida) se sirve AL
+// INSTANTE y se refresca en segundo plano — el dashboard nunca espera a
+// AppSheet salvo la primerísima carga tras el arranque (cubierta por warmup).
 app.get('/api/data/:tableName', async (req, res) => {
     const { tableName } = req.params;
-    const now = Date.now();
+    const entry = cache[tableName];
 
-    if (cache[tableName] && (now - cache[tableName].timestamp < CACHE_TTL)) {
-        console.log(`[Cache Hit] Sirviendo ${tableName} desde caché`);
-        return res.json(cache[tableName].data);
+    if (entry) {
+        const fresca = (Date.now() - entry.timestamp) < CACHE_TTL;
+        res.set('X-Cache', fresca ? 'hit' : 'stale');
+        if (!fresca) refrescarTabla(tableName); // background, sin esperar
+        return res.json(entry.data);
     }
 
     try {
         console.log(`[Cache Miss] Consultando ${tableName} directamente a AppSheet`);
-        const data = await fetchAppSheet(tableName);
-        cache[tableName] = {
-            timestamp: now,
-            data: data
-        };
-        res.json(data);
-    } catch (error) {
-        console.error(`[Error Proxy] Error al consultar ${tableName}:`, error.message);
+        await refrescarTabla(tableName);
         if (cache[tableName]) {
-            console.log(`[Cache Fallback] Retornando datos expirados de ${tableName} debido al error`);
+            res.set('X-Cache', 'miss');
             return res.json(cache[tableName].data);
         }
+        throw new Error('Sin datos');
+    } catch (error) {
+        console.error(`[Error Proxy] ${tableName}:`, error.message);
         res.status(500).json({ error: error.message });
     }
 });
+
+// Precalentamiento: al arrancar el server se cargan las tablas del dashboard
+// para que la primera visita ya encuentre caché caliente.
+const TABLAS_WARMUP = [
+    'LIST_Lineas_MS_', 'LIST_Isos_MS_', 'LIST_Spools_MS_', 'LIST_Juntas_MS_',
+    'REG_EjecucionJuntas_MS', 'LOG_Spool_MS', 'LOG_SDI_MS', 'REL_SDIIso_MS',
+    'REG_InspeccionVisual_MS', 'REG_DimensionalSpool_MS',
+    'CAT_TipoUnion_MS', 'CAT_FluidoServicio_MS', 'CAT_Personal_MS'
+];
+async function precalentarCache() {
+    console.log(`[Warmup] Precargando ${TABLAS_WARMUP.length} tablas del dashboard...`);
+    const t0 = Date.now();
+    await Promise.allSettled(TABLAS_WARMUP.map(t => refrescarTabla(t)));
+    console.log(`[Warmup] Caché caliente en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+}
 
 // API Proxy para datos de la Guía
 app.get('/api/guias', async (req, res) => {
@@ -1346,4 +1377,5 @@ app.get('{*path}', (req, res) => {
 
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`Andina Dashboard running on http://localhost:${PORT}`);
+    precalentarCache(); // caché caliente desde el arranque (sin bloquear el listen)
 });

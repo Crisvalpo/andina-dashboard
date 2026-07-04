@@ -626,12 +626,28 @@ async function fetchTable(tableName) {
     try {
         const res = await fetch(url);
         if (!res.ok) { console.error(`[API] ${tableName} → HTTP ${res.status}`); return []; }
+        // El server sirvió caché vencida al instante y está refrescando por
+        // detrás → programar UNA recarga silenciosa para pintar lo fresco.
+        if (res.headers.get('X-Cache') === 'stale') programarRefrescoStale();
         const data = await res.json();
         return Array.isArray(data) ? data : [];
     } catch (e) {
         console.error(`[API] Fallo red ${tableName}:`, e);
         return [];
     }
+}
+
+let _staleTimer = null;
+let _staleUltimo = 0;
+function programarRefrescoStale() {
+    const ahora = Date.now();
+    if (_staleTimer || (ahora - _staleUltimo) < 30000) return; // máx. 1 recarga por ciclo
+    _staleTimer = setTimeout(() => {
+        _staleTimer = null;
+        _staleUltimo = Date.now();
+        console.log('[Dashboard] Datos frescos disponibles — actualizando en silencio');
+        if (typeof refreshData === 'function') refreshData();
+    }, 6000);
 }
 
 async function refreshData() {
