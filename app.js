@@ -3105,11 +3105,47 @@ async function bimDividirEntrar() {
         </div>`);
 }
 
+// Palabras que delatan elementos NO divisibles (válvulas, soportes, estructuras…)
+const DIV_NO_TUBO = ['valv', 'soport', 'support', 'struct', 'estruct', 'steel', 'beam', 'perfil',
+    'column', 'pilar', 'equip', 'bomba', 'pump', 'instr', 'brida', 'flange', 'clamp', 'abraz',
+    'gusset', 'plate', 'placa', 'anclaje', 'anchor', 'grating', 'hormig', 'concre', 'fitting',
+    'elbow', 'codo', 'tee', 'reduc', 'weldolet', 'olet', 'cap ', 'tapa'];
+
+/**
+ * ¿El elemento es un TRAMO RECTO de cañería? Combina nombre + geometría:
+ * esbeltez (largo ≥ 2.5 diámetros) y cilindricidad (forma tubular real).
+ * Codos, tees, válvulas, soportes y estructuras quedan bloqueados.
+ */
+function bimValidarTubo(dbId, eje) {
+    let nombre = '';
+    try { nombre = String(bimState.viewer.model.getInstanceTree().getNodeName(dbId) || '').toLowerCase(); } catch (e) {}
+    const kw = DIV_NO_TUBO.find(k => nombre.includes(k));
+    if (kw) return { ok: false, motivo: `este elemento (${nombre.substring(0, 40)}) no es un tramo de cañería` };
+    const esbeltez = eje.len / (eje.radio * 2);
+    if (esbeltez < 2.5) return { ok: false, motivo: 'la pieza es muy corta o compacta — no parece un tramo recto de tubería' };
+    if ((eje.cilindricidad ?? 1) < 0.55) return { ok: false, motivo: 'la forma no es cilíndrica recta (codos, tees, válvulas, soportes y estructuras no se dividen)' };
+    return { ok: true };
+}
+
 /** Arranca la edición de un elemento: mitad automática (o su división previa). */
 function bimDivIniciarEdicion(dbId, guid) {
     const eje = bimEjeDeElemento(dbId);
     if (!eje) {
         bimSetMeta('<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>No pude leer la geometría de ese elemento. Intenta con otro.</p></div>');
+        return;
+    }
+
+    // Guardia: la herramienta SOLO divide tramos rectos de cañería
+    const val = bimValidarTubo(dbId, eje);
+    if (!val.ok) {
+        bimSetMeta(`
+            <div class="bim-meta-header" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);">
+                <i class="fas fa-ban"></i><span>No divisible</span>
+            </div>
+            <div class="bim-meta-placeholder" style="padding:1.2rem 0.5rem;">
+                <p style="font-size:0.82rem;">✂️ La herramienta es solo para <strong>tramos rectos de cañería</strong>.<br><br>
+                Motivo: ${val.motivo}.</p>
+            </div>`);
         return;
     }
     divState.dbId = dbId;
@@ -3420,21 +3456,27 @@ function bimEjeDeElemento(dbId) {
             dir.normalize();
         }
 
-        // Extremos: proyección min/max sobre el eje. Radio: distancia media al eje.
-        let tMin = Infinity, tMax = -Infinity, sumaR = 0;
+        // Extremos: proyección min/max sobre el eje. Distancias perpendiculares
+        // de cada punto al eje → radio (mediana) y CILINDRICIDAD (qué fracción
+        // de puntos está cerca del radio típico: 1.0 = cilindro perfecto).
+        let tMin = Infinity, tMax = -Infinity;
+        const dists = [];
         const tmp = new THREE.Vector3();
         pts.forEach(p => {
             tmp.subVectors(p, c);
             const t = tmp.dot(dir);
             if (t < tMin) tMin = t;
             if (t > tMax) tMax = t;
-            sumaR += tmp.clone().sub(dir.clone().multiplyScalar(t)).length();
+            dists.push(tmp.clone().sub(dir.clone().multiplyScalar(t)).length());
         });
         const len = tMax - tMin;
         if (len <= 0) return null;
-        const radio = Math.max(sumaR / pts.length, 0.01);
+        const ordenadas = [...dists].sort((a, b) => a - b);
+        const radio = Math.max(ordenadas[Math.floor(ordenadas.length / 2)], 0.01); // mediana
+        const cerca = dists.filter(d => Math.abs(d - radio) <= radio * 0.25).length;
+        const cilindricidad = cerca / dists.length;
         const p0 = c.clone().add(dir.clone().multiplyScalar(tMin));
-        return { p0, dir, len, radio };
+        return { p0, dir, len, radio, cilindricidad };
     } catch (e) {
         console.error('[Dividir] Error calculando eje:', e.message);
         return null;
