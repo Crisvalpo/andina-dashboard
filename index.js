@@ -1023,6 +1023,50 @@ app.post('/api/auth/login', (req, res) => {
 app.post('/api/whatsapp-incoming', handleWhatsappIncoming);
 
 // =================================================================
+// DIVISIONES VIRTUALES DE TRAMOS (herramienta "Dividir tramo" del visor)
+// Los cortes son fracciones [0..1] sobre el eje del elemento; se guardan
+// en Supabase (andina.bim_divisiones) sin tocar el modelo APS.
+// =================================================================
+app.get('/api/bim/divisiones', async (req, res) => {
+    try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase.from('bim_divisiones').select('guid, cortes');
+        if (error) throw new Error(error.message);
+        const out = {};
+        (data || []).forEach(r => {
+            if (Array.isArray(r.cortes) && r.cortes.length) out[String(r.guid).toLowerCase()] = r.cortes;
+        });
+        res.json(out);
+    } catch (e) {
+        console.error('[BIM Divisiones]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST { guid, cortes: [0.42, 0.71] } — cortes vacío elimina la división
+app.post('/api/bim/divisiones', requerirPermiso('bim'), async (req, res) => {
+    const guid = String(req.body?.guid || '').trim().toLowerCase();
+    const cortes = Array.isArray(req.body?.cortes) ? req.body.cortes.filter(t => typeof t === 'number' && t > 0 && t < 1) : [];
+    if (!guid) return res.status(400).json({ error: 'Falta guid' });
+    try {
+        const supabase = getSupabase();
+        if (!cortes.length) {
+            await supabase.from('bim_divisiones').delete().eq('guid', guid);
+            return res.json({ success: true, eliminada: true });
+        }
+        const { error } = await supabase.from('bim_divisiones').upsert(
+            { guid, cortes: cortes.sort((a, b) => a - b), updated_at: new Date().toISOString() },
+            { onConflict: 'guid' }
+        );
+        if (error) throw new Error(error.message);
+        res.json({ success: true, guid, cortes, partes: cortes.length + 1 });
+    } catch (e) {
+        console.error('[BIM Divisiones POST]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// =================================================================
 // ESCANEO DE LOTES (spools) — sesión tokenizada abierta desde el bot.
 // La identidad viaja en el token (el usuario ya se autenticó por WhatsApp).
 // =================================================================
