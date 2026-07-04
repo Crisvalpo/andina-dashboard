@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Escaneo de Lote · Andina</title>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+<style>
+    :root {
+        --bg: #0b1220; --panel: #131c2e; --panel2: #1b2740;
+        --border: #26334d; --txt: #e2e8f0; --muted: #94a3b8;
+        --primary: #6366f1; --ok: #10b981; --warn: #f59e0b; --err: #ef4444;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+    body {
+        font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+        background: var(--bg); color: var(--txt);
+        min-height: 100vh; display: flex; flex-direction: column;
+    }
+    .oculto { display: none !important; }
+    header {
+        padding: 14px 16px; background: var(--panel);
+        border-bottom: 1px solid var(--border);
+        display: flex; align-items: center; justify-content: space-between; gap: 10px;
+        position: sticky; top: 0; z-index: 10;
+    }
+    header h1 { font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    header .user { font-size: 0.78rem; color: var(--muted); text-align: right; }
+    main { flex: 1; padding: 16px; padding-bottom: 140px; }
+
+    /* Estados de pantalla */
+    .centro { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 30px; gap: 14px; }
+    .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Cámara */
+    .cam-wrap { position: relative; width: 100%; aspect-ratio: 1/1; max-height: 46vh; margin: 0 auto 14px; border-radius: 16px; overflow: hidden; background: #000; border: 1px solid var(--border); }
+    #video { width: 100%; height: 100%; object-fit: cover; }
+    .cam-mira { position: absolute; inset: 18%; border: 3px solid rgba(99,102,241,0.9); border-radius: 14px; box-shadow: 0 0 0 100vmax rgba(0,0,0,0.35); }
+    .cam-off { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); }
+    .flash { position: absolute; inset: 0; background: var(--ok); opacity: 0; pointer-events: none; }
+    .flash.on { animation: flashAnim 0.4s ease; }
+    @keyframes flashAnim { 0% { opacity: 0.55; } 100% { opacity: 0; } }
+
+    .btn { border: none; border-radius: 12px; padding: 14px 18px; font-size: 0.95rem; font-weight: 700; font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; transition: transform 0.1s, filter 0.15s; }
+    .btn:active { transform: scale(0.98); }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-ghost { background: var(--panel2); color: var(--txt); border: 1px solid var(--border); }
+    .btn-ok { background: var(--ok); color: #04231a; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .manual { display: flex; gap: 8px; margin-bottom: 18px; }
+    .manual input { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 13px 14px; color: var(--txt); font-size: 1rem; }
+    .manual button { width: auto; padding: 0 18px; }
+
+    .lista-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+    .lista-head h2 { font-size: 0.9rem; color: var(--muted); font-weight: 600; }
+    .lista-head .clear { font-size: 0.78rem; color: var(--err); background: none; border: none; cursor: pointer; }
+    ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+    li { background: var(--panel); border: 1px solid var(--border); border-left-width: 4px; border-radius: 10px; padding: 11px 13px; display: flex; align-items: center; justify-content: space-between; gap: 10px; animation: slideIn 0.25s ease; }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+    li.ok { border-left-color: var(--ok); }
+    li.warn { border-left-color: var(--warn); }
+    li.err { border-left-color: var(--err); }
+    li .info { min-width: 0; }
+    li .tag { font-weight: 700; font-size: 1rem; }
+    li .sub { font-size: 0.74rem; color: var(--muted); margin-top: 2px; word-break: break-all; }
+    li .quitar { background: none; border: none; color: var(--muted); font-size: 1.3rem; cursor: pointer; padding: 0 4px; }
+    .vacio { text-align: center; color: var(--muted); padding: 24px 10px; font-size: 0.85rem; }
+
+    /* Footer fijo: estado + registrar */
+    footer { position: fixed; bottom: 0; left: 0; right: 0; background: var(--panel); border-top: 1px solid var(--border); padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); z-index: 10; }
+    .estados { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .estado-btn { flex: 1 1 auto; min-width: 30%; background: var(--panel2); border: 1px solid var(--border); color: var(--txt); border-radius: 999px; padding: 9px 10px; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+    .estado-btn.sel { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .toast-done { font-size: 3rem; }
+</style>
+</head>
+<body>
+
+<!-- Cargando -->
+<div id="v-loading" class="centro">
+    <div class="spinner"></div>
+    <p>Validando sesión…</p>
+</div>
+
+<!-- Sesión inválida -->
+<div id="v-error" class="centro oculto">
+    <div style="font-size:3rem">🔒</div>
+    <h1 style="font-size:1.1rem">Sesión no válida o expirada</h1>
+    <p style="color:var(--muted);max-width:280px">Pídele a Andi un nuevo enlace por WhatsApp: escríbele <em>"quiero reportar un lote"</em>.</p>
+</div>
+
+<!-- Resultado -->
+<div id="v-done" class="centro oculto">
+    <div class="toast-done">✅</div>
+    <h1 id="done-title" style="font-size:1.2rem"></h1>
+    <p id="done-detail" style="color:var(--muted)"></p>
+    <button class="btn btn-primary" style="max-width:260px;margin-top:10px" onclick="location.reload()">Escanear otro lote</button>
+</div>
+
+<!-- Principal -->
+<div id="v-main" class="oculto" style="display:flex;flex-direction:column;flex:1">
+    <header>
+        <h1>📷 Escaneo de lote</h1>
+        <div class="user" id="user-info">—</div>
+    </header>
+    <main>
+        <div class="cam-wrap">
+            <video id="video" playsinline muted></video>
+            <div id="cam-mira" class="cam-mira oculto"></div>
+            <div id="cam-off" class="cam-off">
+                <div style="font-size:2.4rem">📷</div>
+                <p style="font-size:0.82rem">Toca "Iniciar cámara" para escanear</p>
+            </div>
+            <div id="flash" class="flash"></div>
+        </div>
+        <button id="btn-cam" class="btn btn-primary" style="margin-bottom:12px" onclick="toggleCam()">▶ Iniciar cámara</button>
+
+        <div class="manual">
+            <input id="manual-input" type="text" inputmode="text" placeholder="O escribe el TAG / ID a mano" onkeydown="if(event.key==='Enter')agregarManual()">
+            <button class="btn btn-ghost" onclick="agregarManual()">＋</button>
+        </div>
+
+        <div class="lista-head">
+            <h2>Escaneados: <span id="count">0</span></h2>
+            <button class="clear" id="btn-clear" onclick="limpiar()" style="display:none">Vaciar</button>
+        </div>
+        <ul id="lista"></ul>
+        <div id="vacio" class="vacio">Aún no has escaneado ningún spool.</div>
+    </main>
+    <footer id="footer" style="display:none">
+        <div class="estados" id="estados"></div>
+        <button id="btn-registrar" class="btn btn-ok" onclick="registrar()">Registrar</button>
+    </footer>
+</div>
+
+<canvas id="canvas" class="oculto"></canvas>
+
+<script>
+const token = new URLSearchParams(location.search).get('t') || '';
+const api = (path) => path + (path.includes('?') ? '&' : '?') + 't=' + encodeURIComponent(token);
+const el = (id) => document.getElementById(id);
+
+let estados = [];
+let estadoSel = null;
+const items = new Map();   // id_spool → { tag, id_spool, estado_actual, status:'ok'|'warn'|'err', nota }
+let stream = null, scanning = false, ultimoVal = '', ultimoTs = 0;
+
+// ---- Init: validar sesión ----
+(async () => {
+    if (!token) return mostrarError();
+    try {
+        const r = await fetch(api('/api/escaneo/sesion'));
+        const d = await r.json();
+        if (!d.success) return mostrarError();
+        estados = d.estados || [];
+        el('user-info').innerHTML = `<strong>${d.nombre}</strong><br>${d.rol || ''}`;
+        renderEstados();
+        el('v-loading').classList.add('oculto');
+        el('v-main').classList.remove('oculto');
+    } catch (e) { mostrarError(); }
+})();
+
+function mostrarError() {
+    el('v-loading').classList.add('oculto');
+    el('v-error').classList.remove('oculto');
+}
+
+function renderEstados() {
+    el('estados').innerHTML = estados.map(e =>
+        `<button class="estado-btn" data-e="${e}" onclick="selEstado('${e.replace(/'/g,"\\'")}')">${e}</button>`
+    ).join('');
+}
+function selEstado(e) {
+    estadoSel = e;
+    document.querySelectorAll('.estado-btn').forEach(b => b.classList.toggle('sel', b.dataset.e === e));
+    actualizarBotonRegistrar();
+}
+
+// ---- Cámara + escaneo continuo ----
+async function toggleCam() {
+    if (stream) return detenerCam();
+    try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        const v = el('video');
+        v.srcObject = stream;
+        await v.play();
+        scanning = true;
+        el('cam-off').classList.add('oculto');
+        el('cam-mira').classList.remove('oculto');
+        el('btn-cam').textContent = '⏹ Detener cámara';
+        el('btn-cam').classList.replace('btn-primary', 'btn-ghost');
+        requestAnimationFrame(loop);
+    } catch (e) {
+        alert('No se pudo abrir la cámara: ' + e.message + '\nUsa la entrada manual.');
+    }
+}
+function detenerCam() {
+    scanning = false;
+    if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+    el('cam-off').classList.remove('oculto');
+    el('cam-mira').classList.add('oculto');
+    el('btn-cam').textContent = '▶ Iniciar cámara';
+    el('btn-cam').classList.replace('btn-ghost', 'btn-primary');
+}
+function loop() {
+    if (!scanning) return;
+    const v = el('video'), c = el('canvas');
+    if (v.readyState === v.HAVE_ENOUGH_DATA) {
+        c.width = v.videoWidth; c.height = v.videoHeight;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(v, 0, 0, c.width, c.height);
+        const img = ctx.getImageData(0, 0, c.width, c.height);
+        const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+        if (code && code.data) {
+            const val = extraerValor(code.data.trim());
+            const now = Date.now();
+            if (val && (val !== ultimoVal || now - ultimoTs > 2500)) {
+                ultimoVal = val; ultimoTs = now;
+                flash(); beep();
+                agregarValor(val);
+            }
+        }
+    }
+    requestAnimationFrame(loop);
+}
+// El QR puede traer el valor pelado o una URL (?spool= o último segmento)
+function extraerValor(raw) {
+    if (/^https?:\/\//i.test(raw)) {
+        try {
+            const u = new URL(raw);
+            return (u.searchParams.get('spool') || u.pathname.split('/').filter(Boolean).pop() || '').trim();
+        } catch (e) { return raw; }
+    }
+    return raw;
+}
+
+function agregarManual() {
+    const inp = el('manual-input');
+    const v = inp.value.trim();
+    if (v) { agregarValor(v); inp.value = ''; }
+}
+
+// ---- Resolver y agregar a la lista ----
+async function agregarValor(valor) {
+    const key = 'tmp_' + valor.toLowerCase();
+    if (items.has(key) || [...items.values()].some(i => (i.buscado || '').toLowerCase() === valor.toLowerCase())) return;
+    items.set(key, { buscado: valor, tag: valor, id_spool: key, status: 'loading', nota: 'Resolviendo…' });
+    render();
+    try {
+        const r = await fetch(api('/api/escaneo/resolver?valor=' + encodeURIComponent(valor)));
+        const d = await r.json();
+        items.delete(key);
+        if (!d.encontrado) {
+            const k2 = 'err_' + valor.toLowerCase();
+            if (!items.has(k2)) items.set(k2, { buscado: valor, tag: valor, id_spool: k2, status: 'err', nota: d.ambiguo ? 'Ambiguo: ' + (d.candidatos||[]).join(', ') : 'No existe en el maestro' });
+        } else if (items.has(d.id_spool)) {
+            // ya estaba (escaneó el otro QR del mismo spool)
+        } else {
+            const yaEnEstado = estadoSel && d.estado_actual && d.estado_actual.toLowerCase() === estadoSel.toLowerCase();
+            items.set(d.id_spool, {
+                buscado: valor, tag: d.tag, id_spool: d.id_spool,
+                estado_actual: d.estado_actual,
+                status: yaEnEstado ? 'warn' : 'ok',
+                nota: d.estado_actual ? ('Actual: ' + d.estado_actual) : 'Sin registros previos'
+            });
+        }
+        render();
+    } catch (e) {
+        items.delete(key); render();
+    }
+}
+
+function quitar(id) { items.delete(id); render(); }
+function limpiar() { items.clear(); render(); }
+
+function render() {
+    const validos = [...items.values()].filter(i => i.status === 'ok' || i.status === 'warn');
+    el('count').textContent = validos.length;
+    const arr = [...items.entries()];
+    el('vacio').style.display = arr.length ? 'none' : 'block';
+    el('btn-clear').style.display = arr.length ? 'block' : 'none';
+    el('lista').innerHTML = arr.map(([id, i]) => `
+        <li class="${i.status}">
+            <div class="info">
+                <div class="tag">${i.status === 'loading' ? '⏳' : ''} ${i.tag}</div>
+                <div class="sub">${i.nota || ''}</div>
+            </div>
+            <button class="quitar" onclick="quitar('${id}')">×</button>
+        </li>`).join('');
+    el('footer').style.display = validos.length ? 'block' : 'none';
+    actualizarBotonRegistrar();
+}
+function actualizarBotonRegistrar() {
+    const validos = [...items.values()].filter(i => i.status === 'ok' || i.status === 'warn');
+    const btn = el('btn-registrar');
+    btn.disabled = !(validos.length && estadoSel);
+    btn.textContent = estadoSel
+        ? `Registrar ${validos.length} spool(s) → ${estadoSel}`
+        : `Elige el estado a aplicar`;
+}
+
+// ---- Registrar lote ----
+async function registrar() {
+    const validos = [...items.values()].filter(i => i.status === 'ok' || i.status === 'warn');
+    if (!validos.length || !estadoSel) return;
+    const btn = el('btn-registrar');
+    btn.disabled = true; btn.textContent = 'Registrando…';
+    try {
+        const r = await fetch(api('/api/escaneo/registrar'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-sesion-token': token },
+            body: JSON.stringify({ tags: validos.map(i => i.tag), status: estadoSel })
+        });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Error');
+        detenerCam();
+        el('v-main').classList.add('oculto');
+        el('done-title').textContent = `${d.registrados} spool(s) → ${d.status}`;
+        const fallidos = (d.resultados || []).filter(x => !x.ok);
+        el('done-detail').textContent = fallidos.length ? `${fallidos.length} no se pudieron registrar.` : 'Todos registrados correctamente.';
+        el('v-done').classList.remove('oculto');
+    } catch (e) {
+        alert('Error al registrar: ' + e.message);
+        btn.disabled = false; actualizarBotonRegistrar();
+    }
+}
+
+// ---- Feedback ----
+function flash() { const f = el('flash'); f.classList.remove('on'); void f.offsetWidth; f.classList.add('on'); }
+function beep() {
+    try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = 1200; o.type = 'sine';
+        g.gain.setValueAtTime(0.14, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.13);
+        o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.14);
+    } catch (e) {}
+}
+</script>
+</body>
+</html>

@@ -3,7 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { CONFIG, resumenSeguro } = require('./config');
 const { fetchAppSheet, fetchAppSheetCached, invalidarCache } = require('./lib/appsheet');
-const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS } = require('./lib/auth');
+const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS, requerirSesion } = require('./lib/auth');
 const app = express();
 const PORT = CONFIG.PORT;
 
@@ -1001,8 +1001,8 @@ app.post('/api/bim/:capa/desvincular', requerirPermiso('bim'), async (req, res) 
 // =================================================================
 // BOT WHATSAPP (wa-bridge Baileys + Gemini) Y PANEL DE CONFIGURACIÓN
 // =================================================================
-const { handleWhatsappIncoming } = require('./lib/bot');
-const { listarBotConfig, setBotConfig } = require('./lib/botConfig');
+const { handleWhatsappIncoming, resolverSpool, registrarAvanceAppSheet, consultarEstadoSpool, guardarRegistro } = require('./lib/bot');
+const { listarBotConfig, setBotConfig, getBotConfig } = require('./lib/botConfig');
 const { getSupabase } = require('./lib/supabase');
 
 // -----------------------------------------------------------------
@@ -1021,6 +1021,82 @@ app.post('/api/auth/login', (req, res) => {
 
 // Webhook de mensajes entrantes (llamado por el wa-bridge; valida su propio secreto)
 app.post('/api/whatsapp-incoming', handleWhatsappIncoming);
+
+// =================================================================
+// ESCANEO DE LOTES (spools) — sesión tokenizada abierta desde el bot.
+// La identidad viaja en el token (el usuario ya se autenticó por WhatsApp).
+// =================================================================
+app.get('/escanear', (req, res) => res.sendFile(path.join(__dirname, 'escanear.html')));
+
+// Datos de la sesión + estados disponibles para el selector final
+app.get('/api/escaneo/sesion', requerirSesion, async (req, res) => {
+    try {
+        const botConf = await getBotConfig();
+        const estados = (botConf.estados_permitidos || '').split(',').map(s => s.trim()).filter(Boolean);
+        res.json({ success: true, nombre: req.sesion.nombre, rol: req.sesion.rol, estados });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Resolver un valor escaneado (TAG o ID_SPOOL) → spool + su estado actual
+app.get('/api/escaneo/resolver', requerirSesion, async (req, res) => {
+    const valor = String(req.query.valor || '').trim();
+    if (!valor) return res.status(400).json({ success: false, error: 'Falta valor' });
+    try {
+        const r = await resolverSpool(valor);
+        if (!r.encontrado) return res.json({ success: true, encontrado: false });
+        if (r.ambiguo) {
+            return res.json({ success: true, encontrado: false, ambiguo: true, candidatos: r.candidatos.map(c => c.tagGestion || c.idSpool) });
+        }
+        const ultimo = await consultarEstadoSpool(r.spool, req.sesion.rol).catch(() => null);
+        res.json({
+            success: true, encontrado: true,
+            tag: r.spool.tagGestion, id_spool: r.spool.idSpool, id_iso: r.spool.idIso,
+            estado_actual: ultimo ? ultimo['STATUS'] : null
+        });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// Registrar el lote: { tags:[...], status } → un LOG_Spool por spool
+app.post('/api/escaneo/registrar', requerirSesion, async (req, res) => {
+    const { tags, status } = req.body || {};
+    if (!Array.isArray(tags) || !tags.length || !status) {
+        return res.status(400).json({ success: false, error: 'Se requieren tags[] y status' });
+    }
+    try {
+        const botConf = await getBotConfig();
+        const permitidos = (botConf.estados_permitidos || '').split(',').map(s => s.trim().toLowerCase());
+        if (!permitidos.includes(String(status).toLowerCase())) {
+            return res.status(400).json({ success: false, error: `Estado "${status}" no permitido` });
+        }
+        const usuario = { nombre: req.sesion.nombre, rol: req.sesion.rol };
+        const resultados = [];
+        for (const tag of tags) {
+            try {
+                const r = await resolverSpool(tag);
+                if (!r.encontrado || r.ambiguo) { resultados.push({ tag, ok: false, msg: 'no resuelto' }); continue; }
+                const { fila } = await registrarAvanceAppSheet({
+                    spool: r.spool, status,
+                    usuario: usuario.nombre, ubicacion: null, observacion: null, mts: null, rol: usuario.rol
+                });
+                await guardarRegistro({
+                    telefono: req.sesion.telefono, spool_tag: r.spool.tagGestion, id_spool: r.spool.idSpool,
+                    status, appsheet_ok: true, metadata: { via: 'escaneo', id_log_spool: fila['ID_LOG_SPOOL'] }
+                }).catch(() => {});
+                resultados.push({ tag: r.spool.tagGestion || tag, ok: true });
+            } catch (e) {
+                resultados.push({ tag, ok: false, msg: e.message.substring(0, 80) });
+            }
+        }
+        const okCount = resultados.filter(r => r.ok).length;
+        res.json({ success: true, status, total: tags.length, registrados: okCount, resultados });
+    } catch (e) {
+        res.status(500).json({ success: false, error: e.message });
+    }
+});
 
 // Todas las rutas /api/bot/* y /api/config exigen clave de administración del bot.
 // (Protege también el QR: quien lo escanee secuestraría la sesión de WhatsApp.)

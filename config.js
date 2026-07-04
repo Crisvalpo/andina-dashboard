@@ -10,6 +10,7 @@ const CONFIG = {
     // --- Servidor ---
     PORT: parseInt(process.env.PORT || '3005', 10),
     ZONA_HORARIA: process.env.ZONA_HORARIA || 'America/Santiago',
+    PUBLIC_URL: process.env.PUBLIC_URL || 'https://andina.lukeapp.me', // base de links (sesión de escaneo)
 
     // --- AppSheet (backend de datos del proyecto) ---
     APPSHEET_APP_ID: process.env.APPSHEET_APP_ID || '',
