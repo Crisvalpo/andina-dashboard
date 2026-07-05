@@ -5044,26 +5044,85 @@ async function botCargarUsuarios() {
             return;
         }
 
-        body.innerHTML = d.usuarios.map(u => `
-            <tr>
-                <td>+${u.telefono}</td>
-                <td>${u.nombre || '—'}</td>
-                <td>${u.rol || 'Terreno'}</td>
+        body.innerHTML = d.usuarios.map(u => {
+            const tel = u.telefono;
+            const rolesOpts = ['Terreno','Supervisor','Admin','OT','QAQC'].map(r =>
+                `<option value="${r}" ${(u.rol||'Terreno')===r?'selected':''}>${r}</option>`
+            ).join('');
+            return `
+            <tr id="urow-${tel}">
+                <td>+${tel}</td>
+                <td class="ucell-nombre-${tel}">${u.nombre || '—'}</td>
+                <td class="ucell-rol-${tel}">${u.rol || 'Terreno'}</td>
                 <td>
                     <span class="status-pill ${u.activo ? 'pill-green' : 'pill-red'}">
                         ${u.activo ? 'Activo' : 'Pendiente'}
                     </span>
                 </td>
-                <td>
+                <td style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
                     <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem"
-                        onclick="botToggleUsuario('${u.telefono}', ${!u.activo})">
+                        onclick="botToggleUsuario('${tel}', ${!u.activo})">
                         ${u.activo ? 'Desactivar' : 'Autorizar'}
+                    </button>
+                    <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem;background:rgba(99,102,241,0.2);border-color:rgba(99,102,241,0.5)"
+                        onclick="botEditarUsuario('${tel}', '${(u.nombre||'').replace(/'/g,\"\\\'\")}',' ${u.rol||'Terreno'}')" title="Editar nombre / rol">
+                        ✏️ Editar
                     </button>
                 </td>
             </tr>
-        `).join('');
+            <tr id="urow-edit-${tel}" style="display:none;background:rgba(99,102,241,0.07)">
+                <td colspan="5" style="padding:10px 14px">
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+                        <input id="uedit-nombre-${tel}" type="text" placeholder="Nombre y apellido"
+                            value="${(u.nombre||'').replace(/"/g,'&quot;')}"
+                            style="flex:1;min-width:150px;background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.4);border-radius:8px;padding:7px 10px;color:#f1f5f9;font-family:inherit;font-size:0.85rem">
+                        <select id="uedit-rol-${tel}"
+                            style="background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.4);border-radius:8px;padding:7px 10px;color:#f1f5f9;font-family:inherit;font-size:0.85rem">
+                            ${rolesOpts}
+                        </select>
+                        <button class="refresh-btn" style="padding:5px 14px;font-size:0.8rem;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.5);color:#6ee7b7"
+                            onclick="botGuardarEdicion('${tel}')">
+                            ✓ Guardar
+                        </button>
+                        <button class="refresh-btn" style="padding:5px 14px;font-size:0.8rem"
+                            onclick="botCancelarEdicion('${tel}')">
+                            Cancelar
+                        </button>
+                    </div>
+                </td>
+            </tr>`;
+        }).join('');
     } catch (e) {
         body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;padding:20px;">Error: ${e.message}</td></tr>`;
+    }
+}
+
+function botEditarUsuario(tel, nombre, rol) {
+    // Mostrar fila de edicion
+    const editRow = document.getElementById('urow-edit-' + tel);
+    if (editRow) editRow.style.display = '';
+    const inp = document.getElementById('uedit-nombre-' + tel);
+    if (inp) { inp.focus(); inp.select(); }
+}
+function botCancelarEdicion(tel) {
+    const editRow = document.getElementById('urow-edit-' + tel);
+    if (editRow) editRow.style.display = 'none';
+}
+async function botGuardarEdicion(tel) {
+    const nombre = (document.getElementById('uedit-nombre-' + tel)?.value || '').trim();
+    const rol    = document.getElementById('uedit-rol-' + tel)?.value || 'Terreno';
+    if (!nombre) { alert('El nombre no puede estar vacío.'); return; }
+    try {
+        const r = await fetch('/api/bot/usuarios/' + tel, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
+            body: JSON.stringify({ nombre, rol })
+        });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Error');
+        botCargarUsuarios(); // recarga la tabla completa
+    } catch (e) {
+        alert('Error guardando: ' + e.message);
     }
 }
 
