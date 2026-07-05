@@ -5065,7 +5065,7 @@ async function botCargarUsuarios() {
                         ${u.activo ? 'Desactivar' : 'Autorizar'}
                     </button>
                     <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem;background:rgba(99,102,241,0.2);border-color:rgba(99,102,241,0.5)"
-                        onclick="botEditarUsuario('${tel}', '${(u.nombre||'').replace(/'/g,\"\\\'\")}',' ${u.rol||'Terreno'}')" title="Editar nombre / rol">
+                        onclick="botEditarUsuario('${tel}')" title="Editar nombre / rol">
                         ✏️ Editar
                     </button>
                 </td>
@@ -5097,11 +5097,20 @@ async function botCargarUsuarios() {
     }
 }
 
-function botEditarUsuario(tel, nombre, rol) {
+function botEditarUsuario(tel) {
+    // Obtener valores actuales directamente de las celdas
+    const nombreCelda = document.querySelector(`.ucell-nombre-${tel}`);
+    const nombreVal = nombreCelda ? (nombreCelda.textContent || '').trim().replace(/^—$/, '') : '';
+    
+    // Asignar al input de edicion por si el usuario lo cambio antes
+    const inp = document.getElementById('uedit-nombre-' + tel);
+    if (inp) {
+        inp.value = nombreVal;
+    }
+
     // Mostrar fila de edicion
     const editRow = document.getElementById('urow-edit-' + tel);
     if (editRow) editRow.style.display = '';
-    const inp = document.getElementById('uedit-nombre-' + tel);
     if (inp) { inp.focus(); inp.select(); }
 }
 function botCancelarEdicion(tel) {
