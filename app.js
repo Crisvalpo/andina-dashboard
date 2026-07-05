@@ -2547,6 +2547,27 @@ async function bimCargarColoresEstados() {
     catch (e) { bimState.coloresEstados = {}; }
 }
 
+/** Unidad de la capa activa (para etiquetas de conteo). */
+function bimUnidadCapa() {
+    return bimState.capa === 'spool' ? 'spools' : (bimState.capa === 'valvula' ? 'válvulas' : 'soportes');
+}
+
+/**
+ * Cuenta ÍTEMS únicos (spools/válvulas/soportes) en una lista de GUIDs,
+ * resolviendo GUID→TAG con el mapeo de la capa activa. Los trozos 'guid#pN'
+ * cuentan por su ítem asignado. Si nada está vinculado, cae a nº de elementos.
+ */
+function bimContarSpools(guids) {
+    const mapeo = bimState.capa === 'spool' ? (bimState.mapeoSpools || {}) : (bimState.capaMapeo[bimState.capa] || {});
+    const tags = new Set();
+    let sinTag = 0;
+    (guids || []).forEach(g => {
+        const t = mapeo[g.toLowerCase()];
+        if (t) tags.add(String(t).toLowerCase()); else sinTag++;
+    });
+    return tags.size || sinTag;
+}
+
 /** Dibuja los chips de estado (dinámicos) según los datos de la capa activa. */
 function bimRenderStatusChips() {
     const cont = document.getElementById('bim-status-chips');
@@ -2565,12 +2586,15 @@ function bimRenderStatusChips() {
         return ra !== rb ? ra - rb : a.localeCompare(b);
     });
 
+    const unidad = bimUnidadCapa();
+
     cont.innerHTML = nombres.map(st => {
-        const n = (statuses[st] || []).length;
+        const guids = statuses[st] || [];
+        const n = bimContarSpools(guids);
         const sel = bimState.filtroEstados.has(st);
         const hex = bimRgbAHex(bimColorDeEstado(st));
         const esc = st.replace(/'/g, "\\'");
-        return `<div class="bim-chip ${sel ? 'sel' : ''}" onclick="bimToggleEstado('${esc}')" title="${n} elementos">
+        return `<div class="bim-chip ${sel ? 'sel' : ''}" onclick="bimToggleEstado('${esc}')" title="${n} ${unidad} (${guids.length} elementos 3D)">
             <input type="color" value="${hex}" onclick="event.stopPropagation()"
                    onchange="bimGuardarColorEstado('${esc}', this.value)" title="Editar color de ${st}">
             <span class="bim-chip-nombre">${st}</span>
@@ -2652,14 +2676,16 @@ async function bimAplicarFiltroEstados() {
             if (actionsEl) actionsEl.style.display = 'flex';
             if (window.innerWidth <= 1024) bimCloseSidebar();
 
+            const unidad = bimUnidadCapa();
+            const totalItems = bimContarSpools([].concat(...seleccion.map(st => statuses[st] || [])));
             const resumen = seleccion.map(st =>
                 `<span style="display:inline-flex;align-items:center;gap:5px;margin:2px 8px 2px 0;font-size:0.78rem;">
                     <span style="width:10px;height:10px;border-radius:3px;background:${bimRgbAHex(bimColorDeEstado(st))}"></span>
-                    ${st}: <strong>${(statuses[st] || []).length}</strong></span>`).join('');
+                    ${st}: <strong>${bimContarSpools(statuses[st] || [])}</strong></span>`).join('');
             bimSetMeta(`
                 <div class="bim-meta-header" style="background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3);">
                     <i class="fas fa-filter"></i><span>${seleccion.length} estado(s)</span>
-                    <span class="bim-badge">${bimState.dbIds.length} elem.</span>
+                    <span class="bim-badge">${totalItems} ${unidad}</span>
                 </div>
                 <div style="padding:8px 2px;">${resumen}</div>
                 <p style="font-size:0.72rem;opacity:0.7;padding:0 2px;"><i class="fas fa-satellite-dish"></i> EN VIVO: los nuevos reportes se suman solos.</p>`);
