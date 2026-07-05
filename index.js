@@ -218,6 +218,50 @@ app.get('/api/bim/debug', async (req, res) => {
 
 // "SPOOL LUKEAPP" en LIST_Bim_MS = TAG GESTION de LIST_Spools_MS_
 // El QR puede traer el TAG GESTION (numérico corto) o el ID_SPOOL completo.
+// Parsea FECHA_LEVANTAMIENTO "MM/DD/YYYY HH:mm:ss" a epoch (robusto, sin locale).
+function parseFechaLog(str) {
+    const m = String(str || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\D+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (!m) return 0;
+    const [, mm, dd, yyyy, hh, mi, ss] = m;
+    return new Date(+yyyy, +mm - 1, +dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
+}
+
+// Normaliza un STATUS libre al conjunto canónico del visor.
+function normalizarEstadoSpool(st) {
+    if (!st) return 'SIN ESTADO';
+    const s = String(st).toUpperCase().trim();
+    if (s.includes('FABRICA')) return 'EN FABRICACIÓN';
+    if (s.includes('QAQC') || s.includes('QA/QC')) return 'QAQC';
+    if (s.includes('PINT') || s.includes('REVEST')) return 'EN PINT/REVEST.';
+    if (s.includes('RETIRAR')) return 'RETIRAR';
+    if (s.includes('POR MONTAR') || s.includes('POR_MONTAR')) return 'POR MONTAR';
+    if (s.includes('POSICIONADO')) return 'POSICIONADO';
+    if (s.includes('MONTADO') || s.includes('MONTAJE')) return 'MONTADO';
+    if (s.includes('ELIMINADO')) return 'ELIMINADO';
+    return s;
+}
+
+/**
+ * Estado ACTUAL de cada spool desde LOG_Spool_MS = ÚLTIMO registro con estado,
+ * por FECHA_LEVANTAMIENTO (desempate: orden de inserción _RowNumber).
+ * Ignora registros con STATUS vacío. Devuelve { ID_SPOOL: {status, raw, fecha} }.
+ */
+function estadosActualesDeLog(logs) {
+    const out = {};
+    logs.forEach(r => {
+        const id = String(r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
+        const st = String(r.STATUS || r['STATUS '] || '').trim();
+        if (!id || !st) return;
+        const fecha = parseFechaLog(r['FECHA_LEVANTAMIENTO']);
+        const row = parseInt(r._RowNumber || '0', 10) || 0;
+        const prev = out[id];
+        if (!prev || fecha > prev.fecha || (fecha === prev.fecha && row > prev.row)) {
+            out[id] = { status: normalizarEstadoSpool(st), raw: st, fecha, row };
+        }
+    });
+    return out;
+}
+
 app.get('/api/bim/spool/:spoolId', async (req, res) => {
     const spoolId = decodeURIComponent(req.params.spoolId).trim();
 
@@ -302,11 +346,22 @@ app.get('/api/bim/spool/:spoolId', async (req, res) => {
             autocad_size: String(row['AutoCad Size']   || '').trim()
         }));
 
+        // Estado ACTUAL desde LOG_Spool_MS (último registro por fecha), no del maestro
+        let estadoActual = null, estadoFecha = null;
+        try {
+            const idSpoolLargo = spoolMeta ? String(spoolMeta['ID_SPOOL'] || '').trim() : spoolId;
+            const logs = await fetchAppSheetCached('LOG_Spool_MS');
+            const est = estadosActualesDeLog(logs)[idSpoolLargo];
+            if (est) { estadoActual = est.status; estadoFecha = est.fecha ? new Date(est.fecha).toISOString() : null; }
+        } catch (e) { /* sin log, sin estado */ }
+
         res.json({
             spool_id:  spoolId,
             guids:     normalizedElements.map(el => el.guid).filter(Boolean),
             elements:  normalizedElements,
-            metadata:  spoolMeta || null
+            metadata:  spoolMeta || null,
+            estado_actual: estadoActual,   // ← fuente de verdad del estado
+            estado_fecha:  estadoFecha
         });
 
     } catch (e) {
@@ -382,22 +437,10 @@ app.get('/api/bim/statuses', async (req, res) => {
             return s;
         }
 
-        // Estado ACTUAL de cada spool = registro más RECIENTE (igual que el bot).
-        // Así los estados NUEVOS que agreguen los usuarios aparecen de inmediato
-        // (con el modelo por peso, un estado desconocido —peso 0— nunca ganaba).
-        // Desempate en la misma fecha: gana el de mayor peso conocido.
-        const spoolStatuses = {}; // ID_SPOOL -> { status, weight, fecha }
-        logs.forEach(r => {
-            const id = String(r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
-            const st = String(r.STATUS || r['STATUS '] || '').trim();
-            if (!id || !st) return;
-            const w = getStatusWeight(st);
-            const fecha = new Date(String(r['FECHA_LEVANTAMIENTO'] || '').trim()).getTime() || 0;
-            const prev = spoolStatuses[id];
-            if (!prev || fecha > prev.fecha || (fecha === prev.fecha && w > prev.weight)) {
-                spoolStatuses[id] = { status: normalizeStatus(st), weight: w, fecha };
-            }
-        });
+        // Estado ACTUAL de cada spool = ÚLTIMO registro de LOG_Spool_MS por fecha
+        // (desempate por orden de inserción). Ignora registros con STATUS vacío.
+        // Mismo criterio que la ficha y el bot: una única fuente de verdad.
+        const spoolStatuses = estadosActualesDeLog(logs);
 
         // 4. Agrupar GUIDs de LIST_Bim_MS por el status resuelto
         const result = {

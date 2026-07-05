@@ -4128,10 +4128,14 @@ function bimRenderMeta(data) {
     const meta = data.metadata || {};
     const els  = data.elements || [];
 
-    // Tarjetas de metadata
+    // Estado ACTUAL = último registro de LOG_Spool_MS (no el "Proceso" del maestro)
+    const estado = data.estado_actual || null;
+
+    // Tarjetas de metadata (TAG, ID_SPOOL y ESTADO quedan a la vista; el resto se contrae)
     const fields = [
         { label: 'TAG Gestión', value: meta['TAG GESTION'] || data.spool_id, icon: 'fa-tag' },
         { label: 'ID_SPOOL',    value: meta['ID_SPOOL'] || data.spool_id, icon: 'fa-barcode' },
+        { label: 'Estado actual', value: estado, icon: 'fa-circle-dot', estado: true },
         { label: 'CWP',         value: els[0]?.cwp,                icon: 'fa-map-marker-alt' },
         { label: 'Línea',       value: els[0]?.numero_linea,        icon: 'fa-route' },
         { label: 'TAG',         value: els[0]?.tag,                 icon: 'fa-tag' },
@@ -4140,22 +4144,28 @@ function bimRenderMeta(data) {
         { label: 'NPS',         value: meta['NPS'] ? `${meta['NPS']}"` : null, icon: 'fa-circle-notch' },
         { label: 'Material',    value: meta['MATERIAL'],            icon: 'fa-atom' },
         { label: 'Área',        value: meta['AREA'],                icon: 'fa-map' },
-        { label: 'Responsable', value: meta['RESPONSABLE'],         icon: 'fa-user-hard-hat' },
-        { label: 'Proceso',     value: meta['Proceso'],             icon: 'fa-cogs' }
+        { label: 'Responsable', value: meta['RESPONSABLE'],         icon: 'fa-user-hard-hat' }
     ].filter(f => f.value);
 
-    const card = f => `
+    const card = f => {
+        // La tarjeta de "Estado actual" lleva un punto con el color del estado
+        const dot = f.estado
+            ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:${bimRgbAHex(bimColorDeEstado(String(f.value).toUpperCase()))};"></span>`
+            : '';
+        return `
         <div class="bim-meta-card">
             <span class="bim-meta-icon-sm"><i class="fas ${f.icon}"></i></span>
             <div>
                 <span class="bim-meta-label">${f.label}</span>
-                <span class="bim-meta-value">${f.value}</span>
+                <span class="bim-meta-value">${dot}${f.value}</span>
             </div>
         </div>`;
+    };
 
-    // Solo TAG Gestión e ID_SPOOL a la vista; el resto contraído (tap para desplegar)
-    const principales = fields.slice(0, 2).map(card).join('');
-    const extras = fields.slice(2);
+    // TAG Gestión, ID_SPOOL y Estado actual a la vista; el resto contraído
+    const nVisibles = estado ? 3 : 2;
+    const principales = fields.slice(0, nVisibles).map(card).join('');
+    const extras = fields.slice(nVisibles);
     const extrasHtml = extras.length ? `
         <div id="bim-meta-extra" style="display:none;">${extras.map(card).join('')}</div>
         <button class="bim-meta-toggle" onclick="bimToggleMetaExtra(this)">
