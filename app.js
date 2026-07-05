@@ -2057,22 +2057,22 @@ function bimStartViewer() {
                         bimState.initialized = true;
                         document.getElementById('bim-loader').style.display = 'none';
 
-                        // Pre-cargar estados + colores + conteos reales (total spools por estado, igual que sección Spools)
+                        // Pre-cargar estados + colores + conteos reales + mapeo spools
                         Promise.all([
                             fetch('/api/bim/statuses').then(r => r.json()).catch(() => null),
                             bimCargarColoresEstados(),
-                            fetch('/api/bim/estado-conteos').then(r => r.json()).catch(() => null)
-                        ]).then(([data, , conteos]) => {
+                            fetch('/api/bim/estado-conteos').then(r => r.json()).catch(() => null),
+                            fetch('/api/bim/mapeo').then(r => r.json()).catch(() => null)
+                        ]).then(([data, , conteos, mapeo]) => {
                             if (data) bimState.statusesCache = data;
                             if (conteos) bimState.estadoConteos = conteos;
+                            if (mapeo) bimState.mapeoSpools = mapeo;
                             bimRenderStatusChips();
-                        }).catch(err => console.error('[BIM] Error precargando estados:', err));
-
-                        // Pre-cargar el mapeo de GUID -> Spool en background
-                        fetch('/api/bim/mapeo')
-                            .then(r => r.json())
-                            .then(data => { bimState.mapeoSpools = data; })
-                            .catch(err => console.error('[BIM] Error precargando mapeo de spools:', err));
+                            // Si por algún motivo ya había un filtro activo, refrescar el panel
+                            if (bimState.filtroEstados.size > 0) {
+                                bimAplicarFiltroEstados();
+                            }
+                        }).catch(err => console.error('[BIM] Error precargando datos iniciales:', err));
 
                         // Pre-cargar el índice TAG -> { id_spool, tag_gestion } para mostrar el ID largo
                         fetch('/api/bim/spool-index')
