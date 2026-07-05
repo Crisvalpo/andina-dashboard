@@ -218,11 +218,11 @@ app.get('/api/bim/debug', async (req, res) => {
 
 // "SPOOL LUKEAPP" en LIST_Bim_MS = TAG GESTION de LIST_Spools_MS_
 // El QR puede traer el TAG GESTION (numérico corto) o el ID_SPOOL completo.
-// Parsea FECHA_LEVANTAMIENTO "MM/DD/YYYY HH:mm:ss" a epoch (robusto, sin locale).
+// Parsea FECHA_LEVANTAMIENTO "DD/MM/YYYY HH:mm:ss" a epoch (robusto, sin locale).
 function parseFechaLog(str) {
     const m = String(str || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\D+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
     if (!m) return 0;
-    const [, mm, dd, yyyy, hh, mi, ss] = m;
+    const [, dd, mm, yyyy, hh, mi, ss] = m;
     return new Date(+yyyy, +mm - 1, +dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
 }
 
