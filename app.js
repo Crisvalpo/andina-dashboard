@@ -4259,7 +4259,7 @@ function bimRenderMeta(data) {
                                 <div style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
                                     <label style="font-size: 0.75rem; font-weight: 600; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Isométrico Hojas (${res.sheets.length}):</label>
                                     <div style="display: flex; gap: 8px;">
-                                        <select id="bim-pdf-sheets-select" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(15,23,42,0.6); color: #fff; font-family: inherit; font-size: 0.88rem; outline: none; box-sizing: border-box;">
+                                        <select id="bim-pdf-sheets-select" style="flex: 1; min-width: 0; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(15,23,42,0.6); color: #fff; font-family: inherit; font-size: 0.88rem; outline: none; box-sizing: border-box;">
                                             ${res.sheets.map(sh => `<option value="${sh.pdf_url}" ${sh.id_iso === res.current_sheet.id_iso ? 'selected' : ''}>${sh.hoja_label}</option>`).join('')}
                                         </select>
                                         <button onclick="bimOpenSelectedPdf()" style="padding: 10px 14px; border-radius: 8px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; outline: none;" title="Ver PDF de la hoja seleccionada">
@@ -4307,11 +4307,11 @@ function bimRenderMeta(data) {
                                 <div style="display: flex; flex-direction: column; gap: 6px; width: 100%;">
                                     <label style="font-size: 0.75rem; font-weight: 600; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">Diagrama P&ID (${res.pids.length}):</label>
                                     <div style="display: flex; gap: 8px;">
-                                        <select id="bim-pdf-pids-select" style="flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(15,23,42,0.6); color: #fff; font-family: inherit; font-size: 0.88rem; outline: none; box-sizing: border-box;">
+                                        <select id="bim-pdf-pids-select" style="flex: 1; min-width: 0; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(15,23,42,0.6); color: #fff; font-family: inherit; font-size: 0.88rem; outline: none; box-sizing: border-box;">
                                             ${res.pids.map(p => `<option value="${p.pdf_url}">${p.id_pid}</option>`).join('')}
                                         </select>
-                                        <button onclick="bimOpenSelectedPid()" style="padding: 10px 14px; border-radius: 8px; background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.3); color: #93c5fd; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; outline: none;" title="Ver PDF del P&ID seleccionado">
-                                            <i class="fas fa-project-diagram" style="font-size: 1.1rem; color: #3b82f6;"></i>
+                                        <button onclick="bimOpenSelectedPid()" style="padding: 10px 14px; border-radius: 8px; background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.3); color: #fca5a5; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; outline: none;" title="Ver PDF del P&ID seleccionado">
+                                            <i class="fas fa-file-pdf" style="font-size: 1.1rem; color: #ef4444;"></i>
                                         </button>
                                     </div>
                                 </div>
@@ -4319,8 +4319,8 @@ function bimRenderMeta(data) {
                         } else {
                             const p = res.pids[0];
                             pidContainer.innerHTML = `
-                                <button onclick="bimOpenPdf('${p.pdf_url}')" style="background:rgba(59,130,246,0.12); border-color:rgba(59,130,246,0.25); color:#93c5fd; display:flex; justify-content:center; align-items:center; gap:8px; width:100%; padding: 10px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; outline: none;">
-                                    <i class="fas fa-project-diagram" style="font-size: 1.1rem; color: #3b82f6;"></i>
+                                <button onclick="bimOpenPdf('${p.pdf_url}')" style="background:rgba(239,68,68,0.12); border-color:rgba(239,68,68,0.25); color:#fca5a5; display:flex; justify-content:center; align-items:center; gap:8px; width:100%; padding: 10px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; outline: none;">
+                                    <i class="fas fa-file-pdf" style="font-size: 1.1rem; color: #ef4444;"></i>
                                     <span>Ver P&ID PDF</span>
                                 </button>
                             `;
