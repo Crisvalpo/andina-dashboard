@@ -4,6 +4,7 @@ const fs = require('fs');
 const { CONFIG, resumenSeguro } = require('./config');
 const { fetchAppSheet, fetchAppSheetCached, invalidarCache } = require('./lib/appsheet');
 const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS, requerirSesion } = require('./lib/auth');
+const { getSupabase, asegurarBucketExistente } = require('./lib/supabase');
 const app = express();
 const PORT = CONFIG.PORT;
 
@@ -64,10 +65,13 @@ const TABLAS_WARMUP = [
     'LIST_Lineas_MS_', 'LIST_Isos_MS_', 'LIST_Spools_MS_', 'LIST_Juntas_MS_',
     'REG_EjecucionJuntas_MS', 'LOG_Spool_MS', 'LOG_SDI_MS', 'REL_SDIIso_MS',
     'REG_InspeccionVisual_MS', 'REG_DimensionalSpool_MS',
-    'CAT_TipoUnion_MS', 'CAT_FluidoServicio_MS', 'CAT_Personal_MS'
+    'CAT_TipoUnion_MS', 'CAT_FluidoServicio_MS', 'CAT_Personal_MS',
+    'REL_PIDLineas_MS', 'LIST_PID_MS'
 ];
 async function precalentarCache() {
     console.log(`[Warmup] Precargando ${TABLAS_WARMUP.length} tablas del dashboard...`);
+    // Asegurar que el bucket en Supabase Storage exista
+    await asegurarBucketExistente();
     const t0 = Date.now();
     await Promise.allSettled(TABLAS_WARMUP.map(t => refrescarTabla(t)));
     console.log(`[Warmup] Caché caliente en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
@@ -494,6 +498,183 @@ app.get('/api/bim/statuses', async (req, res) => {
     }
 });
 
+/**
+ * Intenta descargar un archivo PDF desde Supabase Storage.
+ * Si no existe, lo descarga de AppSheet, lo guarda en Supabase Storage y lo retorna.
+ */
+async function obtenerArchivoConCache(tableName, rawFileName, originalUrl) {
+    if (!rawFileName) throw new Error('Nombre de archivo inválido');
+    
+    // Limpiar el prefijo de la tabla si existe (ej: "LOG_PID_MS::Archivos/PDF/..." -> "Archivos/PDF/...")
+    let cleanPath = rawFileName.trim();
+    const parts = cleanPath.split('::');
+    if (parts.length === 2) {
+        cleanPath = parts[1];
+    }
+    
+    const bucketId = 'andina-pdfs';
+    const supabase = getSupabase();
+    
+    // 1. Intentar descargar de Supabase Storage
+    try {
+        const { data: fileData, error: downloadError } = await supabase.storage.from(bucketId).download(cleanPath);
+        if (!downloadError && fileData) {
+            console.log(`[Cache Storage] Hit: ${cleanPath}`);
+            const arrayBuffer = await fileData.arrayBuffer();
+            return Buffer.from(arrayBuffer);
+        }
+    } catch (storageErr) {
+        console.log(`[Cache Storage] Miss/Error en: ${cleanPath}. Descargando de AppSheet...`, storageErr.message);
+    }
+    
+    // 2. Si no existe, descargar de AppSheet
+    console.log(`[Cache Storage] Descargando desde AppSheet: ${originalUrl}`);
+    const response = await fetch(originalUrl);
+    if (!response.ok) {
+        throw new Error(`Error descargando de AppSheet (${response.status}): ${response.statusText}`);
+    }
+    
+    const arrayBuffer = await response.arrayBuffer();
+    const fileBuffer = Buffer.from(arrayBuffer);
+    
+    // 3. Guardar en Supabase Storage en segundo plano
+    supabase.storage.from(bucketId).upload(cleanPath, fileBuffer, {
+        contentType: 'application/pdf',
+        upsert: true
+    }).then(({ error: uploadError }) => {
+        if (uploadError) {
+            console.error(`[Cache Storage] Error guardando ${cleanPath} en Supabase:`, uploadError.message);
+        } else {
+            console.log(`[Cache Storage] Cacheado con éxito: ${cleanPath}`);
+        }
+    }).catch(err => {
+        console.error(`[Cache Storage] Error asíncrono guardando ${cleanPath}:`, err.message);
+    });
+    
+    return fileBuffer;
+}
+
+// GET /api/pid/pdf/:query → Obtiene los diagramas P&ID asociados a un spool, línea o ID_PID desde REL_PIDLineas_MS y LIST_PID_MS
+app.get('/api/pid/pdf/:query', async (req, res) => {
+    const query = decodeURIComponent(req.params.query).trim();
+    if (!query) {
+        return res.status(400).json({ success: false, message: 'Falta el parámetro de búsqueda' });
+    }
+
+    try {
+        console.log(`[PID PDF] Buscando planos P&ID para "${query}"...`);
+        const [spools, rels, pids] = await Promise.all([
+            fetchAppSheetCached('LIST_Spools_MS_'),
+            fetchAppSheetCached('REL_PIDLineas_MS'),
+            fetchAppSheetCached('LIST_PID_MS')
+        ]);
+
+        const appName = CONFIG.APPSHEET_APP_ID || 'LukeAPP_Andina-526211656';
+
+        // 1. Determinar el ID_LINEA
+        let idLinea = null;
+        
+        // Ver si query coincide con el ID_SPOOL o el TAG GESTION de algún spool
+        const spool = spools.find(s => 
+            String(s.ID_SPOOL || '').trim().toLowerCase() === query.toLowerCase() ||
+            String(s['TAG GESTION'] || '').trim().toLowerCase() === query.toLowerCase() ||
+            String(s.SPOOL || '').trim().toLowerCase() === query.toLowerCase()
+        );
+
+        if (spool) {
+            idLinea = String(spool.ID_LINEA || '').trim();
+            console.log(`[PID PDF] Resolvimos spool "${query}" a línea: "${idLinea}"`);
+        } else {
+            // Si no fue spool, ver si coincide directamente con alguna línea
+            const lineaExiste = rels.some(r => String(r.ID_LINEA || '').trim().toLowerCase() === query.toLowerCase());
+            if (lineaExiste) {
+                idLinea = query;
+            }
+        }
+
+        // 2. Encontrar todos los ID_PID asociados
+        let idPidsAsociados = [];
+        if (idLinea) {
+            idPidsAsociados = rels
+                .filter(r => String(r.ID_LINEA || '').trim().toLowerCase() === idLinea.toLowerCase())
+                .map(r => String(r.ID_PID || '').trim())
+                .filter(Boolean);
+        } else {
+            // Si no hay línea, ver si la query coincide directamente con un ID_PID del maestro
+            const pidExiste = pids.some(p => String(p.ID_PID || '').trim().toLowerCase().includes(query.toLowerCase()));
+            if (pidExiste) {
+                // Encontrar los matches aproximados o exactos
+                idPidsAsociados = [...new Set(
+                    pids
+                        .filter(p => String(p.ID_PID || '').trim().toLowerCase().includes(query.toLowerCase()))
+                        .map(p => String(p.ID_PID || '').trim())
+                )];
+            }
+        }
+
+        if (idPidsAsociados.length === 0) {
+            return res.json({ success: false, message: 'No se encontraron P&IDs asociados a esta consulta' });
+        }
+
+        // 3. Para cada ID_PID, obtener el registro más actual en LIST_PID_MS según FECHA_CREACION
+        const parseFechaCreacion = str => {
+            if (!str) return 0;
+            const m = String(str).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2}):(\d{2})$/);
+            if (!m) return 0;
+            const [, dd, mm, yyyy, hh, mi, ss] = m;
+            return new Date(+yyyy, +mm - 1, +dd, +hh, +mi, +ss).getTime();
+        };
+
+        const resultPids = [];
+        
+        idPidsAsociados.forEach(idPid => {
+            const versiones = pids.filter(p => String(p.ID_PID || '').trim() === idPid && p.ARCHIVO_PDF_VIGENTE);
+            if (versiones.length > 0) {
+                // Ordenar por FECHA_CREACION desc
+                versiones.sort((a, b) => parseFechaCreacion(b.FECHA_CREACION) - parseFechaCreacion(a.FECHA_CREACION));
+                const masReciente = versiones[0];
+                
+                // Formatear archivo y url
+                const fileRaw = masReciente.ARCHIVO_PDF_VIGENTE;
+                let cleanFile = fileRaw;
+                let tableProvider = 'LIST_PID_MS';
+                
+                const parts = fileRaw.split('::');
+                if (parts.length === 2) {
+                    tableProvider = parts[0];
+                    cleanFile = parts[1];
+                }
+
+                const pdfUrl = `https://www.appsheet.com/template/gettablefileurl?appName=${appName}&tableName=${encodeURIComponent(tableProvider)}&fileName=${encodeURIComponent(cleanFile)}`;
+
+                resultPids.push({
+                    id_pid: idPid,
+                    descripcion: masReciente.DESCRIPCION || '',
+                    fecha_creacion: masReciente.FECHA_CREACION || '',
+                    revision_vigente: masReciente.REVISION_VIGENTE || '',
+                    estado_vigente: masReciente.ESTADO_VIGENTE || '',
+                    pdf_url: pdfUrl
+                });
+            }
+        });
+
+        if (resultPids.length === 0) {
+            return res.json({ success: false, message: 'No se encontraron archivos PDF vigentes para los P&IDs asociados' });
+        }
+
+        res.json({
+            success: true,
+            query: query,
+            linea: idLinea,
+            pids: resultPids
+        });
+
+    } catch (e) {
+        console.error('[PID PDF Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // GET /api/iso/pdf/:isoId → Obtiene la hoja actual y todas las demás hojas de la misma línea (isométrico multi-hoja) desde LOG_Iso_MS
 app.get('/api/iso/pdf/:isoId', async (req, res) => {
     const isoId = decodeURIComponent(req.params.isoId).trim();
@@ -579,7 +760,7 @@ app.get('/api/iso/pdf/:isoId', async (req, res) => {
     }
 });
 
-// GET /api/iso/proxy-pdf → Actúa como proxy para servir el PDF de AppSheet sin restricciones de X-Frame-Options
+// GET /api/iso/proxy-pdf → Actúa como proxy para servir el PDF de AppSheet sin restricciones de X-Frame-Options (usa Supabase Storage como caché)
 app.get('/api/iso/proxy-pdf', async (req, res) => {
     const fileUrl = req.query.url;
     if (!fileUrl) {
@@ -587,24 +768,27 @@ app.get('/api/iso/proxy-pdf', async (req, res) => {
     }
 
     try {
-        console.log(`[Proxy PDF] Descargando y sirviendo: ${fileUrl}`);
-        const response = await fetch(fileUrl);
-        if (!response.ok) {
-            throw new Error(`Error de AppSheet: ${response.status}`);
+        // Extraer fileName de la URL para usarlo de clave
+        let fileName = 'archivo.pdf';
+        try {
+            const urlObj = new URL(fileUrl);
+            fileName = urlObj.searchParams.get('fileName') || urlObj.pathname.split('/').pop() || 'archivo.pdf';
+        } catch (urlErr) {
+            // Si no es URL válida o falla el parser
         }
 
-        // Propagar cabeceras HTTP de tipo de contenido
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'inline; filename="isometrico.pdf"');
+        // Obtener el buffer del archivo utilizando nuestra lógica de Supabase Storage
+        const fileBuffer = await obtenerArchivoConCache('LOG_Iso_MS', fileName, fileUrl);
 
-        // Descargar el stream y enviarlo
-        const arrayBuffer = await response.arrayBuffer();
-        res.send(Buffer.from(arrayBuffer));
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="plano.pdf"');
+        res.send(fileBuffer);
     } catch (e) {
         console.error('[Proxy PDF Error]', e.message);
         res.status(500).send(`Error al cargar el PDF a través del proxy: ${e.message}`);
     }
 });
+
 
 // GET /api/bim/mapeo → Obtiene el mapa de GUID -> SPOOL LUKEAPP de todos los elementos mapeados en AppSheet
 app.get('/api/bim/mapeo', async (req, res) => {
@@ -1099,7 +1283,7 @@ app.post('/api/bim/:capa/desvincular', requerirPermiso('bim'), async (req, res) 
 // =================================================================
 const { handleWhatsappIncoming, resolverSpool, registrarAvanceAppSheet, consultarEstadoSpool, guardarRegistro } = require('./lib/bot');
 const { listarBotConfig, setBotConfig, getBotConfig } = require('./lib/botConfig');
-const { getSupabase } = require('./lib/supabase');
+
 
 // -----------------------------------------------------------------
 // AUTENTICACIÓN (claves de escritura). Lectura del dashboard: abierta.
