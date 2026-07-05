@@ -1101,6 +1101,42 @@ app.post('/api/auth/login', (req, res) => {
 // Webhook de mensajes entrantes (llamado por el wa-bridge; valida su propio secreto)
 app.post('/api/whatsapp-incoming', handleWhatsappIncoming);
 
+// GET /api/bim/estado-conteos → por estado: { total, asociados, sin_asociar }
+// Cuenta TODOS los spools (LIST_Spools_MS_) por su estado LOG (último registro),
+// igual que la sección Spools. 'sin_asociar' = spools sin geometría en el modelo.
+// El visor colorea solo los asociados, pero el número refleja el total real.
+app.get('/api/bim/estado-conteos', async (req, res) => {
+    try {
+        const [spools, logs, rawBim] = await Promise.all([
+            fetchAppSheetCached('LIST_Spools_MS_'),
+            fetchAppSheetCached('LOG_Spool_MS'),
+            fetchAppSheetCached('LIST_Bim_MS')
+        ]);
+        const estados = estadosActualesDeLog(logs); // ID_SPOOL -> { status }
+        const tagsAsociados = new Set();
+        rawBim.forEach(r => {
+            const t = String(r['SPOOL LUKEAPP'] || '').trim().toLowerCase();
+            if (t) tagsAsociados.add(t);
+        });
+        const conteos = {};
+        spools.forEach(s => {
+            const idSpool = String(s['ID_SPOOL'] || '').trim();
+            if (!idSpool) return;
+            const tag = String(s['TAG GESTION'] || '').trim().toLowerCase();
+            const est = estados[idSpool];
+            const status = est ? est.status : 'SIN ESTADO';
+            if (!conteos[status]) conteos[status] = { total: 0, asociados: 0, sin_asociar: 0 };
+            conteos[status].total++;
+            if (tag && tagsAsociados.has(tag)) conteos[status].asociados++;
+            else conteos[status].sin_asociar++;
+        });
+        res.json(conteos);
+    } catch (e) {
+        console.error('[BIM Estado-Conteos]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // =================================================================
 // COLORES DE ESTADOS DEL VISOR (dinámicos y editables)
 // Overrides guardados como JSON en bot_config('colores_estados_bim').

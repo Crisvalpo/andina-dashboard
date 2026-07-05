@@ -1356,23 +1356,32 @@ function getSpoolStatusWeight(status) {
     return 0;
 }
 
+/** Parsea "MM/DD/YYYY HH:mm:ss" a epoch (robusto, sin depender del locale). */
+function parseFechaSpool(str) {
+    const m = String(str || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\D+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (!m) return 0;
+    const [, mm, dd, yy, hh, mi, ss] = m;
+    return new Date(+yy, +mm - 1, +dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
+}
+
 /**
- * Resuelve el status más avanzado de cada spool desde LOG_Spool_MS.
- * Retorna un Map<ID_SPOOL, statusString>.
+ * Estado ACTUAL de cada spool desde LOG_Spool_MS = ÚLTIMO registro por fecha
+ * (desempate por orden de inserción). Ignora STATUS vacío. Misma regla que la
+ * sección BIM y el bot → una única fuente de verdad. Retorna Map<ID_SPOOL, status>.
  */
 function resolveSpoolStatuses() {
-    const statusMap = new Map(); // ID_SPOOL -> { status, weight }
+    const statusMap = new Map(); // ID_SPOOL -> { status, fecha, row }
     state.logSpools.forEach(r => {
         const id = (r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
         const st = (r.STATUS || r['STATUS '] || '').trim();
         if (!id || !st) return;
-        const w = getSpoolStatusWeight(st);
+        const fecha = parseFechaSpool(r['FECHA_LEVANTAMIENTO']);
+        const row = parseInt(r._RowNumber || '0', 10) || 0;
         const prev = statusMap.get(id);
-        if (!prev || w > prev.weight) {
-            statusMap.set(id, { status: st, weight: w });
+        if (!prev || fecha > prev.fecha || (fecha === prev.fecha && row > prev.row)) {
+            statusMap.set(id, { status: st, fecha, row });
         }
     });
-    // Return Map<ID_SPOOL, statusString>
     const result = new Map();
     statusMap.forEach((v, k) => result.set(k, v.status));
     return result;
@@ -1869,6 +1878,7 @@ const bimState = {
     liveSets:      null,   // { estado: Set<guid> } ya mostrados
     filtroEstados: new Set(), // Estados seleccionados en el filtro (chips)
     coloresEstados: {},    // Overrides de color por estado (servidor)
+    estadoConteos: null,   // { estado: {total, asociados, sin_asociar} } — conteo REAL de spools
     capaStatuses:  null,   // Estados de la capa válvula/soporte activa
     capa:          'spool',// Capa activa: 'spool' | 'valvula' | 'soporte'
     capaMapeo:     {},     // { valvula: {guidLower:id}, soporte: {...} }
@@ -2047,12 +2057,14 @@ function bimStartViewer() {
                         bimState.initialized = true;
                         document.getElementById('bim-loader').style.display = 'none';
 
-                        // Pre-cargar estados + colores y dibujar los chips dinámicos del filtro
+                        // Pre-cargar estados + colores + conteos reales (total spools por estado, igual que sección Spools)
                         Promise.all([
                             fetch('/api/bim/statuses').then(r => r.json()).catch(() => null),
-                            bimCargarColoresEstados()
-                        ]).then(([data]) => {
+                            bimCargarColoresEstados(),
+                            fetch('/api/bim/estado-conteos').then(r => r.json()).catch(() => null)
+                        ]).then(([data, , conteos]) => {
                             if (data) bimState.statusesCache = data;
+                            if (conteos) bimState.estadoConteos = conteos;
                             bimRenderStatusChips();
                         }).catch(err => console.error('[BIM] Error precargando estados:', err));
 
@@ -2581,7 +2593,12 @@ function bimRenderStatusChips() {
         const i = BIM_ORDEN_FLUJO.indexOf(st);
         return i !== -1 ? i : 500;
     };
-    const nombres = Object.keys(statuses).sort((a, b) => {
+
+    // Unificar keys de statuses y estadoConteos para mostrar todos los estados conocidos
+    const keysStatuses = Object.keys(statuses);
+    const keysConteos  = bimState.capa === 'spool' && bimState.estadoConteos ? Object.keys(bimState.estadoConteos) : [];
+    const allKeys = [...new Set([...keysStatuses, ...keysConteos])];
+    const nombres = allKeys.sort((a, b) => {
         const ra = rango(a), rb = rango(b);
         return ra !== rb ? ra - rb : a.localeCompare(b);
     });
@@ -2590,15 +2607,30 @@ function bimRenderStatusChips() {
 
     cont.innerHTML = nombres.map(st => {
         const guids = statuses[st] || [];
-        const n = bimContarSpools(guids);
-        const sel = bimState.filtroEstados.has(st);
-        const hex = bimRgbAHex(bimColorDeEstado(st));
-        const esc = st.replace(/'/g, "\\'");
-        return `<div class="bim-chip ${sel ? 'sel' : ''}" onclick="bimToggleEstado('${esc}')" title="${n} ${unidad} (${guids.length} elementos 3D)">
+        const sel   = bimState.filtroEstados.has(st);
+        const hex   = bimRgbAHex(bimColorDeEstado(st));
+        const esc   = st.replace(/'/g, "\\'");
+
+        // Número a mostrar: total real (sección Spools) si está disponible; si no, GUIDs del modelo
+        let nTotal, nSinAsociar;
+        if (bimState.capa === 'spool' && bimState.estadoConteos && bimState.estadoConteos[st]) {
+            nTotal      = bimState.estadoConteos[st].total;
+            nSinAsociar = bimState.estadoConteos[st].sin_asociar || 0;
+        } else {
+            nTotal      = bimContarSpools(guids);
+            nSinAsociar = 0;
+        }
+
+        const badgeHtml = nSinAsociar > 0
+            ? `<span class="bim-chip-sin-asociar" title="${nSinAsociar} sin modelo 3D">-${nSinAsociar}</span>`
+            : '';
+
+        return `<div class="bim-chip ${sel ? 'sel' : ''}" onclick="bimToggleEstado('${esc}')" title="${nTotal} ${unidad} (${nSinAsociar > 0 ? nSinAsociar + ' sin geometría 3D' : 'todos con modelo'})">
             <input type="color" value="${hex}" onclick="event.stopPropagation()"
                    onchange="bimGuardarColorEstado('${esc}', this.value)" title="Editar color de ${st}">
             <span class="bim-chip-nombre">${st}</span>
-            <span class="bim-chip-n">${n}</span>
+            <span class="bim-chip-n">${nTotal}</span>
+            ${badgeHtml}
         </div>`;
     }).join('');
 }

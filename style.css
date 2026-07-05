@@ -2661,6 +2661,18 @@ body.sidebar-collapsed #bim-section {
     font-weight: 700;
 }
 .bim-chip.sel .bim-chip-n { color: #c7d2fe; }
+/* Badge sutil: spools sin geometría 3D asociada en el modelo */
+.bim-chip-sin-asociar {
+    background: rgba(251, 146, 60, 0.15);
+    border: 1px solid rgba(251, 146, 60, 0.3);
+    border-radius: 6px;
+    padding: 1px 5px;
+    font-size: 0.62rem;
+    font-weight: 700;
+    color: rgba(251, 146, 60, 0.75);
+    white-space: nowrap;
+    cursor: default;
+}
 
 /* Botón "ver más detalles" de las tarjetas de metadata */
 .bim-meta-toggle {
