@@ -2709,17 +2709,15 @@ async function bimAplicarFiltroEstados() {
             if (window.innerWidth <= 1024) bimCloseSidebar();
 
             const unidad = bimUnidadCapa();
-            const totalItems = bimContarSpools([].concat(...seleccion.map(st => statuses[st] || [])));
             const resumen = seleccion.map(st =>
                 `<span style="display:inline-flex;align-items:center;gap:5px;margin:2px 8px 2px 0;font-size:0.78rem;">
                     <span style="width:10px;height:10px;border-radius:3px;background:${bimRgbAHex(bimColorDeEstado(st))}"></span>
-                    ${st}: <strong>${bimContarSpools(statuses[st] || [])}</strong></span>`).join('');
+                    ${st}</span>`).join('');
             bimSetMeta(`
                 <div class="bim-meta-header" style="background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3);">
-                    <i class="fas fa-filter"></i><span>${seleccion.length} estado(s)</span>
-                    <span class="bim-badge">${totalItems} ${unidad}</span>
+                    <i class="fas fa-filter"></i><span>Filtro activo: ${seleccion.length} estado(s)</span>
                 </div>
-                <div style="padding:8px 2px;">${resumen}</div>
+                <div style="padding:8px 2px; display:flex; flex-wrap:wrap; gap:4px;">${resumen}</div>
                 <p style="font-size:0.72rem;opacity:0.7;padding:0 2px;"><i class="fas fa-satellite-dish"></i> EN VIVO: los nuevos reportes se suman solos.</p>`);
             bimLiveStart(seleccion, statuses);
         };
