@@ -218,12 +218,29 @@ app.get('/api/bim/debug', async (req, res) => {
 
 // "SPOOL LUKEAPP" en LIST_Bim_MS = TAG GESTION de LIST_Spools_MS_
 // El QR puede traer el TAG GESTION (numérico corto) o el ID_SPOOL completo.
-// Parsea FECHA_LEVANTAMIENTO "DD/MM/YYYY HH:mm:ss" a epoch (robusto, sin locale).
+// Parsea FECHA_LEVANTAMIENTO detectando dinámicamente si el formato es MM/DD/YYYY o DD/MM/YYYY.
+// La API de AppSheet suele retornar MM/DD/YYYY, pero puede haber inconsistencias de formato.
 function parseFechaLog(str) {
     const m = String(str || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\D+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
     if (!m) return 0;
-    const [, dd, mm, yyyy, hh, mi, ss] = m;
-    return new Date(+yyyy, +mm - 1, +dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
+    const [, p1, p2, yyyy, hh, mi, ss] = m;
+    let mm, dd;
+
+    if (+p1 > 12) {
+        // Primer valor > 12 -> obligatoriamente DD/MM/YYYY
+        dd = +p1;
+        mm = +p2;
+    } else if (+p2 > 12) {
+        // Segundo valor > 12 -> obligatoriamente MM/DD/YYYY
+        mm = +p1;
+        dd = +p2;
+    } else {
+        // Ambos <= 12 (ambigüedad). La API de AppSheet típicamente entrega MM/DD/YYYY.
+        mm = +p1;
+        dd = +p2;
+    }
+
+    return new Date(+yyyy, mm - 1, dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
 }
 
 // Normaliza un STATUS libre al conjunto canónico del visor.
