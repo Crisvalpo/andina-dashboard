@@ -2374,16 +2374,25 @@ async function bimLoadSpool(spoolId) {
 
         bimState.currentGuids = data.guids;
 
-        // Convertir GUIDs a dbIds del viewer
-        bimGuidsToDbIds(data.guids, (dbIds) => {
+        // Separar elementos reales de TROZOS (guid#pN, que no resuelven a dbId).
+        // Para que el modelo entre en x-ray aunque el spool sea SOLO trozos,
+        // aislamos el elemento ORIGINAL que hay detrás de cada trozo del spool.
+        const guidsParaAislar = [];
+        data.guids.forEach(g => {
+            if (String(g).includes('#p')) {
+                const mesh = divState.trozoMeshes[String(g).toLowerCase()];
+                if (mesh?.userData?.guid) guidsParaAislar.push(mesh.userData.guid);
+            } else {
+                guidsParaAislar.push(g);
+            }
+        });
+
+        bimGuidsToDbIds(guidsParaAislar, (dbIds) => {
             bimState.dbIds = dbIds;
             if (dbIds.length > 0) {
-                bimHighlightElements(dbIds);
-                // Si el usuario está en móvil o tablet, colapsar automáticamente la barra
-                // lateral para que el modelo 3D sea visible a pantalla completa de inmediato
-                if (window.innerWidth <= 1024) {
-                    bimCloseSidebar();
-                }
+                bimHighlightElements(dbIds);   // isolate → x-ray del resto
+                bimDivReocultarOriginales();   // isolate re-mostró los divididos → re-ocultar
+                if (window.innerWidth <= 1024) bimCloseSidebar();
             }
         });
 
@@ -3943,18 +3952,7 @@ function bimCrearPieza(eje, a, b, colorHex, opacidad = 1) {
         const a2 = a + GAP / 2, b2 = b - GAP / 2;
         const largo = eje.len * Math.max(b2 - a2, 0.002);
         const geo = new THREE.CylinderGeometry(eje.radio, eje.radio, largo, 20, 1, false);
-        // Clonar el material ORIGINAL → el trozo se ve idéntico al tubo. Si no se
-        // pudo leer, caer a un Phong con el color muestreado.
-        let mat = null;
-        if (eje.matOrig && typeof eje.matOrig.clone === 'function') {
-            try { mat = eje.matOrig.clone(); mat.needsUpdate = true; } catch (e) { mat = null; }
-        }
-        if (!mat) {
-            mat = new THREE.MeshPhongMaterial({
-                color: colorHex, transparent: opacidad < 1, opacity: opacidad,
-                specular: 0x222222, shininess: 40
-            });
-        }
+        const mat = bimMatTrozo(eje.matOrig, colorHex, opacidad);
         const mesh = new THREE.Mesh(geo, mat);
         mesh._matPristino = mat; // material "idéntico al original" (para restaurar look)
         // Cylinder nace alineado a +Y → orientarlo a la dirección real del tubo
@@ -3995,6 +3993,34 @@ function bimDivRedibujarClon() {
     [['ext0', divState.ext0], ['ext1', divState.ext1]].forEach(([tipo, t]) => {
         const h = bimCrearManilla(divState.eje, t, 0x38bdf8);
         if (h) { h.userData = { tipo }; divState.handles.push(h); }
+    });
+}
+
+/**
+ * Material del trozo que MEJOR imita al tubo original. Clona el material real,
+ * pero se protege de dos fallas de APS: clon que renderiza NEGRO (materiales
+ * Prism) o color BLANCO (color real en textura) → cae a un Phong con el hex
+ * muestreado, y si ese también es blanco/negro usa un gris neutro visible.
+ */
+function bimMatTrozo(matOrig, colorHex, opacidad = 1) {
+    const esExtremo = (h) => h === 0x000000 || h === 0xffffff || h == null;
+    const colorFinal = esExtremo(colorHex) ? 0xb8c0cc : colorHex;
+    // 1) Intentar clonar el material original
+    try {
+        if (matOrig && typeof matOrig.clone === 'function') {
+            const c = matOrig.clone();
+            c.needsUpdate = true;
+            c.transparent = opacidad < 1;
+            c.opacity = opacidad;
+            // Si el clon quedó negro (Prism mal clonado) → forzar el color muestreado
+            if (c.color && esExtremo(c.color.getHex())) c.color.setHex(colorFinal);
+            return c;
+        }
+    } catch (e) { /* fallback abajo */ }
+    // 2) Phong con el color muestreado (o gris neutro)
+    return new THREE.MeshPhongMaterial({
+        color: colorFinal, transparent: opacidad < 1, opacity: opacidad,
+        specular: 0x222222, shininess: 40
     });
 }
 
