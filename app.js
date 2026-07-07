@@ -2387,6 +2387,9 @@ async function bimLoadSpool(spoolId) {
             }
         });
 
+        // Trozos: los del spool buscado quedan sólidos; el resto en x-ray (como el modelo)
+        bimDivGhostPorSpool(data.guids);
+
         // Renderizar metadata en panel lateral
         bimRenderMeta(data);
 
@@ -4047,6 +4050,31 @@ function bimDivFiltrarTrozos(seleccionSet) {
 /** Restaura el look original del trozo (material clonado del tubo). */
 function bimTrozoPintarOriginal(mesh) {
     if (mesh._matPristino) mesh.material = mesh._matPristino;
+    if (mesh.material && mesh.material.emissive) mesh.material.emissive.setHex(0x000000);
+}
+
+/** Modo x-ray para el trozo (translúcido, como los elementos no aislados de APS). */
+function bimTrozoPintarGhost(mesh) {
+    if (!mesh._matGhost) {
+        mesh._matGhost = new THREE.MeshPhongMaterial({
+            color: 0x9aa4b2, transparent: true, opacity: 0.10, depthWrite: false
+        });
+    }
+    mesh.material = mesh._matGhost;
+}
+
+/**
+ * Al aislar un spool (búsqueda): los trozos de ESE spool quedan sólidos y el
+ * resto en x-ray, igual que el ghosting del modelo APS. guidsActivos incluye
+ * las claves de los trozos hijos (guid#pN) del spool buscado.
+ */
+function bimDivGhostPorSpool(guidsActivos) {
+    const activos = new Set((guidsActivos || []).map(g => String(g).toLowerCase()));
+    for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
+        if (activos.has(key)) { mesh.visible = true; bimTrozoPintarOriginal(mesh); }
+        else bimTrozoPintarGhost(mesh);
+    }
+    bimState.viewer?.impl.invalidate(false, false, true);
 }
 
 /** Tiñe el trozo con un color de estado sólido (material temático dedicado). */
