@@ -2479,8 +2479,9 @@ function bimResetView() {
     if (!bimState.viewer) return;
     bimState.viewer.showAll();
     // Los originales divididos permanecen ocultos PARA SIEMPRE (los reemplaza su clon)
-    if (typeof divState !== 'undefined' && divState.ocultos.length) {
-        divState.ocultos.forEach(id => bimState.viewer.hide(id));
+    if (typeof divState !== 'undefined') {
+        bimDivReocultarOriginales();
+        bimDivFiltrarTrozos(null); // sin filtro: todos los trozos visibles
     }
     bimState.viewer.clearThemingColors(bimState.viewer.model);
     bimState.dbIds  = [];
@@ -2696,14 +2697,17 @@ async function bimAplicarFiltroEstados() {
         let acumulados = [];
         let pendientes = seleccion.length;
         const finalizar = () => {
-            bimState.dbIds = [...new Set(acumulados)];
+            // Excluir originales divididos del aislamiento (su clon los reemplaza)
+            bimState.dbIds = [...new Set(acumulados)].filter(id => !divState.ocultos.includes(id));
             if (bimState.dbIds.length) {
                 viewer.isolate(bimState.dbIds);
                 viewer.fitToView(bimState.dbIds);
             } else {
                 viewer.isolate([]);
             }
+            bimDivReocultarOriginales();     // isolate re-muestra los hidden → volver a ocultar
             bimDivColorearTrozos();
+            bimDivFiltrarTrozos(new Set(seleccion)); // trozos participan del filtro
             const actionsEl = document.getElementById('bim-actions');
             if (actionsEl) actionsEl.style.display = 'flex';
             if (window.innerWidth <= 1024) bimCloseSidebar();
@@ -2911,6 +2915,7 @@ async function bimLiveTick() {
             trozosNuevos.forEach(g => {
                 const mesh = divState.trozoMeshes[g];
                 if (!mesh) return;
+                mesh.visible = true; // su estado acaba de entrar al filtro seguido
                 let p = 0;
                 const pulsarT = () => {
                     if (p % 2 === 0) mesh.material.color.setRGB(1, 1, 1);
@@ -2929,8 +2934,9 @@ async function bimLiveTick() {
                 bimGuidsToDbIds(nuevosModelo, (dbIdsNuevos) => {
                     const viewer = bimState.viewer;
                     if (!viewer || !dbIdsNuevos.length) { bimLiveChipUpdate(); return; }
-                    bimState.dbIds = [...new Set([...(bimState.dbIds || []), ...dbIdsNuevos])];
+                    bimState.dbIds = [...new Set([...(bimState.dbIds || []), ...dbIdsNuevos])].filter(id => !divState.ocultos.includes(id));
                     viewer.isolate(bimState.dbIds);
+                    bimDivReocultarOriginales();
 
                     bimState.liveFocusPend = [...new Set([...(bimState.liveFocusPend || []), ...dbIdsNuevos])];
                     clearTimeout(bimState.liveFocusTimer);
@@ -2992,6 +2998,7 @@ async function bimLiveTickLegacy() {
             trozosNuevos.forEach(g => {
                 const mesh = divState.trozoMeshes[g];
                 if (!mesh) return;
+                mesh.visible = true; // su estado acaba de entrar al filtro seguido
                 let p = 0;
                 const pulsarT = () => {
                     if (p % 2 === 0) mesh.material.color.setRGB(1, 1, 1);
@@ -3361,12 +3368,32 @@ async function bimTrozoVincular(key) {
         const d = await resp.json();
         if (!d.success && !d.count) throw new Error(d.error || 'Error');
         if (bimState.mapeoSpools) bimState.mapeoSpools[key] = tag;
-        // Refrescar estados para pintar el trozo con el estado real de su spool
-        fetch('/api/bim/statuses').then(r => r.json()).then(data => {
-            bimState.statusesCache = data;
-            bimDivColorearTrozos();
-            bimTrozoRenderPanel(mesh);
-        }).catch(() => bimTrozoRenderPanel(mesh));
+
+        // Coloreo OPTIMISTA: AppSheet tiene consistencia eventual (la fila hija
+        // recién creada puede tardar en aparecer en un Find), así que el estado
+        // se saca directo de la ficha del spool y se aplica al tiro.
+        let estadoSpool = null;
+        try {
+            const dSpool = await (await fetch(`/api/bim/spool/${encodeURIComponent(tag)}`)).json();
+            estadoSpool = dSpool.estado_actual || null;
+        } catch (e) { /* sin ficha, sin estado */ }
+        const st = String(estadoSpool || 'SIN ESTADO').toUpperCase();
+
+        // Actualizar el caché local de estados (consistente para filtros/colormap)
+        if (bimState.statusesCache) {
+            for (const arr of Object.values(bimState.statusesCache)) {
+                const i = arr.findIndex(g => g.toLowerCase() === key);
+                if (i !== -1) arr.splice(i, 1);
+            }
+            (bimState.statusesCache[st] = bimState.statusesCache[st] || []).push(key);
+        }
+
+        const [r2, g2, b2] = bimColorDeEstado(st);
+        mesh.material.color.setRGB(r2, g2, b2);
+        // Respetar el filtro activo (si su estado no está seleccionado, se oculta)
+        if (bimState.filtroEstados.size) mesh.visible = bimState.filtroEstados.has(st);
+        bimState.viewer.impl.invalidate(false, false, true);
+        bimTrozoRenderPanel(mesh);
     } catch (e) {
         alert('No se pudo vincular el trozo: ' + e.message);
     }
@@ -3385,9 +3412,17 @@ async function bimTrozoDesvincular(key) {
         });
         if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
         if (bimState.mapeoSpools) delete bimState.mapeoSpools[key];
-        // Color neutro de vuelta
+        // Sacarlo del caché de estados y volver al color neutro
+        if (bimState.statusesCache) {
+            for (const arr of Object.values(bimState.statusesCache)) {
+                const i = arr.findIndex(g => g.toLowerCase() === key);
+                if (i !== -1) arr.splice(i, 1);
+            }
+        }
         const { idx } = mesh.userData;
         mesh.material.color.setHex(DIV_COLORES[idx % DIV_COLORES.length]);
+        // Sin vínculo = SIN ESTADO para efectos del filtro activo
+        if (bimState.filtroEstados.size) mesh.visible = bimState.filtroEstados.has('SIN ESTADO');
         bimState.viewer.impl.invalidate(false, false, true);
         bimTrozoRenderPanel(mesh);
     } catch (e) {
@@ -3924,6 +3959,31 @@ function bimDivRegistrarTrozo(mesh, guid, idx) {
     mesh.userData.key = key;
     divState.trozoMeshes[key] = mesh;
     return key;
+}
+
+/**
+ * Aplica el filtro por estado a los TROZOS (overlays que APS no aísla):
+ * visible solo si su estado está en la selección. seleccionSet=null → todos.
+ */
+function bimDivFiltrarTrozos(seleccionSet) {
+    const statusDe = {};
+    if (bimState.statusesCache) {
+        for (const [st, gs] of Object.entries(bimState.statusesCache)) {
+            gs.forEach(g => { statusDe[g.toLowerCase()] = st; });
+        }
+    }
+    for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
+        const st = statusDe[key] || 'SIN ESTADO';
+        mesh.visible = !seleccionSet || seleccionSet.has(st);
+    }
+    bimState.viewer?.impl.invalidate(false, false, true);
+}
+
+/** Re-oculta los originales divididos (isolate los re-muestra aunque estén hidden). */
+function bimDivReocultarOriginales() {
+    if (divState.ocultos.length && bimState.viewer) {
+        divState.ocultos.forEach(id => bimState.viewer.hide(id));
+    }
 }
 
 /** Colorea cada trozo asignado según el estado actual de su spool. */
