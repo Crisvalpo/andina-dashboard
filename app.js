@@ -3196,47 +3196,81 @@ function bimDividirInit() {
 }
 
 /** Detecta clic sobre un trozo persistido y abre su panel de asignación. */
+/**
+ * Trozo bajo el cursor por distancia RAYO↔EJE del segmento (tolerante, no exige
+ * pegarle exacto al cilindro delgado). Devuelve { mesh, distCam } del más cercano.
+ */
+function bimTrozoBajoRayo(ev) {
+    const viewer = bimState.viewer;
+    const rect = viewer.canvas.getBoundingClientRect();
+    const ray = viewer.impl.viewportToRay(viewer.impl.clientToViewport(ev.clientX - rect.left, ev.clientY - rect.top));
+    if (!ray) return null;
+    const o = ray.origin, d1 = ray.direction.clone().normalize();
+    let best = null, bestS = Infinity;
+    for (const mesh of Object.values(divState.trozoMeshes)) {
+        if (mesh.visible === false) continue;
+        const eje = mesh.userData.eje;
+        if (!eje) continue;
+        const d2 = eje.dir;
+        const r = new THREE.Vector3().subVectors(o, eje.p0);
+        const a = d1.dot(d1), b = d1.dot(d2), c = d2.dot(d2);
+        const dd = d1.dot(r), e = d2.dot(r);
+        const den = a * c - b * b;
+        if (Math.abs(den) < 1e-9) continue;      // rayo paralelo al eje
+        const s = (b * e - c * dd) / den;         // parámetro sobre el rayo (distancia a cámara)
+        const u = (a * e - b * dd) / den;         // parámetro sobre el eje (unidades mundo)
+        if (s < 0) continue;                       // detrás de la cámara
+        const frac = u / eje.len;
+        if (frac < mesh.userData.a - 0.03 || frac > mesh.userData.b + 0.03) continue; // fuera del segmento
+        const pRay = o.clone().add(d1.clone().multiplyScalar(s));
+        const pAxis = eje.p0.clone().add(d2.clone().multiplyScalar(u));
+        if (pRay.distanceTo(pAxis) > eje.radio * 2.4) continue; // demasiado lejos del tubo
+        if (s < bestS) { bestS = s; best = mesh; }
+    }
+    return best ? { mesh: best, distCam: bestS } : null;
+}
+
 function bimTrozoPointerUp(ev) {
     if (divState.activo || !divState._downSel) return;
     const dx = Math.abs(ev.clientX - divState._downSel.x);
     const dy = Math.abs(ev.clientY - divState._downSel.y);
     divState._downSel = null;
     if (dx > 6 || dy > 6) return; // drag de navegación
+    if (!Object.keys(divState.trozoMeshes).length) return;
 
-    const meshes = Object.values(divState.trozoMeshes);
-    if (!meshes.length) return;
     const viewer = bimState.viewer;
     try {
+        const hit = bimTrozoBajoRayo(ev);
+        if (!hit) return; // ningún trozo bajo el cursor → clic normal de APS
+
+        // ¿Hay un elemento del modelo CLARAMENTE delante del trozo? → dejar pasar.
         const rect = viewer.canvas.getBoundingClientRect();
         const ray = viewer.impl.viewportToRay(viewer.impl.clientToViewport(ev.clientX - rect.left, ev.clientY - rect.top));
-        if (!ray) return;
-        const rc = new THREE.Raycaster(ray.origin.clone(), ray.direction.clone().normalize());
-        const hits = rc.intersectObjects(meshes, false);
-        if (!hits.length) return;
-
-        // ¿Hay un elemento del modelo MÁS CERCA que el trozo? → dejar pasar el clic normal
         const hitAPS = viewer.impl.hitTest(ev.clientX - rect.left, ev.clientY - rect.top, true);
-        if (hitAPS && hitAPS.intersectPoint) {
+        if (hitAPS && hitAPS.intersectPoint && ray) {
             const dAPS = ray.origin.distanceTo(hitAPS.intersectPoint);
-            if (dAPS < hits[0].distance - 0.01) return;
+            if (dAPS < hit.distCam - eje_margen(hit)) return; // algo real tapa el trozo
         }
 
-        // El trozo gana: consumir el clic y abrir su panel
         ev.stopPropagation(); ev.preventDefault();
         divState._consume = true;
         viewer.select([]);
-        bimTrozoSeleccionar(hits[0].object);
-    } catch (e) { /* raycast fallido: clic normal */ }
+        bimTrozoSeleccionar(hit.mesh);
+    } catch (e) { console.error('[Trozo] Error en selección:', e); }
 }
+
+// Margen de tolerancia (radio del tubo) para que el trozo gane sobre elementos casi coincidentes.
+function eje_margen(hit) { return (hit.mesh.userData.eje?.radio || 0.05) * 1.5; }
 
 function bimTrozoSeleccionar(mesh) {
     // Quitar highlight previo
-    if (divState._trozoSel && divState._trozoSel.material.emissive) {
+    if (divState._trozoSel && divState._trozoSel.material && divState._trozoSel.material.emissive) {
         divState._trozoSel.material.emissive.setHex(0x000000);
     }
     divState._trozoSel = mesh;
-    if (mesh.material.emissive) mesh.material.emissive.setHex(0x333333);
+    if (mesh.material && mesh.material.emissive) mesh.material.emissive.setHex(0x3b5bdb); // glow azul = seleccionado
     bimState.viewer.impl.invalidate(false, false, true);
+    bimBeep();
     bimTrozoRenderPanel(mesh);
 }
 
@@ -3420,17 +3454,14 @@ async function bimTrozoDesvincular(key) {
         });
         if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
         if (bimState.mapeoSpools) delete bimState.mapeoSpools[key];
-        // Sacarlo del caché de estados y volver al color neutro
+        // Sacarlo del caché de estados; el color/visibilidad lo maneja el filtro
         if (bimState.statusesCache) {
             for (const arr of Object.values(bimState.statusesCache)) {
                 const i = arr.findIndex(g => g.toLowerCase() === key);
                 if (i !== -1) arr.splice(i, 1);
             }
         }
-        mesh.material.color.setHex(mesh.userData.eje?.colorOrig ?? 0x9aa4b2);
-        // Sin vínculo = SIN ESTADO para efectos del filtro activo
-        if (bimState.filtroEstados.size) mesh.visible = bimState.filtroEstados.has('SIN ESTADO');
-        bimState.viewer.impl.invalidate(false, false, true);
+        bimDivColorearTrozos(); // sin filtro → look original; con filtro → SIN ESTADO
         bimTrozoRenderPanel(mesh);
     } catch (e) {
         alert('No se pudo desvincular: ' + e.message);
@@ -3816,12 +3847,16 @@ function bimEjeDeElemento(dbId) {
         const pts = [];
         const m4 = new THREE.Matrix4();
         let colorOrig = null; // color del material ORIGINAL (los trozos lo heredan)
+        let matOrig = null;   // material ORIGINAL completo (para que el trozo se vea idéntico)
 
         it.enumNodeFragments(dbId, (fragId) => {
-            if (colorOrig === null) {
+            if (matOrig === null) {
                 try {
                     const mat = frags.getMaterial(fragId);
-                    if (mat && mat.color) colorOrig = mat.color.getHex();
+                    if (mat) {
+                        matOrig = mat;
+                        if (mat.color) colorOrig = mat.color.getHex();
+                    }
                 } catch (e) { /* sin material legible */ }
             }
             const geom = frags.getGeometry(fragId);
@@ -3882,7 +3917,7 @@ function bimEjeDeElemento(dbId) {
         const cerca = dists.filter(d => Math.abs(d - radio) <= radio * 0.25).length;
         const cilindricidad = cerca / dists.length;
         const p0 = c.clone().add(dir.clone().multiplyScalar(tMin));
-        return { p0, dir, len, radio, cilindricidad, colorOrig: colorOrig ?? 0x9aa4b2 };
+        return { p0, dir, len, radio, cilindricidad, colorOrig: colorOrig ?? 0x9aa4b2, matOrig };
     } catch (e) {
         console.error('[Dividir] Error calculando eje:', e.message);
         return null;
@@ -3905,11 +3940,20 @@ function bimCrearPieza(eje, a, b, colorHex, opacidad = 1) {
         const a2 = a + GAP / 2, b2 = b - GAP / 2;
         const largo = eje.len * Math.max(b2 - a2, 0.002);
         const geo = new THREE.CylinderGeometry(eje.radio, eje.radio, largo, 20, 1, false);
-        const mat = new THREE.MeshPhongMaterial({
-            color: colorHex, transparent: opacidad < 1, opacity: opacidad,
-            specular: 0x222222, shininess: 40
-        });
+        // Clonar el material ORIGINAL → el trozo se ve idéntico al tubo. Si no se
+        // pudo leer, caer a un Phong con el color muestreado.
+        let mat = null;
+        if (eje.matOrig && typeof eje.matOrig.clone === 'function') {
+            try { mat = eje.matOrig.clone(); mat.needsUpdate = true; } catch (e) { mat = null; }
+        }
+        if (!mat) {
+            mat = new THREE.MeshPhongMaterial({
+                color: colorHex, transparent: opacidad < 1, opacity: opacidad,
+                specular: 0x222222, shininess: 40
+            });
+        }
         const mesh = new THREE.Mesh(geo, mat);
+        mesh._matPristino = mat; // material "idéntico al original" (para restaurar look)
         // Cylinder nace alineado a +Y → orientarlo a la dirección real del tubo
         mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), eje.dir);
         const centro = eje.p0.clone().add(eje.dir.clone().multiplyScalar(eje.len * (a2 + b2) / 2));
@@ -3991,16 +4035,25 @@ function bimDivFiltrarTrozos(seleccionSet) {
         const st = statusDe[key] || 'SIN ESTADO';
         if (seleccionSet) {
             mesh.visible = seleccionSet.has(st);
-            if (mesh.visible) {
-                const [r, g, b] = bimColorDeEstado(st);
-                mesh.material.color.setRGB(r, g, b);
-            }
+            if (mesh.visible) bimTrozoPintarEstado(mesh, bimColorDeEstado(st));
         } else {
             mesh.visible = true;
-            mesh.material.color.setHex(mesh.userData.eje?.colorOrig ?? 0x9aa4b2);
+            bimTrozoPintarOriginal(mesh); // se ve idéntico al tubo original
         }
     }
     bimState.viewer?.impl.invalidate(false, false, true);
+}
+
+/** Restaura el look original del trozo (material clonado del tubo). */
+function bimTrozoPintarOriginal(mesh) {
+    if (mesh._matPristino) mesh.material = mesh._matPristino;
+}
+
+/** Tiñe el trozo con un color de estado sólido (material temático dedicado). */
+function bimTrozoPintarEstado(mesh, rgb) {
+    if (!mesh._matTema) mesh._matTema = new THREE.MeshPhongMaterial({ specular: 0x222222, shininess: 40 });
+    mesh._matTema.color.setRGB(rgb[0], rgb[1], rgb[2]);
+    mesh.material = mesh._matTema;
 }
 
 /** Re-oculta los originales divididos (isolate los re-muestra aunque estén hidden). */
