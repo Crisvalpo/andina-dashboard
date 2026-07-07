@@ -4096,9 +4096,27 @@ function bimTrozoPintarGhost(mesh) {
  */
 function bimDivGhostPorSpool(guidsActivos) {
     const activos = new Set((guidsActivos || []).map(g => String(g).toLowerCase()));
+    const focos = [];
     for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
-        if (activos.has(key)) { mesh.visible = true; bimTrozoPintarOriginal(mesh); }
-        else bimTrozoPintarGhost(mesh);
+        if (activos.has(key)) {
+            // MISMO verde del resaltado de búsqueda de un spool normal
+            mesh.visible = true;
+            bimTrozoPintarEstado(mesh, [0.18, 0.84, 0.44]);
+            focos.push(mesh);
+        } else {
+            bimTrozoPintarGhost(mesh); // x-ray
+        }
+    }
+    // Foco de cámara al trozo si el spool es SOLO trozos (no hubo dbIds reales que encuadrar)
+    if (focos.length && (!bimState.dbIds || !bimState.dbIds.length)) {
+        const box = new THREE.Box3();
+        focos.forEach(m => box.expandByObject(m));
+        if (!box.isEmpty()) {
+            const c = box.getCenter(new THREE.Vector3());
+            const r = box.getSize(new THREE.Vector3()).length() / 2 || 1;
+            try { bimState.viewer.navigation.fitBounds(false, new THREE.Box3(
+                c.clone().addScalar(-r - 2), c.clone().addScalar(r + 2))); } catch (e) {}
+        }
     }
     bimState.viewer?.impl.invalidate(false, false, true);
 }
