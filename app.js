@@ -3952,9 +3952,12 @@ function bimCrearPieza(eje, a, b, colorHex, opacidad = 1) {
         const a2 = a + GAP / 2, b2 = b - GAP / 2;
         const largo = eje.len * Math.max(b2 - a2, 0.002);
         const geo = new THREE.CylinderGeometry(eje.radio, eje.radio, largo, 20, 1, false);
-        const mat = bimMatTrozo(eje.matOrig, colorHex, opacidad);
+        // Gris neutro por defecto; el estado del spool le dará su color (o queda gris)
+        const mat = new THREE.MeshPhongMaterial({
+            color: 0x9aa4b2, transparent: opacidad < 1, opacity: opacidad,
+            specular: 0x222222, shininess: 30
+        });
         const mesh = new THREE.Mesh(geo, mat);
-        mesh._matPristino = mat; // material "idéntico al original" (para restaurar look)
         // Cylinder nace alineado a +Y → orientarlo a la dirección real del tubo
         mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), eje.dir);
         const centro = eje.p0.clone().add(eje.dir.clone().multiplyScalar(eje.len * (a2 + b2) / 2));
@@ -4053,30 +4056,46 @@ function bimDivRegistrarTrozo(mesh, guid, idx) {
  * SIN filtro → se ven con el color ORIGINAL del tubo (solo divididos).
  * CON filtro → visibles solo si su estado está seleccionado, teñidos con su color.
  */
-function bimDivFiltrarTrozos(seleccionSet) {
-    const statusDe = {};
+// Mapa inverso guid→estado a partir del caché de estados del visor.
+function bimStatusPorGuid() {
+    const m = {};
     if (bimState.statusesCache) {
         for (const [st, gs] of Object.entries(bimState.statusesCache)) {
-            gs.forEach(g => { statusDe[g.toLowerCase()] = st; });
+            gs.forEach(g => { m[g.toLowerCase()] = st; });
         }
     }
+    return m;
+}
+
+/**
+ * Apariencia de los trozos por ESTADO de su spool:
+ * - sin filtro → GRIS si no tiene estado; color del estado si lo tiene.
+ * - con filtro → visible solo si su estado está seleccionado, con su color.
+ */
+function bimDivFiltrarTrozos(seleccionSet) {
+    const statusDe = bimStatusPorGuid();
     for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
         const st = statusDe[key] || 'SIN ESTADO';
         if (seleccionSet) {
             mesh.visible = seleccionSet.has(st);
-            if (mesh.visible) bimTrozoPintarEstado(mesh, bimColorDeEstado(st));
+            if (mesh.visible) bimTrozoPintarPorEstado(mesh, st);
         } else {
             mesh.visible = true;
-            bimTrozoPintarOriginal(mesh); // se ve idéntico al tubo original
+            bimTrozoPintarPorEstado(mesh, st);
         }
     }
     bimState.viewer?.impl.invalidate(false, false, true);
 }
 
-/** Restaura el look original del trozo (material clonado del tubo). */
-function bimTrozoPintarOriginal(mesh) {
-    if (mesh._matPristino) mesh.material = mesh._matPristino;
-    if (mesh.material && mesh.material.emissive) mesh.material.emissive.setHex(0x000000);
+/** Pinta el trozo con el color de su estado (GRIS neutro si es SIN ESTADO). */
+function bimTrozoPintarPorEstado(mesh, st) {
+    if (!st || st === 'SIN ESTADO') bimTrozoPintarGris(mesh);
+    else bimTrozoPintarEstado(mesh, bimColorDeEstado(st));
+}
+
+/** Gris neutro opaco (trozo sin estado asociado). */
+function bimTrozoPintarGris(mesh) {
+    bimTrozoPintarEstado(mesh, [0.60, 0.64, 0.70]);
 }
 
 /** Modo x-ray para el trozo (translúcido, como los elementos no aislados de APS). */
