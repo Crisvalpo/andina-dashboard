@@ -3192,6 +3192,8 @@ function bimDividirInit() {
         divState._btn = btn;
         const grupo = new Autodesk.Viewing.UI.ControlGroup('andina-tools');
         grupo.addControl(btn);
+        // Exportación IFC de los trozos (bim-ifc-export.js)
+        if (typeof bimIfcInit === 'function') bimIfcInit(grupo);
         viewer.toolbar.addControl(grupo);
     };
     if (viewer.toolbar) crear();
