@@ -2083,6 +2083,9 @@ function bimStartViewer() {
                         // Herramienta "Dividir tramo" en la toolbar APS + divisiones guardadas
                         bimDividirInit();
 
+                        // Coloreo por estado al aislar líneas desde el árbol del modelo
+                        bimIsoColorInit();
+
                         // Listener de selección: captura propiedades para vinculación en tiempo real (admite selección múltiple con CTRL)
                         viewer.addEventListener(Autodesk.Viewing.SELECTION_CHANGED_EVENT, (event) => {
                             const dbIdArray = event.dbIdArray;
@@ -2454,6 +2457,99 @@ function bimGuidsToDbIds(guids, callback) {
     );
 }
 
+// =================================================================
+// COLOREO POR ESTADO AL AISLAR DESDE EL ÁRBOL DE APS
+// Cuando el usuario aísla una línea/nodo desde el panel "Modelo" del
+// visor, los elementos visibles se tiñen según el estado de su spool.
+// Las isolaciones PROPIAS (filtros, búsqueda, EN VIVO) no se tocan.
+// =================================================================
+
+/** Índice GUID(lower) → dbId, construido una sola vez (getBulkProperties es caro). */
+function bimIndiceGuidDbId() {
+    if (bimState._guidIndex) return Promise.resolve(bimState._guidIndex);
+    if (bimState._guidIndexPromise) return bimState._guidIndexPromise;
+    bimState._guidIndexPromise = new Promise((resolve) => {
+        bimState.viewer.model.getBulkProperties(
+            null,
+            { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'PnPGuid', 'PnPGUID'] },
+            (results) => {
+                const idx = {};
+                results.forEach(r => {
+                    if (r.externalId) idx[String(r.externalId).toLowerCase()] = r.dbId;
+                    (r.properties || []).forEach(p => {
+                        const n = String(p.displayName || p.attributeName || '').toLowerCase();
+                        if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(n)) {
+                            const v = String(p.displayValue || '').trim().toLowerCase();
+                            if (v) idx[v] = r.dbId;
+                        }
+                    });
+                });
+                bimState._guidIndex = idx;
+                console.log(`[BIM IsoColor] Índice GUID→dbId listo: ${Object.keys(idx).length} entradas`);
+                resolve(idx);
+            },
+            () => resolve({})
+        );
+    });
+    return bimState._guidIndexPromise;
+}
+
+/** Registra el listener de aislamiento (llamado tras cargar el modelo). */
+function bimIsoColorInit() {
+    const viewer = bimState.viewer;
+    if (!viewer) return;
+    viewer.addEventListener(Autodesk.Viewing.ISOLATE_EVENT, (ev) => {
+        clearTimeout(bimState._isoColorTimer);
+        const nodos = ev.nodeIdArray || [];
+        bimState._isoColorTimer = setTimeout(() => bimIsoColorAplicar(nodos), 150);
+    });
+}
+
+/** Pinta los elementos visibles de la isolación según el estado de su spool. */
+async function bimIsoColorAplicar(nodos) {
+    const viewer = bimState.viewer;
+    if (!viewer || !viewer.model) return;
+
+    // showAll → limpiar nuestro coloreo (si el filtro propio está activo, él manda)
+    if (!nodos.length) {
+        if (bimState._isoColoreado) {
+            bimState._isoColoreado = false;
+            if (!bimState.filtroEstados.size) viewer.clearThemingColors(viewer.model);
+        }
+        return;
+    }
+
+    // Isolación PROPIA (filtro por estado, búsqueda de spool, EN VIVO) → ya viene coloreada
+    if (bimState.filtroEstados.size || bimState.liveEstados) return;
+    const propios = new Set(bimState.dbIds || []);
+    if (propios.size && nodos.length === propios.size && nodos.every(id => propios.has(id))) return;
+
+    const statuses = bimState.capa === 'spool' ? bimState.statusesCache : bimState.capaStatuses;
+    if (!statuses) return;
+
+    try {
+        const idx = await bimIndiceGuidDbId();
+        viewer.clearThemingColors(viewer.model);
+        let pintados = 0;
+        for (const [st, guids] of Object.entries(statuses)) {
+            const [r, g, b, a] = bimColorDeEstado(st);
+            const col = new THREE.Vector4(r, g, b, Math.max(a, 0.8));
+            (guids || []).forEach(gd => {
+                if (gd.includes('#p')) return; // trozos: se pintan como overlay
+                const dbId = idx[String(gd).toLowerCase()];
+                if (dbId === undefined || !viewer.isNodeVisible(dbId)) return;
+                viewer.setThemingColor(dbId, col, viewer.model, true);
+                pintados++;
+            });
+        }
+        bimState._isoColoreado = pintados > 0;
+        if (typeof bimDivColorearTrozos === 'function') bimDivColorearTrozos();
+        if (pintados) console.log(`[BIM IsoColor] ${pintados} elementos teñidos por estado`);
+    } catch (e) {
+        console.error('[BIM IsoColor] Error:', e);
+    }
+}
+
 /** Resalta en verde los dbIds del spool seleccionado */
 function bimHighlightElements(dbIds) {
     const viewer = bimState.viewer;
@@ -2527,7 +2623,9 @@ const BIM_STATUS_COLORS = {
     'EN FABRICACIÓN':  [0.30, 0.80, 0.95, 1], // Celeste
     'RETIRAR':         [0.95, 0.15, 0.15, 1], // Rojo
     'ELIMINADO':       [0.40, 0.40, 0.40, 0.5], // Gris translúcido
-    'SIN ESTADO':      [0.50, 0.50, 0.50, 0.3], // Gris opaco
+    // Intensidad 1: la 4ª componente de setThemingColor es cuánto TIÑE, no
+    // transparencia. Con 0.3 el gris casi no se veía y parecía "sin pintar".
+    'SIN ESTADO':      [0.50, 0.50, 0.50, 1], // Gris
     // Válvulas / soportes (estado binario)
     'PENDIENTE':       [0.55, 0.55, 0.55, 0.4]  // Gris (pendiente de montaje)
 };
@@ -3791,24 +3889,28 @@ function bimDivPointerUp(ev) {
 
     const viewer = bimState.viewer;
     const rect = viewer.canvas.getBoundingClientRect();
-    const hit = viewer.impl.hitTest(ev.clientX - rect.left, ev.clientY - rect.top, true);
-    if (!hit || !hit.dbId) return;
-
-    // Bloquear la selección nativa mientras cortamos (también el click posterior)
-    ev.stopPropagation(); ev.preventDefault();
-    divState._consume = true;
 
     if (divState.dbId === null) {
-        // Primer clic: elegir el tubo → mitad automática + manillas + auto-guardado
+        // Primer clic: elegir el tubo → mitad automática + manillas + auto-guardado.
+        // Aquí SÍ se necesita hitTest (el original todavía es visible).
+        const hit = viewer.impl.hitTest(ev.clientX - rect.left, ev.clientY - rect.top, true);
+        if (!hit || !hit.dbId) return;
+        ev.stopPropagation(); ev.preventDefault();
+        divState._consume = true;
         bimDivIniciarEdicionDesdeDbId(hit.dbId);
         return;
     }
 
-    // Clic sobre el CLON (el original está oculto): raycast contra el eje conocido.
-    // hit.dbId será otro elemento detrás, así que proyectamos el punto del rayo
-    // sobre el eje del clon si pasa suficientemente cerca del tubo.
+    // Ya en edición: el original está OCULTO y el clon es un overlay que
+    // hitTest no ve → ir directo al raycast contra el eje conocido del clon.
+    // (Antes se exigía hitTest aquí y los clics "al aire" detrás del tubo se
+    // perdían: por eso no se podía pasar de 2 trozos.)
     const t = bimProyectarTDesdeRayo(ev, viewer);
-    if (t === null) return;
+    if (t === null) return; // clic lejos del tubo → dejar pasar (órbita/selección APS)
+
+    // Bloquear la selección nativa sólo cuando el clic realmente corta
+    ev.stopPropagation(); ev.preventDefault();
+    divState._consume = true;
     if (divState.cortes.some(c => Math.abs(c - t) < 0.03)) return;
     divState.cortes.push(t);
     divState.cortes.sort((a, b) => a - b);

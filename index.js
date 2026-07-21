@@ -413,12 +413,14 @@ app.get('/api/bim/statuses', async (req, res) => {
         });
 
         // 2. Mapear TAG GESTION (SPOOL LUKEAPP) -> ID_SPOOL
+        // Clave en minúsculas: los tags llegan con diferencias de caso/espacios
+        // desde LIST_Bim_MS y el match exacto mandaba spools CON estado a SIN ESTADO.
         const tagToIdSpool = {};
         spools.forEach(s => {
             const idSpool = String(s['ID_SPOOL'] || '').trim();
             const tagG    = String(s['TAG GESTION'] || '').trim();
             if (tagG && idSpool) {
-                tagToIdSpool[tagG] = idSpool;
+                tagToIdSpool[tagG.toLowerCase()] = idSpool;
             }
         });
 
@@ -463,6 +465,11 @@ app.get('/api/bim/statuses', async (req, res) => {
         // Mismo criterio que la ficha y el bot: una única fuente de verdad.
         const spoolStatuses = estadosActualesDeLog(logs);
 
+        // Índice case-insensitive del log (algunas filas registran el ID con
+        // otro caso, y otras usan directamente el TAG corto)
+        const statusLower = {};
+        for (const [k, v] of Object.entries(spoolStatuses)) statusLower[k.toLowerCase()] = v;
+
         // 4. Agrupar GUIDs de LIST_Bim_MS por el status resuelto
         const result = {
             'EN FABRICACIÓN': [],
@@ -481,8 +488,9 @@ app.get('/api/bim/statuses', async (req, res) => {
             if (!guid) return;
 
             const tagG = String(row['SPOOL LUKEAPP'] || '').trim();
-            const idSpool = tagToIdSpool[tagG] || tagG; // fallback al tag si no se mapea
-            const statusEntry = spoolStatuses[idSpool];
+            const idSpool = tagToIdSpool[tagG.toLowerCase()] || tagG; // fallback al tag si no se mapea
+            // Estado por ID largo o, si el log registró el tag corto, por el tag
+            const statusEntry = statusLower[idSpool.toLowerCase()] || statusLower[tagG.toLowerCase()];
             const status = statusEntry ? statusEntry.status : 'SIN ESTADO';
 
             if (!result[status]) {
