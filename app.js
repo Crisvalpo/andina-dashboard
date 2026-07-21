@@ -2531,7 +2531,14 @@ async function bimIsoColorAplicar(nodos) {
         const idx = await bimIndiceGuidDbId();
         viewer.clearThemingColors(viewer.model);
         let pintados = 0;
-        for (const [st, guids] of Object.entries(statuses)) {
+        // JERARQUÍA: SIN ESTADO / PENDIENTE primero → los estados reales pintan
+        // ENCIMA si un GUID viniera repetido en más de un grupo.
+        const orden = Object.entries(statuses).sort(([a], [b]) => {
+            const peso = (st) => st === 'SIN ESTADO' ? -2 : st === 'PENDIENTE' ? -1
+                : Math.max(BIM_ORDEN_FLUJO.indexOf(st), 0);
+            return peso(a) - peso(b);
+        });
+        for (const [st, guids] of orden) {
             const [r, g, b, a] = bimColorDeEstado(st);
             const col = new THREE.Vector4(r, g, b, Math.max(a, 0.8));
             (guids || []).forEach(gd => {

@@ -483,6 +483,12 @@ app.get('/api/bim/statuses', async (req, res) => {
             'SIN ESTADO': []
         };
 
+        // JERARQUÍA por GUID: el mismo GUID puede venir en VARIAS filas de
+        // LIST_Bim_MS (duplicados / doble vinculación). Antes caía en más de un
+        // grupo a la vez y SIN ESTADO terminaba pintando encima de estados
+        // reales. Ahora cada GUID queda en UN solo grupo: gana el estado más
+        // avanzado, y SIN ESTADO solo si NINGUNA fila le da estado.
+        const porGuid = {}; // guidLower -> { guid, status, peso }
         bimRows.forEach(row => {
             const guid = String(row['Elemento GUID'] || '').trim();
             if (!guid) return;
@@ -492,7 +498,15 @@ app.get('/api/bim/statuses', async (req, res) => {
             // Estado por ID largo o, si el log registró el tag corto, por el tag
             const statusEntry = statusLower[idSpool.toLowerCase()] || statusLower[tagG.toLowerCase()];
             const status = statusEntry ? statusEntry.status : 'SIN ESTADO';
+            // Peso: estados conocidos según flujo; estados custom pesan 1 (siempre > SIN ESTADO = 0)
+            const peso = statusEntry ? Math.max(getStatusWeight(status), 1) : 0;
 
+            const key = guid.toLowerCase();
+            const prev = porGuid[key];
+            if (!prev || peso > prev.peso) porGuid[key] = { guid, status, peso };
+        });
+
+        Object.values(porGuid).forEach(({ guid, status }) => {
             if (!result[status]) {
                 result[status] = [];
             }
