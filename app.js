@@ -4,22 +4,16 @@
  * Secciones: Overview, Juntas, Spools, QC, SDI
  */
 
-import { state, charts, PROJECT_START_DATE, getProjectWeek } from './modules/state.js';
-import { setText, iconBg } from './utils/domUtils.js';
-import { resolveSpoolId, normalizeStatus, parseFechaSpool, resolveSpoolStatuses } from './utils/statusHelpers.js';
+// ── Modularización ESM (en curso) ────────────────────────────────────────────
+// Solo se importa lo que YA fue migrado de forma verificada y fiel. El resto
+// de las secciones sigue definido más abajo en este archivo hasta que su
+// módulo sea reconstruido sin pérdida de funcionalidad.
+import { state, charts, getProjectWeek } from './modules/state.js';
 import { fetchData } from './services/apiService.js';
-import { authGuardar, authObtener, authOlvidar, authHeaders, authAsegurar, authPedirClave } from './modules/auth.js';
-import { renderOverview } from './components/renderOverview.js';
-import { renderSpools, getSpoolStatusVisual, SPOOL_STATUS_VISUAL } from './components/renderSpools.js';
-import { renderJuntas } from './components/renderJuntas.js';
-import { renderQC } from './components/renderQC.js';
-import { botInitPanel } from './modules/botHandler.js';
-import { bimState, initBimViewer, bimSetCapa } from './modules/bimManager.js';
 
 
 
-// State y Config son importados desde ./modules/state.js
-let charts = window.charts || {};
+// State, charts y Config son importados desde ./modules/state.js
 
 
 // Plugins globales para mostrar etiquetas en los gráficos
@@ -1919,7 +1913,35 @@ function copyLogisticaTable() {
 // ============ BIM VIEWER MODULE (APS / Autodesk) =================
 // =================================================================
 
-// bimState es importado desde ./modules/bimManager.js
+// Estado del visor 3D. Vive aquí hasta que el subsistema BIM completo
+// (~123 símbolos que comparten bimState y divState) se extraiga de una sola vez.
+const bimState = {
+    viewer:        null,   // Instancia del Autodesk.Viewing.GuiViewer3D
+    initialized:   false,  // true cuando el modelo ya cargó
+    sdkLoaded:     false,  // true cuando el script del SDK ya está en el DOM
+    currentGuids:  [],     // GUIDs del spool actualmente seleccionado
+    dbIds:         [],     // dbIds correspondientes en el viewer
+    token:         null,
+    modelUrn:      null,
+    statusesCache: null,   // Caché de { status: [guids] }
+    selectedElement: null, // Elemento 3D clickeado actualmente
+    selectedElements: [],  // Múltiples elementos 3D clickeados
+    mapeoSpools:   null,   // Caché de { [guid]: spoolTag }
+    spoolIndex:    null,   // Caché de { [tagLower]: { id_spool, tag_gestion, id_iso } }
+    isAutoSelecting: false,// Bandera para evitar bucle de selección
+    liveTimer:     null,   // Interval del modo EN VIVO (filtro por estado + polling)
+    liveStatus:    null,   // (legado) estado único en vivo
+    liveGuids:     null,   // (legado) set de guids mostrados
+    liveEstados:   null,   // Estados seguidos EN VIVO (multi-selección)
+    liveSets:      null,   // { estado: Set<guid> } ya mostrados
+    filtroEstados: new Set(), // Estados seleccionados en el filtro (chips)
+    coloresEstados: {},    // Overrides de color por estado (servidor)
+    estadoConteos: null,   // { estado: {total, asociados, sin_asociar} } — conteo REAL de spools
+    capaStatuses:  null,   // Estados de la capa válvula/soporte activa
+    capa:          'spool',// Capa activa: 'spool' | 'valvula' | 'soporte'
+    capaMapeo:     {},     // { valvula: {guidLower:id}, soporte: {...} }
+    capaIndex:     {}      // { valvula: {idLower:row}, soporte: {...} }
+};
 
 // Config de capas en el frontend (llave, etiqueta, endpoints)
 const BIM_CAPA_UI = {
@@ -6058,4 +6080,93 @@ function initBimSplitResizer() {
             }
         }
     });
+}
+
+
+// ============================================================================
+// PUENTE A window — obligatorio con <script type="module">
+// ----------------------------------------------------------------------------
+// Con módulos ESM nada es global. index.html usa handlers onclick inline y
+// bim-ifc-export.js se carga como script clásico, así que ambos resuelven
+// contra window. Este bloque debe seguir cubriendo todo lo que se invoque
+// desde HTML: si una función se renombra aquí, el botón deja de responder.
+// ============================================================================
+if (typeof window !== 'undefined') {
+    window.authAsegurar             = authAsegurar;
+    window.authHeaders              = authHeaders;
+    window.authObtener              = authObtener;
+    window.authOlvidar              = authOlvidar;
+    window.bimCloseScanner          = bimCloseScanner;
+    window.bimCloseSidebar          = bimCloseSidebar;
+    window.bimDividirDeshacer       = bimDividirDeshacer;
+    window.bimDividirFinalizar      = bimDividirFinalizar;
+    window.bimDividirRestaurar      = bimDividirRestaurar;
+    window.bimFitToView             = bimFitToView;
+    window.bimFlipCamera            = bimFlipCamera;
+    window.bimGuardarColorEstado    = bimGuardarColorEstado;
+    window.bimIsolateElements       = bimIsolateElements;
+    window.bimLimpiarFiltroEstados  = bimLimpiarFiltroEstados;
+    window.bimOpenPdf               = bimOpenPdf;
+    window.bimOpenScanner           = bimOpenScanner;
+    window.bimOpenSelectedPdf       = bimOpenSelectedPdf;
+    window.bimOpenSelectedPid       = bimOpenSelectedPid;
+    window.bimRemoveLink            = bimRemoveLink;
+    window.bimResetView             = bimResetView;
+    window.bimSaveLink              = bimSaveLink;
+    window.bimSearchSpool           = bimSearchSpool;
+    window.bimSetCapa               = bimSetCapa;
+    window.bimSetMeta               = bimSetMeta;
+    window.bimState                 = bimState;
+    window.bimStatusPorGuid         = bimStatusPorGuid;
+    window.bimToggleEstado          = bimToggleEstado;
+    window.bimToggleMetaExtra       = bimToggleMetaExtra;
+    window.bimToggleSidebar         = bimToggleSidebar;
+    window.bimToggleUnlinkMenu      = bimToggleUnlinkMenu;
+    window.bimTrozoDesvincular      = bimTrozoDesvincular;
+    window.bimTrozoEditarDivision   = bimTrozoEditarDivision;
+    window.bimTrozoEliminarDivision = bimTrozoEliminarDivision;
+    window.bimTrozoVincular         = bimTrozoVincular;
+    window.botAgregarUsuario        = botAgregarUsuario;
+    window.botBorrarTool            = botBorrarTool;
+    window.botCancelarEdicion       = botCancelarEdicion;
+    window.botDesbloquear           = botDesbloquear;
+    window.botEditarUsuario         = botEditarUsuario;
+    window.botGuardarConfig         = botGuardarConfig;
+    window.botGuardarEdicion        = botGuardarEdicion;
+    window.botRefreshQr             = botRefreshQr;
+    window.botRefreshStatus         = botRefreshStatus;
+    window.botRestart               = botRestart;
+    window.botToggleUsuario         = botToggleUsuario;
+    window.changeWeek               = changeWeek;
+    window.closePdfModal            = closePdfModal;
+    window.closePdfSplit            = closePdfSplit;
+    window.copyLogisticaTable       = copyLogisticaTable;
+    window.divState                 = divState;
+    window.filterSDI                = filterSDI;
+    window.formatDate               = formatDate;
+    window.getEstado                = getEstado;
+    window.getEtapaBadge            = getEtapaBadge;
+    window.getJuntaId               = getJuntaId;
+    window.getMaxEtapa              = getMaxEtapa;
+    window.getVal                   = getVal;
+    window.getWeekOfDate            = getWeekOfDate;
+    window.initBimViewer            = initBimViewer;
+    window.loadLogistica            = loadLogistica;
+    window.loadLogisticaDetail      = loadLogisticaDetail;
+    window.parseDate                = parseDate;
+    window.refreshData              = refreshData;
+    window.renderBarChart           = renderBarChart;
+    window.renderCurrentSection     = renderCurrentSection;
+    window.renderJuntas             = renderJuntas;
+    window.renderJuntasBreakdown    = renderJuntasBreakdown;
+    window.renderLogTable           = renderLogTable;
+    window.renderOverview           = renderOverview;
+    window.renderQC                 = renderQC;
+    window.renderSCurve             = renderSCurve;
+    window.renderSDI                = renderSDI;
+    window.renderSpools             = renderSpools;
+    window.renderWelderChart        = renderWelderChart;
+    window.showSection              = showSection;
+    window.toggleJuntaCol           = toggleJuntaCol;
+    window.toggleWelderHistory      = toggleWelderHistory;
 }
