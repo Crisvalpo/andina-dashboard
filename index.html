@@ -157,14 +157,6 @@
                             <p class="kpi-value" id="kpi-semana">--</p>
                         </div>
                     </div>
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:#f59e0b20"><i class="fas fa-hammer"
-                                style="color:#f59e0b"></i></div>
-                        <div>
-                            <p class="kpi-label">En Proceso / Pulgadas</p>
-                            <p class="kpi-value" id="kpi-en-proceso">--</p>
-                        </div>
-                    </div>
                     <!-- SDI Abiertas card removed -->
                 </div>
 
@@ -316,97 +308,9 @@
 
             <!-- ===== SECTION: SPOOLS ===== -->
             <section class="section-content" id="spools-section">
-                <div class="kpi-row">
-                    <!-- 00. ELIMINADO -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(239, 68, 68, 0.15)"><i class="fas fa-trash-alt"
-                                style="color:#ef4444"></i></div>
-                        <div>
-                            <p class="kpi-label">00. Eliminado</p>
-                            <p class="kpi-value" id="s-eliminado">--</p>
-                        </div>
-                    </div>
-                    <!-- 01. EN FABRICACION -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(99, 102, 241, 0.15)"><i class="fas fa-tools"
-                                style="color:#6366f1"></i></div>
-                        <div>
-                            <p class="kpi-label">01. En Fabricación</p>
-                            <p class="kpi-value" id="s-fabricacion">--</p>
-                        </div>
-                    </div>
-                    <!-- 02. QAQC -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(56, 189, 248, 0.15)"><i class="fas fa-clipboard-check"
-                                style="color:#38bdf8"></i></div>
-                        <div>
-                            <p class="kpi-label">02. QAQC</p>
-                            <p class="kpi-value" id="s-qaqc">--</p>
-                        </div>
-                    </div>
-                    <!-- 03. EN PINT/REVEST. -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(245, 158, 11, 0.15)"><i class="fas fa-paint-roller"
-                                style="color:#f59e0b"></i></div>
-                        <div>
-                            <p class="kpi-label">03. En Pint/Revest.</p>
-                            <p class="kpi-value" id="s-pintura">--</p>
-                        </div>
-                    </div>
-                    <!-- 04. RETIRAR -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(236, 72, 153, 0.15)"><i class="fas fa-exclamation-triangle"
-                                style="color:#ec4899"></i></div>
-                        <div>
-                            <p class="kpi-label">04. Retirar</p>
-                            <p class="kpi-value" id="s-retirar">--</p>
-                        </div>
-                    </div>
-                    <!-- 05. POR MONTAR -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(16, 185, 129, 0.15)"><i class="fas fa-truck"
-                                style="color:#10b981"></i></div>
-                        <div>
-                            <p class="kpi-label">05. Por Montar</p>
-                            <p class="kpi-value" id="s-pormontar">--</p>
-                        </div>
-                    </div>
-                    <!-- 06. POSICIONADO -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(14, 165, 233, 0.15)"><i class="fas fa-map-marker-alt"
-                                style="color:#0ea5e9"></i></div>
-                        <div>
-                            <p class="kpi-label">06. Posicionado</p>
-                            <p class="kpi-value" id="s-posicionado">--</p>
-                        </div>
-                    </div>
-                    <!-- 07. MONTADO -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(139, 92, 246, 0.15)"><i class="fas fa-check-circle"
-                                style="color:#8b5cf6"></i></div>
-                        <div>
-                            <p class="kpi-label">07. Montado</p>
-                            <p class="kpi-value" id="s-montado">--</p>
-                        </div>
-                    </div>
-                    <!-- SIN PROCESO -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(100, 116, 139, 0.15)"><i class="fas fa-question-circle"
-                                style="color:#64748b"></i></div>
-                        <div>
-                            <p class="kpi-label">Sin Proceso</p>
-                            <p class="kpi-value" id="s-sinproceso">--</p>
-                        </div>
-                    </div>
-                    <!-- TOTAL SPOOLS -->
-                    <div class="kpi-card glass">
-                        <div class="kpi-icon" style="background:rgba(56, 189, 248, 0.15)"><i class="fas fa-industry"
-                                style="color:#38bdf8"></i></div>
-                        <div>
-                            <p class="kpi-label">Total Activos</p>
-                            <p class="kpi-value" id="s-total">--</p>
-                        </div>
-                    </div>
+                <!-- Tarjetas de estado: se generan dinámicamente en renderSpools() -->
+                <div class="kpi-row" id="spools-status-cards">
+                    <!-- Cargando... -->
                 </div>
 
                 <!-- KPI Row: Spools por Área -->

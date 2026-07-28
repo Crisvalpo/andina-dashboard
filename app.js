@@ -1388,48 +1388,127 @@ function resolveSpoolStatuses() {
 }
 
 // ============ RENDER: SPOOLS ============
+
+// --- Configuración visual de estados conocidos para tarjetas KPI ---
+// Los COLORES se obtienen de bimColorDeEstado() para mantener sincronía
+// con la sección BIM (incluidos los colores editados por el usuario).
+const SPOOL_STATUS_VISUAL = {
+    'EN FABRICACIÓN':  { icon: 'fa-tools',                label: 'En Fabricación',  order: 1 },
+    'QAQC':            { icon: 'fa-clipboard-check',      label: 'QAQC',             order: 2 },
+    'EN PINT/REVEST.': { icon: 'fa-paint-roller',         label: 'En Pint/Revest.',  order: 3 },
+    'RETIRAR':         { icon: 'fa-exclamation-triangle',  label: 'Retirar',          order: 4 },
+    'POR MONTAR':      { icon: 'fa-truck',                 label: 'Por Montar',       order: 5 },
+    'POSICIONADO':     { icon: 'fa-map-marker-alt',        label: 'Posicionado',      order: 6 },
+    'MONTADO':         { icon: 'fa-check-circle',          label: 'Montado',          order: 7 },
+    'ELIMINADO':       { icon: 'fa-trash-alt',             label: 'Eliminado',        order: 0 },
+    'SIN ESTADO':      { icon: 'fa-question-circle',       label: 'Sin Estado',       order: 999 },
+};
+
+/** Obtiene icono, color y label para cualquier estado (conocido o nuevo).
+ *  El color se toma de bimColorDeEstado() → misma fuente que el visor 3D. */
+function getSpoolStatusVisual(normalizedStatus) {
+    // Color: siempre desde la cadena BIM (override usuario → paleta base → auto-hash)
+    const bimRgba = bimColorDeEstado(normalizedStatus);
+    const color   = bimRgbAHex(bimRgba);
+
+    const known = SPOOL_STATUS_VISUAL[normalizedStatus];
+    if (known) return { ...known, color };
+
+    // Estado desconocido: icono genérico
+    return {
+        icon: 'fa-tag',
+        color,
+        label: normalizedStatus.charAt(0) + normalizedStatus.slice(1).toLowerCase(),
+        order: 500  // después de los conocidos
+    };
+}
+
+
 function renderSpools() {
     const { spools } = state;
+
+    // Pre-cargar colores editados por el usuario desde BIM (no bloquea el render inicial)
+    // Si ya hay colores cargados se usa la caché; si no, se hace fetch y se re-renderiza.
+    if (!bimState._coloresCargados) {
+        bimCargarColoresEstados().then(() => {
+            bimState._coloresCargados = true;
+            // Re-renderizar tarjetas y chart con los colores reales del usuario
+            if (state.currentSection === 'spools') renderSpools();
+        });
+        bimState._coloresCargados = true; // evitar fetch duplicado
+    }
 
     // --- JERARQUÍA POR STATUS (LOG_Spool_MS) ---
     const statusMap = resolveSpoolStatuses();
 
-    // Conteo por status (usando jerarquía LOG_Spool_MS)
-    const statusKeys = {
-        fabricacion: (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'EN FABRICACIÓN'; },
-        qaqc:        (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'QAQC'; },
-        pintura:     (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'EN PINT/REVEST.'; },
-        retirar:     (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'RETIRAR'; },
-        pormontar:   (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'POR MONTAR'; },
-        posicionado: (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'POSICIONADO'; },
-        montado:     (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'MONTADO'; },
-        eliminado:   (s) => { const st = statusMap.get(resolveSpoolId(s)); return st && normalizeStatus(st) === 'ELIMINADO'; },
-    };
+    // --- CONTEO DINÁMICO por estado normalizado ---
+    const statusCounts = {};  // { 'EN FABRICACIÓN': 57, 'QAQC': 67, ... }
+    let cSinRegistro = 0;
+    let cTotalActivos = 0;
 
-    const c00 = spools.filter(statusKeys.eliminado).length;
-    const c01 = spools.filter(statusKeys.fabricacion).length;
-    const c02 = spools.filter(statusKeys.qaqc).length;
-    const c03 = spools.filter(statusKeys.pintura).length;
-    const c04 = spools.filter(statusKeys.retirar).length;
-    const c05 = spools.filter(statusKeys.pormontar).length;
-    const c06 = spools.filter(statusKeys.posicionado).length;
-    const c07 = spools.filter(statusKeys.montado).length;
-    const cSinRegistro = spools.filter(s => !statusMap.has(resolveSpoolId(s))).length;
-    const cTotalActivos = spools.filter(s => {
-        const st = statusMap.get(resolveSpoolId(s));
-        return !st || normalizeStatus(st) !== 'ELIMINADO';
-    }).length;
+    spools.forEach(s => {
+        const spoolId = resolveSpoolId(s);
+        const rawStatus = statusMap.get(spoolId);
+        if (!rawStatus) {
+            cSinRegistro++;
+            cTotalActivos++;
+            return;
+        }
+        const normalized = normalizeStatus(rawStatus);
+        statusCounts[normalized] = (statusCounts[normalized] || 0) + 1;
+        if (normalized !== 'ELIMINADO') cTotalActivos++;
+    });
 
-    setText('s-eliminado', c00);
-    setText('s-fabricacion', c01);
-    setText('s-qaqc', c02);
-    setText('s-pintura', c03);
-    setText('s-retirar', c04);
-    setText('s-pormontar', c05);
-    setText('s-posicionado', c06);
-    setText('s-montado', c07);
-    setText('s-sinproceso', cSinRegistro);
-    setText('s-total', cTotalActivos);
+    // Agregar "SIN ESTADO" si hay spools sin registro
+    if (cSinRegistro > 0) {
+        statusCounts['SIN ESTADO'] = cSinRegistro;
+    }
+
+    // --- ORDENAR estados: conocidos por orden definido, nuevos alfabético, SIN ESTADO al final ---
+    const sortedStatuses = Object.keys(statusCounts).sort((a, b) => {
+        const va = getSpoolStatusVisual(a);
+        const vb = getSpoolStatusVisual(b);
+        // SIN ESTADO siempre al final (antes de Total)
+        if (a === 'SIN ESTADO') return 1;
+        if (b === 'SIN ESTADO') return -1;
+        if (va.order !== vb.order) return va.order - vb.order;
+        return a.localeCompare(b);
+    });
+
+    // --- GENERAR TARJETAS DINÁMICAS ---
+    const container = document.getElementById('spools-status-cards');
+    if (container) {
+        /** Convierte hex (#rrggbb) a rgba con alpha 0.15 para fondo del icono */
+        function iconBg(hex) {
+            const r = parseInt(hex.slice(1, 3), 16);
+            const g = parseInt(hex.slice(3, 5), 16);
+            const b = parseInt(hex.slice(5, 7), 16);
+            return `rgba(${r}, ${g}, ${b}, 0.15)`;
+        }
+
+        let cardsHtml = sortedStatuses.map(st => {
+            const vis = getSpoolStatusVisual(st);
+            const count = statusCounts[st] || 0;
+            return `<div class="kpi-card glass">
+                <div class="kpi-icon" style="background:${iconBg(vis.color)}"><i class="fas ${vis.icon}" style="color:${vis.color}"></i></div>
+                <div>
+                    <p class="kpi-label">${vis.label}</p>
+                    <p class="kpi-value">${count}</p>
+                </div>
+            </div>`;
+        }).join('');
+
+        // Tarjeta fija: Total Activos (siempre al final)
+        cardsHtml += `<div class="kpi-card glass">
+            <div class="kpi-icon" style="background:rgba(56, 189, 248, 0.15)"><i class="fas fa-industry" style="color:#38bdf8"></i></div>
+            <div>
+                <p class="kpi-label">Total Activos</p>
+                <p class="kpi-value">${cTotalActivos}</p>
+            </div>
+        </div>`;
+
+        container.innerHTML = cardsHtml;
+    }
 
     // --- CONTEO POR ÁREA (LIST_Spools_MS_ columna AREA) ---
     const AREAS_VALIDAS = ['TORRE TRANSFERENCIA', 'TORRE TRASFERENCIA', 'PIPE RACK', 'BAJO ESPESADOR'];
@@ -1465,25 +1544,27 @@ function renderSpools() {
     setText('s-area-bajo',  areaCount['BAJO ESPESADOR']);
     setText('s-area-def',   areaCount['POR DEFINIR']);
 
-    // --- Gráfico: Distribución por Estado (LOG_Spool_MS) ---
+    // --- Gráfico: Distribución por Estado (DINÁMICO) ---
     const ctxEstado = document.getElementById('spools-estado-chart');
     if (ctxEstado) {
         if (charts.spoolsEstado) charts.spoolsEstado.destroy();
 
-        const estadosOrden = ['En Fabricación', 'QAQC', 'En Pint/Revest.', 'Retirar', 'Por Montar', 'Posicionado', 'Montado', 'Eliminado', 'Sin Registro'];
-        const colores = ['#6366f1','#38bdf8','#f59e0b','#ec4899','#10b981','#0ea5e9','#8b5cf6','#ef4444','#64748b'];
-        const data = [c01, c02, c03, c04, c05, c06, c07, c00, cSinRegistro];
-
-        // Solo mostrar los que tienen datos
-        const filtered = estadosOrden.map((l, i) => ({ label: l, val: data[i], color: colores[i] })).filter(x => x.val > 0);
+        // Usar los mismos estados dinámicos (sin "SIN ESTADO" que se muestra como "Sin Registro" en el chart)
+        const chartData = sortedStatuses
+            .map(st => ({
+                label: st === 'SIN ESTADO' ? 'Sin Registro' : getSpoolStatusVisual(st).label,
+                val: statusCounts[st] || 0,
+                color: getSpoolStatusVisual(st).color
+            }))
+            .filter(x => x.val > 0);
 
         charts.spoolsEstado = new Chart(ctxEstado, {
             type: 'doughnut',
             data: {
-                labels: filtered.map(x => x.label),
+                labels: chartData.map(x => x.label),
                 datasets: [{
-                    data: filtered.map(x => x.val),
-                    backgroundColor: filtered.map(x => x.color),
+                    data: chartData.map(x => x.val),
+                    backgroundColor: chartData.map(x => x.color),
                     borderWidth: 0
                 }]
             },
@@ -2140,10 +2221,10 @@ function bimStartViewer() {
                                         if (selectedList.length > 0) {
                                             bimState.selectedElements = selectedList;
 
-                                            // Capa válvulas/soportes: flujo simple (1 elemento = 1 ítem, sin auto-grupo)
+                                             // Capa válvulas/soportes: flujo simple (1 elemento = 1 ítem, sin auto-grupo)
                                             if (bimState.capa !== 'spool') {
                                                 bimRenderCapaSelection(bimState.capa, selectedList, uniqueLayers);
-                                                if (panel) panel.style.display = 'flex';
+                                                if (panel) panel.style.display = authObtener('bim') ? 'flex' : 'none';
                                                 return;
                                             }
 
@@ -2190,8 +2271,6 @@ function bimStartViewer() {
                                                 : 'N/A';
 
                                             // --- ACTUALIZAR UI DE VINCULACIÓN EXISTENTE ---
-                                            // Agrupar la selección por su SPOOL LUKEAPP (tag corto) y resolver
-                                            // el ID_SPOOL largo + TAG GESTIÓN desde el índice precargado.
                                             const gruposPorSpool = {}; // tagLower -> { tag, count }
                                             if (bimState.mapeoSpools) {
                                                 selectedList.forEach(el => {
@@ -2237,11 +2316,23 @@ function bimStartViewer() {
                                                 if (linkSpoolInput) linkSpoolInput.value = '';
 
                                                 // Sin spool asignado: elementos libres para vincular
-                                                bimSetMeta(`
-                                                    <div class="bim-meta-placeholder">
-                                                        <i class="fas fa-cube bim-meta-icon"></i>
-                                                        <p>${selectedList.length} elemento(s) sin spool asignado. Ingresa un código de Spool abajo para vincularlos.</p>
-                                                    </div>`);
+                                                const tieneClave = !!authObtener('bim');
+                                                if (!tieneClave) {
+                                                    bimSetMeta(`
+                                                        <div class="bim-meta-placeholder">
+                                                            <i class="fas fa-cube bim-meta-icon" style="color:#a78bfa;"></i>
+                                                            <p>${selectedList.length} elemento(s) sin spool asignado (Modo Solo Lectura).</p>
+                                                            <button onclick="authAsegurar('bim').then(ok => { if(ok) bimActualizarPermisosUI(); })" class="bim-scan-btn" style="margin-top:10px; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light);">
+                                                                <i class="fas fa-cube"></i> Editar BIM (Ingresar Clave)
+                                                            </button>
+                                                        </div>`);
+                                                } else {
+                                                    bimSetMeta(`
+                                                        <div class="bim-meta-placeholder">
+                                                            <i class="fas fa-cube bim-meta-icon"></i>
+                                                            <p>${selectedList.length} elemento(s) sin spool asignado. Ingresa un código de Spool abajo para vincularlos.</p>
+                                                        </div>`);
+                                                }
                                                 const listEl = document.getElementById('bim-elements-list');
                                                 if (listEl) listEl.style.display = 'none';
                                             }
@@ -2254,7 +2345,7 @@ function bimStartViewer() {
                                                 btn.style.opacity = '1';
                                             }
 
-                                            if (panel) panel.style.display = 'flex';
+                                            if (panel) panel.style.display = authObtener('bim') ? 'flex' : 'none';
                                             
                                             // Abrir la barra lateral si está colapsada en móvil para que el usuario la vea
                                             const sidebar = document.querySelector('.bim-sidebar');
@@ -2743,9 +2834,13 @@ function bimRenderStatusChips() {
             ? `<span class="bim-chip-sin-asociar" title="${nSinAsociar} sin modelo 3D">-${nSinAsociar}</span>`
             : '';
 
+        const tieneClave = !!authObtener('bim');
+        const colorElHtml = tieneClave
+            ? `<input type="color" value="${hex}" onclick="event.stopPropagation()" onchange="bimGuardarColorEstado('${esc}', this.value)" title="Editar color de ${st}">`
+            : `<span class="bim-chip-dot" style="background:${hex}; width:12px; height:12px; border-radius:50%; display:inline-block; flex-shrink:0; margin-right:4px;" title="Color de ${st}"></span>`;
+
         return `<div class="bim-chip ${sel ? 'sel' : ''}" onclick="bimToggleEstado('${esc}')" title="${nTotal} ${unidad} (${nSinAsociar > 0 ? nSinAsociar + ' sin geometría 3D' : 'todos con modelo'})">
-            <input type="color" value="${hex}" onclick="event.stopPropagation()"
-                   onchange="bimGuardarColorEstado('${esc}', this.value)" title="Editar color de ${st}">
+            ${colorElHtml}
             <span class="bim-chip-nombre">${st}</span>
             <span class="bim-chip-n">${nTotal}</span>
             ${badgeHtml}
@@ -3284,22 +3379,83 @@ function bimDivPartesSesion() {
     return bordes.slice(0, -1).map((a, i) => [a, bordes[i + 1]]);
 }
 
-/** Crea el botón en la toolbar de APS (junto a las herramientas nativas). */
+/** Actualiza los botones de la toolbar de APS según los permisos del usuario (CLAVE_BIM). */
+function bimActualizarToolbarPermisos() {
+    const viewer = bimState.viewer;
+    if (!viewer || !viewer.toolbar) return;
+
+    let grupo = viewer.toolbar.getControl('andina-tools');
+    if (!grupo) {
+        grupo = new Autodesk.Viewing.UI.ControlGroup('andina-tools');
+        viewer.toolbar.addControl(grupo);
+    }
+
+    const tieneClave = !!authObtener('bim');
+
+    if (!tieneClave) {
+        // Usuario NO autenticado: remover herramientas de corte e IFC export
+        if (grupo.getControl('btn-dividir-tramo')) {
+            grupo.removeControl('btn-dividir-tramo');
+        }
+        if (grupo.getControl('btn-exportar-ifc')) {
+            grupo.removeControl('btn-exportar-ifc');
+        }
+        // Mostrar botón de desbolqueo "Editar BIM" (cubo)
+        if (!grupo.getControl('btn-editar-bim')) {
+            const btnUnlock = new Autodesk.Viewing.UI.Button('btn-editar-bim');
+            btnUnlock.setToolTip('Editar BIM (Ingresar Clave)');
+            btnUnlock.icon.innerHTML = '<i class="fas fa-cube" style="font-size:16px;line-height:24px;color:#a78bfa;"></i>';
+            btnUnlock.onClick = async () => {
+                const ok = await authAsegurar('bim');
+                if (ok) {
+                    bimActualizarPermisosUI();
+                }
+            };
+            grupo.addControl(btnUnlock);
+        }
+    } else {
+        // Usuario AUTENTICADO con clave BIM: remover botón de desbloqueo
+        if (grupo.getControl('btn-editar-bim')) {
+            grupo.removeControl('btn-editar-bim');
+        }
+        // Agregar botón Dividir tramo de cañería si no existe
+        if (!grupo.getControl('btn-dividir-tramo')) {
+            const btn = new Autodesk.Viewing.UI.Button('btn-dividir-tramo');
+            btn.setToolTip('Dividir tramo de cañería');
+            btn.icon.innerHTML = '<i class="fas fa-scissors" style="font-size:16px;line-height:24px;"></i>';
+            btn.onClick = () => bimDividirToggle();
+            divState._btn = btn;
+            grupo.addControl(btn);
+        }
+        // Agregar botón Exportar IFC si no existe
+        if (typeof bimIfcInit === 'function') {
+            bimIfcInit(grupo);
+        }
+    }
+}
+
+/** Refresca los elementos de UI según el permiso de edición (toolbar, sidebar link-panel, status chips). */
+function bimActualizarPermisosUI() {
+    bimActualizarToolbarPermisos();
+    bimRenderStatusChips();
+
+    const tieneClave = !!authObtener('bim');
+    const panel = document.getElementById('bim-link-panel');
+    if (panel) {
+        if (!tieneClave) {
+            panel.style.display = 'none';
+        } else if (bimState.selectedElements && bimState.selectedElements.length > 0) {
+            panel.style.display = 'flex';
+        }
+    }
+}
+
+/** Crea las herramientas en la toolbar de APS según permisos (junto a las herramientas nativas). */
 function bimDividirInit() {
     const viewer = bimState.viewer;
     if (!viewer) return;
     const crear = () => {
-        if (!viewer.toolbar || viewer.toolbar.getControl('andina-tools')) return;
-        const btn = new Autodesk.Viewing.UI.Button('btn-dividir-tramo');
-        btn.setToolTip('Dividir tramo de cañería');
-        btn.icon.innerHTML = '<i class="fas fa-scissors" style="font-size:16px;line-height:24px;"></i>';
-        btn.onClick = () => bimDividirToggle();
-        divState._btn = btn;
-        const grupo = new Autodesk.Viewing.UI.ControlGroup('andina-tools');
-        grupo.addControl(btn);
-        // Exportación IFC de los trozos (bim-ifc-export.js)
-        if (typeof bimIfcInit === 'function') bimIfcInit(grupo);
-        viewer.toolbar.addControl(grupo);
+        bimActualizarToolbarPermisos();
     };
     if (viewer.toolbar) crear();
     else viewer.addEventListener(Autodesk.Viewing.TOOLBAR_CREATED_EVENT, crear, { once: true });
@@ -4740,7 +4896,19 @@ function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
     } else {
         if (statusContainer) statusContainer.style.display = 'none';
         if (inputEl) inputEl.value = '';
-        bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada. Ingresa su ID abajo para vincular.</p></div>`);
+        const tieneClave = !!authObtener('bim');
+        if (!tieneClave) {
+            bimSetMeta(`
+                <div class="bim-meta-placeholder">
+                    <i class="fas fa-cube bim-meta-icon" style="color:#a78bfa;"></i>
+                    <p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada (Modo Solo Lectura).</p>
+                    <button onclick="authAsegurar('bim').then(ok => { if(ok) bimActualizarPermisosUI(); })" class="bim-scan-btn" style="margin-top:10px; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light);">
+                        <i class="fas fa-cube"></i> Editar BIM (Ingresar Clave)
+                    </button>
+                </div>`);
+        } else {
+            bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada. Ingresa su ID abajo para vincular.</p></div>`);
+        }
     }
 
     // Botón guardar
