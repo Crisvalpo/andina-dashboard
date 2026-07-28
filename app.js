@@ -10,6 +10,8 @@
 // módulo sea reconstruido sin pérdida de funcionalidad.
 import { state, charts, getProjectWeek } from './modules/state.js';
 import { fetchData } from './services/apiService.js';
+import { setText } from './utils/domUtils.js';
+import { resolveSpoolId, normalizeStatus, resolveSpoolStatuses } from './utils/statusHelpers.js';
 
 
 
@@ -1330,36 +1332,7 @@ function getSpoolStatusWeight(status) {
     return 0;
 }
 
-/** Parsea "MM/DD/YYYY HH:mm:ss" a epoch (robusto, sin depender del locale). */
-function parseFechaSpool(str) {
-    const m = String(str || '').trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\D+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-    if (!m) return 0;
-    const [, mm, dd, yy, hh, mi, ss] = m;
-    return new Date(+yy, +mm - 1, +dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
-}
-
-/**
- * Estado ACTUAL de cada spool desde LOG_Spool_MS = ÚLTIMO registro por fecha
- * (desempate por orden de inserción). Ignora STATUS vacío. Misma regla que la
- * sección BIM y el bot → una única fuente de verdad. Retorna Map<ID_SPOOL, status>.
- */
-function resolveSpoolStatuses() {
-    const statusMap = new Map(); // ID_SPOOL -> { status, fecha, row }
-    state.logSpools.forEach(r => {
-        const id = (r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
-        const st = (r.STATUS || r['STATUS '] || '').trim();
-        if (!id || !st) return;
-        const fecha = parseFechaSpool(r['FECHA_LEVANTAMIENTO']);
-        const row = parseInt(r._RowNumber || '0', 10) || 0;
-        const prev = statusMap.get(id);
-        if (!prev || fecha > prev.fecha || (fecha === prev.fecha && row > prev.row)) {
-            statusMap.set(id, { status: st, fecha, row });
-        }
-    });
-    const result = new Map();
-    statusMap.forEach((v, k) => result.set(k, v.status));
-    return result;
-}
+// resolveSpoolStatuses (y su helper parseFechaSpool) viven en ./utils/statusHelpers.js
 
 // ============ RENDER: SPOOLS ============
 
@@ -1697,23 +1670,7 @@ function renderSpools() {
     }
 }
 
-// Helpers para resolveSpoolStatuses
-function resolveSpoolId(s) {
-    return (s.ID_SPOOL || s['ID_SPOOL '] || '').trim();
-}
-function normalizeStatus(st) {
-    if (!st) return '';
-    const s = st.trim().toUpperCase();
-    if (s.includes('FABRICAC')) return 'EN FABRICACIÓN';
-    if (s === 'QAQC')          return 'QAQC';
-    if (s.includes('PINT'))    return 'EN PINT/REVEST.';
-    if (s.includes('RETIR'))   return 'RETIRAR';
-    if (s.includes('MONTAR'))  return 'POR MONTAR';
-    if (s.includes('POSICION')) return 'POSICIONADO';
-    if (s.includes('MONTAD'))  return 'MONTADO';
-    if (s.includes('ELIMIN'))  return 'ELIMINADO';
-    return st.trim();
-}
+// resolveSpoolId y normalizeStatus son importados desde ./utils/statusHelpers.js
 
 // ============ RENDER: QC ============
 function renderQC() {
@@ -1804,11 +1761,7 @@ function fillKanban(containerId, items, label) {
 
 // SDI — Próximamente (sección marcada como coming soon)
 
-// ============ UTILS ============
-function setText(id, val) {
-    const el = document.getElementById(id);
-    if (el) el.textContent = val;
-}
+// setText es importado desde ./utils/domUtils.js
 
 // ============ LOGÍSTICA MODULE ============
 async function loadLogistica() {
