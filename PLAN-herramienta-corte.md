@@ -1,6 +1,6 @@
 # Herramienta de corte y coloreo por estado — plan de trabajo
 
-Estado: **análisis cerrado, sin código escrito.** Rama `feature/herramienta-corte`.
+Estado: **análisis cerrado y preguntas respondidas. Sin código escrito.** Rama `feature/herramienta-corte`.
 Base: `dd8e078` (merge de la modularización ESM).
 
 Todos los números salen de datos reales de producción medidos el 2026-07-28.
@@ -115,37 +115,60 @@ filas `guid#pN` de `LIST_Bim_MS`**, que quedan apuntando a geometría inexistent
 
 ---
 
-## 3. Preguntas abiertas
+## 3. Respuestas (resueltas 2026-07-28)
 
-Bloquean el modelo de datos. Ordenadas por impacto.
+**1 · Qué se ve un elemento no vinculado.**
+Al entrar a la sección BIM se ve **el modelo completo menos los originales ocultados
+por la herramienta de corte**. Al aplicar un filtro de estado, los que coinciden se
+pintan con su color y **todo lo demás pasa a rayos X**.
 
-1. **¿Qué debe verse un elemento no vinculado a nada?** ¿Invisible, gris neutro de
-   fondo, o color propio que grite "falta por catastrar"? Depende de si el visor es
-   para *revisar avance* (estorba) o para *dirigir el catastro* (es justo lo que
-   quieres ver). — *Condiciona todo el punto 4.1.*
+Consecuencia: un elemento sin vincular **no necesita color propio** — es simplemente
+"lo demás". Lo que sí debe dejar de pasar es que aparezca dentro del chip
+`SIN ESTADO`, porque hoy ensucia el recuento y el resaltado.
 
-2. **¿Qué pasa con las divisiones y vinculaciones que ya existen en producción?**
-   ¿Hay trozos ya vinculados que migrar a las claves nuevas, o estamos en pruebas y
-   se pueden descartar y rehacer? — *Decide si 4.2 necesita migración.*
+> *Lectura mía, a confirmar:* los elementos sin vincular no aparecen en **ningún**
+> chip de estado, y su recuento se expone como **métrica de catastro pendiente**, no
+> como filtro. Si se prefiere un chip propio "SIN VINCULAR" para dirigir el catastro,
+> es un añadido pequeño sobre lo mismo.
 
-3. **¿Un trozo siempre acaba perteneciendo a un spool?** ¿O hay casos donde una
-   parte queda deliberadamente sin asignar (tubería existente, otro contratista, o
-   aún no se sabe)?
+**Requisito nuevo:** ofrecer desde la app la **búsqueda por isométrico completo o por
+línea**, que hoy se hace con el filtro nativo de APS. Así se deja de depender de unas
+herramientas nativas que son ciegas a las modificaciones. → paso 4.6.
 
-4. **¿Puede un mismo elemento tener dos trozos del mismo spool?** Si nunca ocurre,
-   el par *(elemento, spool)* es único y la identidad se vuelve trivial.
+**2 · Divisiones y vinculaciones existentes.**
+Son reales, las hizo personal de obra y son valiosas — pero ajustar la herramienta
+también lo es. Decisión: **basta con registrar a qué TAG GESTIÓN estaba vinculado
+cada trozo**; si se pierden las divisiones, se rehacen.
 
-5. **¿Se ajustan los cortes después de vincular?** ¿Arrastrar extremos es solo
-   mientras defines la división, o se vuelve semanas después a corregir un límite de
-   un trozo ya vinculado y con estado?
+Implica: antes de migrar, **exportar el mapa trozo → TAG GESTIÓN** como respaldo. No
+hace falta migración de geometría. → paso 4.2.
 
-6. **¿`bimDividirRestaurar` debe borrar las filas `guid#pN` de `LIST_Bim_MS`?**
-   (Hallazgo 1.7.) Presumiblemente sí, pero confirma que no hay dependencia externa
-   de esas filas.
+**3 · ¿Todo trozo acaba en un spool?**
+En teoría sí, pero habrá casos donde se divida y **algunos trozos queden sin
+asignar**. Es un estado válido del modelo, no un error.
 
-7. **El original oculto "para siempre" choca con el "mostrar todo" nativo de APS**
-   (hallazgo 1.5). ¿Se acepta el parche de re-ocultar, o se quita del alcance del
-   usuario el botón nativo de mostrar todo?
+**4 · ¿Dos trozos del mismo elemento pueden compartir spool?**
+**Sí** — se usa para graficar una unión.
+
+Consecuencia importante: el par *(elemento, spool)* **no es único** y por tanto **no
+sirve como identidad**. Cada trozo necesita un id propio y estable. Confirma 4.2.
+
+**5 · ¿Se ajustan los cortes después de vincular?**
+Existe la posibilidad. La reedición debe **conservar las vinculaciones** de los
+trozos que no se tocan.
+
+**6 · ¿Borrar filas al restaurar una división?**
+**Sí**, hay que borrar los registros de las divisiones restauradas. → paso 4.2.
+
+**7 · El "mostrar todo" nativo de APS resucita los originales ocultos.**
+Se acepta el enfoque de vigilancia: **detectar los "mostrar todo" de APS** y, si no
+se puede interceptar el evento, relanzar el ocultado periódicamente — *"funcionaría
+como un refresh sin refresh"*. → paso 4.7.
+
+**Transversal · Origen del estado.**
+Los estados vienen **netamente de `LOG_Spool_MS`**: es ahí donde terreno los define.
+Cualquier otra fuente (`Proceso` / `ESTADO_FABRICACION` de `LIST_Spools_MS_`) no es
+autoridad y no debe competir con ella.
 
 ---
 
@@ -154,22 +177,27 @@ Bloquean el modelo de datos. Ordenadas por impacto.
 Ordenado por dependencia y riesgo. Cada paso es verificable por separado.
 
 ### 4.1 Separar los estados del coloreo *(bajo riesgo, alto valor)*
-**Depende de la pregunta 1.**
 
-- Distinguir en `/api/bim/statuses` tres categorías donde hoy hay una:
-  `SIN VINCULAR` · `SIN ESTADO` (vinculado, sin registro) · `SIN REGISTRO` (clave que
-  no resuelve, ej. `guid#pN` huérfano).
-- Leer también `VALVULA LUKEAPP` y `SOPORTE LUKEAPP`, no solo spool (hallazgo 1.2).
-- No borrar ninguna fila (hallazgo 1.3).
-- **Métrica que se gana:** cuánto del modelo queda por vincular — hoy no existe.
+- En `/api/bim/statuses`, dejar de meter en `SIN ESTADO` lo que no tiene vínculo.
+  Categorías reales: los estados de `LOG_Spool_MS`, más `SIN ESTADO` = **vinculado a
+  un spool que no tiene registro en LOG** (975 hoy).
+- Los elementos sin vínculo (2636) salen de los chips y pasan a ser **métrica de
+  catastro pendiente**.
+- Leer también `VALVULA LUKEAPP` y `SOPORTE LUKEAPP`, no solo spool (hallazgo 1.2):
+  hoy 11 elementos vinculados se pintan como si no lo estuvieran.
+- **No borrar ninguna fila** (hallazgo 1.3).
+- Estado solo desde `LOG_Spool_MS` (respuesta transversal).
 
 ### 4.2 Clave estable de trozo *(riesgo medio)*
-**Depende de la pregunta 2.**
 
-- Sustituir `guid#pN` posicional por una clave que no dependa del orden: id generado
-  al crear el trozo y persistido junto a sus `[a,b]` en `bim_divisiones`.
-- Migrar o descartar lo existente según la respuesta a la pregunta 2.
-- Limpiar huérfanos al restaurar (hallazgo 1.7).
+- Sustituir `guid#pN` posicional por un **id propio generado al crear el trozo**,
+  persistido junto a sus `[a,b]` en `bim_divisiones`. No vale *(elemento, spool)*:
+  dos trozos pueden compartir spool (respuesta 4).
+- **Antes de tocar nada: exportar el mapa trozo → TAG GESTIÓN** (respuesta 2). Las
+  divisiones se pueden rehacer; saber a qué spool iban, no.
+- La reedición conserva las vinculaciones de los trozos intactos (respuesta 5).
+- Al restaurar una división, borrar sus filas en `LIST_Bim_MS` (respuesta 6,
+  hallazgo 1.7).
 
 ### 4.3 Unificar el filtrado *(refactor interno, sin cambio funcional)*
 - Una sola noción de **unidad renderizable**: elemento original no dividido, o trozo.
@@ -177,17 +205,31 @@ Ordenado por dependencia y riesgo. Cada paso es verificable por separado.
 - Una única función resuelve "¿qué unidades cumplen este filtro?"; un despachador
   aplica el resultado por el mecanismo que toque (theming nativo si es `dbId`,
   material de overlay si es trozo).
+- Comportamiento por defecto: modelo completo menos los cortados. Con filtro activo:
+  los que coinciden con su color, el resto en rayos X (respuesta 1).
 - Elimina la divergencia del hallazgo 1.6.
 
 ### 4.4 Interacción de corte *(sobre 4.2)*
 - Click divide **el trozo pinchado** en dos (decisión 5).
 - Deshacer accesible y visible.
 - Modo edición aísla el tramo (decisión 4).
+- Un trozo puede quedar sin asignar (respuesta 3).
 
 ### 4.5 Enriquecer la fila al vincular *(independiente, pequeño)*
 - Que `bimSaveLink` lea `CWP`, `AutoCad Size` y `DESCRIPCIÓN` del visor
   (`getProperties`) en vez de mandarlos vacíos (hallazgo 1.3).
 - Así una fila creada deja de ser más pobre que una preexistente.
+
+### 4.6 Búsqueda por isométrico y por línea desde la app *(nuevo, respuesta 1)*
+- Hoy se hace con el filtro nativo de APS, que es ciego a los trozos.
+- Al vivir en la app, cubre por igual originales y trozos, y reduce la dependencia de
+  las herramientas nativas.
+
+### 4.7 Vigilancia del "mostrar todo" de APS *(respuesta 7)*
+- Detectar el evento nativo de mostrar todo y re-ocultar los originales cortados.
+- Si no es interceptable, relanzar el ocultado de forma periódica.
+- Reemplaza el parcheo manual disperso de `bimDivReocultarOriginales`.
+
 
 ---
 
