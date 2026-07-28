@@ -1,7 +1,12 @@
 /**
- * Authentication & Access Control Module — Andina Piping Dashboard
+ * Auth por área — Andina Piping Dashboard
+ *
+ * Tokens de edición guardados en localStorage con caducidad. Una misma clave
+ * puede otorgar varios permisos ('bim', 'bot'), así que el login guarda el
+ * token para cada uno de los permisos que devuelve el servidor.
+ *
+ * Sin dependencias: solo localStorage, fetch y DOM.
  */
-
 export const AUTH_LABELS = {
     bim: { titulo: 'Edición BIM', desc: 'Ingresa la clave para vincular elementos 3D a spools.' },
     bot: { titulo: 'Administración del Bot', desc: 'Ingresa la clave para administrar el bot de WhatsApp.' }
@@ -47,6 +52,7 @@ export async function authAsegurar(area) {
             alert('🔒 Clave incorrecta.');
             return false;
         }
+        // Una clave puede otorgar varios permisos: guardar el token para cada uno.
         (d.permisos || []).forEach(p => authGuardar(p, d.token, d.expiraEnHoras));
         return (d.permisos || []).includes(area);
     } catch (e) {
@@ -81,17 +87,20 @@ export function authPedirClave(area) {
         overlay.querySelector('#auth-modal-cancel').onclick = () => cerrar(null);
         overlay.querySelector('#auth-modal-ok').onclick = () => cerrar(input.value);
         overlay.addEventListener('click', e => { if (e.target === overlay) cerrar(null); });
-        input.onkeydown = e => { if (e.key === 'Enter') cerrar(input.value); };
+        input.addEventListener('keydown', e => {
+            if (e.key === 'Enter') cerrar(input.value);
+            if (e.key === 'Escape') cerrar(null);
+        });
         setTimeout(() => input.focus(), 50);
     });
 }
 
-// Exponer en window para retrocompatibilidad
 if (typeof window !== 'undefined') {
-    window.authGuardar = authGuardar;
-    window.authObtener = authObtener;
-    window.authOlvidar = authOlvidar;
-    window.authHeaders = authHeaders;
-    window.authAsegurar = authAsegurar;
-    window.authPedirClave = authPedirClave;
+    window.authGuardar      = authGuardar;
+    window.authObtener      = authObtener;
+    window.authOlvidar      = authOlvidar;
+    window.authHeaders      = authHeaders;
+    window.authAsegurar     = authAsegurar;
+    window.authPedirClave   = authPedirClave;
+    window.AUTH_LABELS     = AUTH_LABELS;
 }

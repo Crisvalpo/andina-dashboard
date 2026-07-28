@@ -19,6 +19,9 @@ import {
 import { renderOverview } from './components/renderOverview.js';
 import { renderJuntas } from './components/renderJuntas.js';
 import { renderSpools } from './components/renderSpools.js';
+import { renderQC } from './components/renderQC.js';
+import { authAsegurar, authHeaders, authObtener, authOlvidar } from './modules/auth.js';
+import { botInitPanel } from './modules/botHandler.js';
 import { bimState } from './modules/bimState.js';
 import {
     BIM_STATUS_COLORS, bimRgbAHex, bimColorDeEstado, bimCargarColoresEstados
@@ -475,74 +478,7 @@ function getSpoolStatusWeight(status) {
 // resolveSpoolId y normalizeStatus son importados desde ./utils/statusHelpers.js
 
 // ============ RENDER: QC ============
-function renderQC() {
-    const { inspecciones, ejecuciones, juntas } = state;
-
-    // "Pendiente VT" = juntas EJECUTADA que NO tienen registro de inspección visual
-    const inspeccionIds = new Set(
-        inspecciones.map(i => (i.ID_JUNTA || i['ID_JUNTA '] || '').trim()).filter(Boolean)
-    );
-    
-    // Obtener juntas ejecutadas únicas
-    const ejecutadasIds = ejecuciones
-        .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'))
-        .map(e => getJuntaId(e))
-        .filter((v, i, a) => v && a.indexOf(v) === i);
-
-    const pendienteVT = ejecutadasIds.filter(id => !inspeccionIds.has(id));
-
-    // Desglose Pendientes Taller vs Terreno
-    let pendTaller = 0, pendTerreno = 0;
-    const juntasMap = {};
-    juntas.forEach(j => juntasMap[(j.ID_JUNTA || j['ID_JUNTA '] || '').trim()] = j);
-
-    pendienteVT.forEach(id => {
-        const j = juntasMap[id];
-        if (j) {
-            const cat = (j.CATEGORIA_JUNTA || j['CATEGORIA_JUNTA '] || '').toUpperCase().trim();
-            const isShop = cat === 'S' || cat === 'SHOP' || cat === 'TALLER';
-            if (isShop) pendTaller++; else pendTerreno++;
-        } else {
-            pendTerreno++; // Fallback a Terreno
-        }
-    });
-
-    // "VT Aprobado" e Inspecciones
-    const aprobadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('APROBADO'));
-    const rechazadas = inspecciones.filter(i => (i.ESTADO || i['ESTADO '] || '').toUpperCase().includes('RECHAZA'));
-    
-    // El porcentaje se calcula sobre el total de inspecciones finalizadas (Aprobadas + Rechazadas)
-    const totalVAFinalizado = aprobadas.length + rechazadas.length;
-    const percAprobacion = totalVAFinalizado > 0 ? Math.round((aprobadas.length / totalVAFinalizado) * 100) : 100;
-
-    // "NDE Solicitado"
-    const ndeList = inspecciones.filter(i => (i.PROXIMA_ETAPA || i['PROXIMA_ETAPA '] || i.ESTADO || '').toUpperCase().includes('NDE'));
-
-    setText('qc-aprobado', aprobadas.length);
-    setText('qc-rechazado', rechazadas.length);
-    setText('qc-nde', ndeList.length);
-
-    // Actualizar Tarjetas de Detalle
-    setText('qc-pend-taller', pendTaller);
-    setText('qc-pend-terreno', pendTerreno);
-    setText('qc-perc-vt', `${percAprobacion}%`);
-    setText('qc-nde-sol', ndeList.length);
-
-    // ============ Métrica Dimensional (Spools) ============
-    const spoolsFabricados = state.spools.filter(s => (s.ESTADO_FABRICACION || '').toUpperCase().includes('FABRICADO')).length;
-
-    const dccEmitidos = new Set();
-    state.dimensional.forEach(d => {
-        const id = (d.ID_SPOOL || d['ID_SPOOL '] || '').trim();
-        if (id) dccEmitidos.add(id);
-    });
-    const dimCount = dccEmitidos.size;
-    const pendDim = spoolsFabricados - dimCount;
-
-    setText('qc-spool-fab', spoolsFabricados);
-    setText('qc-spool-dim', dimCount);
-    setText('qc-spool-pend', pendDim > 0 ? pendDim : 0);
-}
+// renderQC vive en ./components/renderQC.js
 
 function fillKanban(containerId, items, label) {
     const container = document.getElementById(containerId);
@@ -4130,328 +4066,28 @@ async function bimSaveLink() {
 // ============================================================
 // BOT WHATSAPP — Panel de Configuración
 // ============================================================
-let botQrPollTimer = null;
 
-async function botInitPanel() {
-    const lock = document.getElementById('bot-lock');
-    const content = document.getElementById('bot-content');
+// botInitPanel vive en ./modules/botHandler.js
 
-    // Exigir clave de administración del bot antes de mostrar QR/config/usuarios.
-    const desbloqueado = await authAsegurar('bot');
-    if (!desbloqueado) {
-        if (lock) lock.style.display = 'flex';
-        if (content) content.style.display = 'none';
-        return;
-    }
-    if (lock) lock.style.display = 'none';
-    if (content) content.style.display = '';
+// botRefreshStatus vive en ./modules/botHandler.js
 
-    botRefreshStatus();
-    botRefreshQr();
-    botCargarUsuarios();
-    botCargarConfig();
-    botCargarTools();
+// botRefreshQr vive en ./modules/botHandler.js
 
-    // Poll suave del QR/estado mientras la sección esté visible
-    if (botQrPollTimer) clearInterval(botQrPollTimer);
-    botQrPollTimer = setInterval(() => {
-        if (state.currentSection !== 'bot') {
-            clearInterval(botQrPollTimer);
-            botQrPollTimer = null;
-            return;
-        }
-        botRefreshStatus(true);
-        botRefreshQr(true);
-    }, 15000);
-}
+// botRestart vive en ./modules/botHandler.js
 
-async function botRefreshStatus(silencioso = false) {
-    const badge = document.getElementById('bot-status-badge');
-    if (!badge) return;
-    if (!silencioso) badge.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Consultando...';
+// botCargarUsuarios vive en ./modules/botHandler.js
 
-    try {
-        const r = await fetch('/api/bot/status', { headers: authHeaders('bot') });
-        const d = await r.json();
+// botEditarUsuario vive en ./modules/botHandler.js
+// botCancelarEdicion vive en ./modules/botHandler.js
+// botGuardarEdicion vive en ./modules/botHandler.js
 
-        const estados = {
-            connected:      ['bot-ok',   'fa-check-circle',  'Conectado'],
-            connecting:     ['bot-warn', 'fa-circle-notch fa-spin', 'Conectando...'],
-            disconnected:   ['bot-warn', 'fa-exclamation-triangle', 'Desconectado'],
-            bridge_offline: ['bot-err',  'fa-times-circle',  'Puente apagado (PM2)']
-        };
-        const [cls, icon, label] = estados[d.status] || estados.bridge_offline;
-        badge.className = `bot-status-badge ${cls}`;
-        badge.innerHTML = `<i class="fas ${icon}"></i> ${label}`;
+// botToggleUsuario vive en ./modules/botHandler.js
 
-        document.getElementById('bot-number').textContent =
-            d.botNumber ? `+${d.botNumber}` : '— (sin vincular)';
-        document.getElementById('bot-name').textContent = d.botName || '—';
-        document.getElementById('bot-last-connected').textContent =
-            d.lastConnectedAt ? new Date(d.lastConnectedAt).toLocaleString('es-CL') : '—';
-    } catch (e) {
-        badge.className = 'bot-status-badge bot-err';
-        badge.innerHTML = '<i class="fas fa-times-circle"></i> Error consultando estado';
-    }
-}
+// botAgregarUsuario vive en ./modules/botHandler.js
 
-async function botRefreshQr(silencioso = false) {
-    const img = document.getElementById('bot-qr-img');
-    const hint = document.getElementById('bot-qr-hint');
-    if (!img || !hint) return;
+// botCargarConfig vive en ./modules/botHandler.js
 
-    try {
-        const r = await fetch('/api/bot/qr', { headers: authHeaders('bot') });
-        const d = await r.json();
-
-        if (d.qrDataUrl) {
-            img.src = d.qrDataUrl;
-            img.style.display = 'block';
-            hint.textContent = '📲 Escanea este código desde WhatsApp > Dispositivos vinculados';
-        } else {
-            img.style.display = 'none';
-            if (d.status === 'connected') {
-                hint.textContent = `✅ Sesión vinculada${d.botNumber ? ' al +' + d.botNumber : ''}. No se necesita QR.`;
-            } else if (d.status === 'bridge_offline') {
-                hint.textContent = '🔌 El puente (wa-bridge) no responde. Revisa PM2 en el servidor.';
-            } else {
-                hint.textContent = '⏳ Generando QR... presiona "Refrescar QR" en unos segundos.';
-            }
-        }
-    } catch (e) {
-        if (!silencioso) hint.textContent = 'Error consultando el QR.';
-    }
-}
-
-async function botRestart(logout) {
-    const msg = logout
-        ? '¿Desvincular la sesión de WhatsApp? Se borrarán las credenciales y deberás escanear un QR nuevo.'
-        : '¿Reconectar el puente de WhatsApp?';
-    if (!confirm(msg)) return;
-
-    try {
-        const r = await fetch('/api/bot/restart', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
-            body: JSON.stringify({ logout })
-        });
-        const d = await r.json();
-        alert(d.message || (d.success ? 'Listo' : 'Error: ' + (d.error || 'desconocido')));
-        setTimeout(() => { botRefreshStatus(); botRefreshQr(); }, 3000);
-    } catch (e) {
-        alert('No se pudo contactar el puente: ' + e.message);
-    }
-}
-
-async function botCargarUsuarios() {
-    const body = document.getElementById('bot-users-body');
-    if (!body) return;
-    try {
-        const r = await fetch('/api/bot/usuarios', { headers: authHeaders('bot') });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error || 'Error');
-
-        if (!d.usuarios.length) {
-            body.innerHTML = '<tr><td colspan="5" style="text-align:center;opacity:0.6;padding:20px;">Sin usuarios aún. Agrega el primero arriba.</td></tr>';
-            return;
-        }
-
-        body.innerHTML = d.usuarios.map(u => {
-            const tel = u.telefono;
-            const rolesOpts = ['Terreno','Supervisor','Admin','OT','QAQC'].map(r =>
-                `<option value="${r}" ${(u.rol||'Terreno')===r?'selected':''}>${r}</option>`
-            ).join('');
-            return `
-            <tr id="urow-${tel}">
-                <td>+${tel}</td>
-                <td class="ucell-nombre-${tel}">${u.nombre || '—'}</td>
-                <td class="ucell-rol-${tel}">${u.rol || 'Terreno'}</td>
-                <td>
-                    <span class="status-pill ${u.activo ? 'pill-green' : 'pill-red'}">
-                        ${u.activo ? 'Activo' : 'Pendiente'}
-                    </span>
-                </td>
-                <td style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-                    <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem"
-                        onclick="botToggleUsuario('${tel}', ${!u.activo})">
-                        ${u.activo ? 'Desactivar' : 'Autorizar'}
-                    </button>
-                    <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem;background:rgba(99,102,241,0.2);border-color:rgba(99,102,241,0.5)"
-                        onclick="botEditarUsuario('${tel}')" title="Editar nombre / rol">
-                        ✏️ Editar
-                    </button>
-                </td>
-            </tr>
-            <tr id="urow-edit-${tel}" style="display:none;background:rgba(99,102,241,0.07)">
-                <td colspan="5" style="padding:10px 14px">
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-                        <input id="uedit-nombre-${tel}" type="text" placeholder="Nombre y apellido"
-                            value="${(u.nombre||'').replace(/"/g,'&quot;')}"
-                            style="flex:1;min-width:150px;background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.4);border-radius:8px;padding:7px 10px;color:#f1f5f9;font-family:inherit;font-size:0.85rem">
-                        <select id="uedit-rol-${tel}"
-                            style="background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.4);border-radius:8px;padding:7px 10px;color:#f1f5f9;font-family:inherit;font-size:0.85rem">
-                            ${rolesOpts}
-                        </select>
-                        <button class="refresh-btn" style="padding:5px 14px;font-size:0.8rem;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.5);color:#6ee7b7"
-                            onclick="botGuardarEdicion('${tel}')">
-                            ✓ Guardar
-                        </button>
-                        <button class="refresh-btn" style="padding:5px 14px;font-size:0.8rem"
-                            onclick="botCancelarEdicion('${tel}')">
-                            Cancelar
-                        </button>
-                    </div>
-                </td>
-            </tr>`;
-        }).join('');
-    } catch (e) {
-        body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;padding:20px;">Error: ${e.message}</td></tr>`;
-    }
-}
-
-function botEditarUsuario(tel) {
-    // Obtener valores actuales directamente de las celdas
-    const nombreCelda = document.querySelector(`.ucell-nombre-${tel}`);
-    const nombreVal = nombreCelda ? (nombreCelda.textContent || '').trim().replace(/^—$/, '') : '';
-    
-    // Asignar al input de edicion por si el usuario lo cambio antes
-    const inp = document.getElementById('uedit-nombre-' + tel);
-    if (inp) {
-        inp.value = nombreVal;
-    }
-
-    // Mostrar fila de edicion
-    const editRow = document.getElementById('urow-edit-' + tel);
-    if (editRow) editRow.style.display = '';
-    if (inp) { inp.focus(); inp.select(); }
-}
-function botCancelarEdicion(tel) {
-    const editRow = document.getElementById('urow-edit-' + tel);
-    if (editRow) editRow.style.display = 'none';
-}
-async function botGuardarEdicion(tel) {
-    const nombre = (document.getElementById('uedit-nombre-' + tel)?.value || '').trim();
-    const rol    = document.getElementById('uedit-rol-' + tel)?.value || 'Terreno';
-    if (!nombre) { alert('El nombre no puede estar vacío.'); return; }
-    try {
-        const r = await fetch('/api/bot/usuarios/' + tel, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
-            body: JSON.stringify({ nombre, rol })
-        });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error || 'Error');
-        botCargarUsuarios(); // recarga la tabla completa
-    } catch (e) {
-        alert('Error guardando: ' + e.message);
-    }
-}
-
-async function botToggleUsuario(telefono, activo) {
-    try {
-        await fetch(`/api/bot/usuarios/${telefono}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
-            body: JSON.stringify({ activo })
-        });
-        botCargarUsuarios();
-    } catch (e) {
-        alert('Error actualizando usuario: ' + e.message);
-    }
-}
-
-async function botAgregarUsuario() {
-    const telefono = document.getElementById('bot-user-telefono').value.trim();
-    const nombre = document.getElementById('bot-user-nombre').value.trim();
-    const rol = document.getElementById('bot-user-rol').value;
-
-    if (!telefono || !nombre) {
-        alert('Completa teléfono y nombre.');
-        return;
-    }
-
-    try {
-        const r = await fetch('/api/bot/usuarios', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
-            body: JSON.stringify({ telefono, nombre, rol })
-        });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error || 'Error');
-        document.getElementById('bot-user-telefono').value = '';
-        document.getElementById('bot-user-nombre').value = '';
-        botCargarUsuarios();
-    } catch (e) {
-        alert('Error agregando usuario: ' + e.message);
-    }
-}
-
-async function botCargarConfig() {
-    const runtimeEl = document.getElementById('bot-config-list');
-    const envEl = document.getElementById('bot-env-list');
-    if (!runtimeEl || !envEl) return;
-
-    try {
-        const r = await fetch('/api/config', { headers: authHeaders('bot') });
-        const d = await r.json();
-
-        // --- Config runtime (editable) ---
-        if (d.runtimeError) {
-            runtimeEl.innerHTML = `<p style="color:#f59e0b;font-size:0.85rem">⚠️ Supabase no disponible: ${d.runtimeError}</p>`;
-        } else {
-            runtimeEl.innerHTML = d.runtime.map(c => `
-                <div class="bot-config-item">
-                    <div class="bot-config-meta">
-                        <span class="bot-config-key">${c.clave}</span>
-                        <span class="bot-config-desc">${c.descripcion || ''}</span>
-                    </div>
-                    <div class="bot-config-edit">
-                        <input type="text" id="conf-${c.clave}" value="${String(c.valor).replace(/"/g, '&quot;')}">
-                        <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem"
-                            onclick="botGuardarConfig('${c.clave}')">💾</button>
-                    </div>
-                </div>
-            `).join('');
-        }
-
-        // --- Entorno (solo lectura, secretos enmascarados) ---
-        envEl.innerHTML = Object.entries(d.env).map(([k, v]) => {
-            if (v.secreto) {
-                const ok = v.configurada;
-                return `<div class="bot-config-item">
-                    <span class="bot-config-key">${k}</span>
-                    <span class="status-pill ${ok ? 'pill-green' : 'pill-red'}">
-                        ${ok ? '🔒 Configurada' : '✗ Falta'}
-                    </span>
-                </div>`;
-            }
-            return `<div class="bot-config-item">
-                <span class="bot-config-key">${k}</span>
-                <span class="bot-config-desc">${v.valor === '' ? '—' : v.valor}</span>
-            </div>`;
-        }).join('');
-    } catch (e) {
-        runtimeEl.innerHTML = `<p style="color:#ef4444">Error: ${e.message}</p>`;
-    }
-}
-
-async function botGuardarConfig(clave) {
-    const input = document.getElementById(`conf-${clave}`);
-    if (!input) return;
-    try {
-        const r = await fetch('/api/config', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
-            body: JSON.stringify({ clave, valor: input.value })
-        });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error || 'Error');
-        input.style.borderColor = '#10b981';
-        setTimeout(() => { input.style.borderColor = ''; }, 1500);
-    } catch (e) {
-        alert('Error guardando: ' + e.message);
-    }
-}
+// botGuardarConfig vive en ./modules/botHandler.js
 
 
 // ============================================================
@@ -4459,148 +4095,32 @@ async function botGuardarConfig(clave) {
 // Lectura abierta; escritura pide clave por área (bim / bot).
 // El token se guarda en localStorage y se valida en el servidor.
 // ============================================================
-const AUTH_LABELS = {
-    bim: { titulo: 'Edición BIM', desc: 'Ingresa la clave para vincular elementos 3D a spools.' },
-    bot: { titulo: 'Administración del Bot', desc: 'Ingresa la clave para administrar el bot de WhatsApp.' }
-};
+// AUTH_LABELS vive en ./modules/auth.js
 
-function authGuardar(area, token, expiraEnHoras) {
-    const exp = Date.now() + (expiraEnHoras || 12) * 3600 * 1000;
-    localStorage.setItem(`andina_tok_${area}`, JSON.stringify({ token, exp }));
-}
+// authGuardar vive en ./modules/auth.js
 
-function authObtener(area) {
-    try {
-        const raw = localStorage.getItem(`andina_tok_${area}`);
-        if (!raw) return null;
-        const { token, exp } = JSON.parse(raw);
-        if (!exp || Date.now() > exp) { authOlvidar(area); return null; }
-        return token;
-    } catch (e) { return null; }
-}
+// authObtener vive en ./modules/auth.js
 
-function authOlvidar(area) {
-    localStorage.removeItem(`andina_tok_${area}`);
-}
+// authOlvidar vive en ./modules/auth.js
 
-function authHeaders(area) {
-    const t = authObtener(area);
-    return t ? { 'x-edit-token': t } : {};
-}
+// authHeaders vive en ./modules/auth.js
 
 /** Garantiza que exista un token válido para el área; si no, pide la clave. */
-async function authAsegurar(area) {
-    if (authObtener(area)) return true;
-    const clave = await authPedirClave(area);
-    if (clave === null) return false; // cancelado
-    try {
-        const r = await fetch('/api/auth/login', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ clave })
-        });
-        const d = await r.json();
-        if (!d.success) {
-            alert('🔒 Clave incorrecta.');
-            return false;
-        }
-        // Una clave puede otorgar varios permisos: guardar el token para cada uno.
-        (d.permisos || []).forEach(p => authGuardar(p, d.token, d.expiraEnHoras));
-        return (d.permisos || []).includes(area);
-    } catch (e) {
-        alert('Error validando la clave: ' + e.message);
-        return false;
-    }
-}
+// authAsegurar vive en ./modules/auth.js
 
 /** Modal de clave. Devuelve la clave (string) o null si se cancela. */
-function authPedirClave(area) {
-    const info = AUTH_LABELS[area] || { titulo: 'Acceso', desc: 'Ingresa la clave.' };
-    return new Promise(resolve => {
-        const overlay = document.createElement('div');
-        overlay.className = 'auth-modal-overlay';
-        overlay.innerHTML = `
-            <div class="auth-modal">
-                <div class="auth-modal-icon"><i class="fas fa-lock"></i></div>
-                <h3>${info.titulo}</h3>
-                <p>${info.desc}</p>
-                <input type="password" id="auth-modal-input" placeholder="Clave" autocomplete="off">
-                <div class="auth-modal-error" id="auth-modal-error"></div>
-                <div class="auth-modal-actions">
-                    <button class="auth-btn-cancel" id="auth-modal-cancel">Cancelar</button>
-                    <button class="auth-btn-ok" id="auth-modal-ok">Desbloquear</button>
-                </div>
-            </div>`;
-        document.body.appendChild(overlay);
-
-        const input = overlay.querySelector('#auth-modal-input');
-        const cerrar = (val) => { overlay.remove(); resolve(val); };
-
-        overlay.querySelector('#auth-modal-cancel').onclick = () => cerrar(null);
-        overlay.querySelector('#auth-modal-ok').onclick = () => cerrar(input.value);
-        overlay.addEventListener('click', e => { if (e.target === overlay) cerrar(null); });
-        input.addEventListener('keydown', e => {
-            if (e.key === 'Enter') cerrar(input.value);
-            if (e.key === 'Escape') cerrar(null);
-        });
-        setTimeout(() => input.focus(), 50);
-    });
-}
+// authPedirClave vive en ./modules/auth.js
 
 // Botón dentro del panel Bot para reintentar el desbloqueo manualmente.
-async function botDesbloquear() {
-    const ok = await authAsegurar('bot');
-    if (ok) botInitPanel();
-}
+// botDesbloquear vive en ./modules/botHandler.js
 
 
 // ============================================================
 // BOT — Catálogo de herramientas dinámicas (mapa del mundo)
 // ============================================================
-async function botCargarTools() {
-    const body = document.getElementById('bot-tools-body');
-    if (!body) return;
-    try {
-        const r = await fetch('/api/bot/tools', { headers: authHeaders('bot') });
-        const d = await r.json();
-        if (!d.success) throw new Error(d.error || 'Error');
+// botCargarTools vive en ./modules/botHandler.js
 
-        if (!d.tools.length) {
-            body.innerHTML = '<tr><td colspan="5" style="text-align:center;opacity:0.6;padding:20px;">Aún no hay herramientas. Se crearán solas cuando un supervisor haga consultas de datos al bot.</td></tr>';
-            return;
-        }
-
-        body.innerHTML = d.tools.map(t => `
-            <tr>
-                <td style="font-family:monospace;font-size:0.78rem;color:#818cf8">${t.nombre_funcion}</td>
-                <td style="font-size:0.8rem;opacity:0.8">${t.descripcion || ''}</td>
-                <td style="text-align:center">${t.usos || 0}</td>
-                <td style="font-size:0.8rem">${t.creada_por || '—'}</td>
-                <td>
-                    <button class="refresh-btn bot-btn-danger" style="padding:4px 10px;font-size:0.72rem"
-                        onclick="botBorrarTool('${t.nombre_funcion}')" title="Eliminar herramienta">
-                        <i class="fas fa-trash"></i>
-                    </button>
-                </td>
-            </tr>
-        `).join('');
-    } catch (e) {
-        body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;padding:20px;">Error: ${e.message}</td></tr>`;
-    }
-}
-
-async function botBorrarTool(nombre) {
-    if (!confirm(`¿Eliminar la herramienta "${nombre}"? El bot la volverá a crear si alguien repite la consulta.`)) return;
-    try {
-        await fetch(`/api/bot/tools/${encodeURIComponent(nombre)}`, {
-            method: 'DELETE',
-            headers: authHeaders('bot')
-        });
-        botCargarTools();
-    } catch (e) {
-        alert('Error eliminando herramienta: ' + e.message);
-    }
-}
+// botBorrarTool vive en ./modules/botHandler.js
 
 /**
  * Abre el visualizador de PDF.
@@ -4786,10 +4306,6 @@ function initBimSplitResizer() {
 // desde HTML: si una función se renombra aquí, el botón deja de responder.
 // ============================================================================
 if (typeof window !== 'undefined') {
-    window.authAsegurar             = authAsegurar;
-    window.authHeaders              = authHeaders;
-    window.authObtener              = authObtener;
-    window.authOlvidar              = authOlvidar;
     window.bimCloseScanner          = bimCloseScanner;
     window.bimCloseSidebar          = bimCloseSidebar;
     window.bimDividirDeshacer       = bimDividirDeshacer;
@@ -4819,17 +4335,6 @@ if (typeof window !== 'undefined') {
     window.bimTrozoEditarDivision   = bimTrozoEditarDivision;
     window.bimTrozoEliminarDivision = bimTrozoEliminarDivision;
     window.bimTrozoVincular         = bimTrozoVincular;
-    window.botAgregarUsuario        = botAgregarUsuario;
-    window.botBorrarTool            = botBorrarTool;
-    window.botCancelarEdicion       = botCancelarEdicion;
-    window.botDesbloquear           = botDesbloquear;
-    window.botEditarUsuario         = botEditarUsuario;
-    window.botGuardarConfig         = botGuardarConfig;
-    window.botGuardarEdicion        = botGuardarEdicion;
-    window.botRefreshQr             = botRefreshQr;
-    window.botRefreshStatus         = botRefreshStatus;
-    window.botRestart               = botRestart;
-    window.botToggleUsuario         = botToggleUsuario;
     window.changeWeek               = changeWeek;
     window.closePdfModal            = closePdfModal;
     window.closePdfSplit            = closePdfSplit;
@@ -4843,7 +4348,6 @@ if (typeof window !== 'undefined') {
     window.loadLogisticaDetail      = loadLogisticaDetail;
     window.refreshData              = refreshData;
     window.renderCurrentSection     = renderCurrentSection;
-    window.renderQC                 = renderQC;
     window.renderSDI                = renderSDI;
     // bimState lo expone ./modules/bimState.js;
     // renderSpools, renderOverview y renderJuntas los exponen sus componentes;

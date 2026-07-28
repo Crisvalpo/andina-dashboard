@@ -1,15 +1,22 @@
 /**
- * WhatsApp Bot Administration Handler Module — Andina Piping Dashboard
+ * Bot WhatsApp — Panel de Configuración
+ *
+ * Estado del puente wa-bridge, QR de vinculación, usuarios autorizados,
+ * configuración y catálogo de herramientas dinámicas del bot.
+ *
+ * Todo el panel exige clave de administración ('bot') antes de mostrarse.
  */
 import { state } from './state.js';
 import { authAsegurar, authHeaders } from './auth.js';
 
+// Poll suave del QR/estado mientras la sección Bot esté visible.
 let botQrPollTimer = null;
 
 export async function botInitPanel() {
     const lock = document.getElementById('bot-lock');
     const content = document.getElementById('bot-content');
 
+    // Exigir clave de administración del bot antes de mostrar QR/config/usuarios.
     const desbloqueado = await authAsegurar('bot');
     if (!desbloqueado) {
         if (lock) lock.style.display = 'flex';
@@ -23,8 +30,9 @@ export async function botInitPanel() {
     botRefreshQr();
     botCargarUsuarios();
     botCargarConfig();
-    if (typeof window.botCargarTools === 'function') window.botCargarTools();
+    botCargarTools();
 
+    // Poll suave del QR/estado mientras la sección esté visible
     if (botQrPollTimer) clearInterval(botQrPollTimer);
     botQrPollTimer = setInterval(() => {
         if (state.currentSection !== 'bot') {
@@ -56,12 +64,11 @@ export async function botRefreshStatus(silencioso = false) {
         badge.className = `bot-status-badge ${cls}`;
         badge.innerHTML = `<i class="fas ${icon}"></i> ${label}`;
 
-        const numEl = document.getElementById('bot-number');
-        if (numEl) numEl.textContent = d.botNumber ? `+${d.botNumber}` : '— (sin vincular)';
-        const nameEl = document.getElementById('bot-name');
-        if (nameEl) nameEl.textContent = d.botName || '—';
-        const lastEl = document.getElementById('bot-last-connected');
-        if (lastEl) lastEl.textContent = d.lastConnectedAt ? new Date(d.lastConnectedAt).toLocaleString('es-CL') : '—';
+        document.getElementById('bot-number').textContent =
+            d.botNumber ? `+${d.botNumber}` : '— (sin vincular)';
+        document.getElementById('bot-name').textContent = d.botName || '—';
+        document.getElementById('bot-last-connected').textContent =
+            d.lastConnectedAt ? new Date(d.lastConnectedAt).toLocaleString('es-CL') : '—';
     } catch (e) {
         badge.className = 'bot-status-badge bot-err';
         badge.innerHTML = '<i class="fas fa-times-circle"></i> Error consultando estado';
@@ -183,10 +190,17 @@ export async function botCargarUsuarios() {
 }
 
 export function botEditarUsuario(tel) {
+    // Obtener valores actuales directamente de las celdas
     const nombreCelda = document.querySelector(`.ucell-nombre-${tel}`);
     const nombreVal = nombreCelda ? (nombreCelda.textContent || '').trim().replace(/^—$/, '') : '';
+    
+    // Asignar al input de edicion por si el usuario lo cambio antes
     const inp = document.getElementById('uedit-nombre-' + tel);
-    if (inp) inp.value = nombreVal;
+    if (inp) {
+        inp.value = nombreVal;
+    }
+
+    // Mostrar fila de edicion
     const editRow = document.getElementById('urow-edit-' + tel);
     if (editRow) editRow.style.display = '';
     if (inp) { inp.focus(); inp.select(); }
@@ -209,7 +223,7 @@ export async function botGuardarEdicion(tel) {
         });
         const d = await r.json();
         if (!d.success) throw new Error(d.error || 'Error');
-        botCargarUsuarios();
+        botCargarUsuarios(); // recarga la tabla completa
     } catch (e) {
         alert('Error guardando: ' + e.message);
     }
@@ -263,6 +277,7 @@ export async function botCargarConfig() {
         const r = await fetch('/api/config', { headers: authHeaders('bot') });
         const d = await r.json();
 
+        // --- Config runtime (editable) ---
         if (d.runtimeError) {
             runtimeEl.innerHTML = `<p style="color:#f59e0b;font-size:0.85rem">⚠️ Supabase no disponible: ${d.runtimeError}</p>`;
         } else {
@@ -281,6 +296,7 @@ export async function botCargarConfig() {
             `).join('');
         }
 
+        // --- Entorno (solo lectura, secretos enmascarados) ---
         envEl.innerHTML = Object.entries(d.env).map(([k, v]) => {
             if (v.secreto) {
                 const ok = v.configurada;
@@ -319,17 +335,70 @@ export async function botGuardarConfig(clave) {
     }
 }
 
+export async function botDesbloquear() {
+    const ok = await authAsegurar('bot');
+    if (ok) botInitPanel();
+}
+
+export async function botCargarTools() {
+    const body = document.getElementById('bot-tools-body');
+    if (!body) return;
+    try {
+        const r = await fetch('/api/bot/tools', { headers: authHeaders('bot') });
+        const d = await r.json();
+        if (!d.success) throw new Error(d.error || 'Error');
+
+        if (!d.tools.length) {
+            body.innerHTML = '<tr><td colspan="5" style="text-align:center;opacity:0.6;padding:20px;">Aún no hay herramientas. Se crearán solas cuando un supervisor haga consultas de datos al bot.</td></tr>';
+            return;
+        }
+
+        body.innerHTML = d.tools.map(t => `
+            <tr>
+                <td style="font-family:monospace;font-size:0.78rem;color:#818cf8">${t.nombre_funcion}</td>
+                <td style="font-size:0.8rem;opacity:0.8">${t.descripcion || ''}</td>
+                <td style="text-align:center">${t.usos || 0}</td>
+                <td style="font-size:0.8rem">${t.creada_por || '—'}</td>
+                <td>
+                    <button class="refresh-btn bot-btn-danger" style="padding:4px 10px;font-size:0.72rem"
+                        onclick="botBorrarTool('${t.nombre_funcion}')" title="Eliminar herramienta">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `).join('');
+    } catch (e) {
+        body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;padding:20px;">Error: ${e.message}</td></tr>`;
+    }
+}
+
+export async function botBorrarTool(nombre) {
+    if (!confirm(`¿Eliminar la herramienta "${nombre}"? El bot la volverá a crear si alguien repite la consulta.`)) return;
+    try {
+        await fetch(`/api/bot/tools/${encodeURIComponent(nombre)}`, {
+            method: 'DELETE',
+            headers: authHeaders('bot')
+        });
+        botCargarTools();
+    } catch (e) {
+        alert('Error eliminando herramienta: ' + e.message);
+    }
+}
+
 if (typeof window !== 'undefined') {
-    window.botInitPanel = botInitPanel;
-    window.botRefreshStatus = botRefreshStatus;
-    window.botRefreshQr = botRefreshQr;
-    window.botRestart = botRestart;
-    window.botCargarUsuarios = botCargarUsuarios;
-    window.botEditarUsuario = botEditarUsuario;
-    window.botCancelarEdicion = botCancelarEdicion;
-    window.botGuardarEdicion = botGuardarEdicion;
-    window.botToggleUsuario = botToggleUsuario;
-    window.botAgregarUsuario = botAgregarUsuario;
-    window.botCargarConfig = botCargarConfig;
-    window.botGuardarConfig = botGuardarConfig;
+    window.botInitPanel         = botInitPanel;
+    window.botRefreshStatus     = botRefreshStatus;
+    window.botRefreshQr         = botRefreshQr;
+    window.botRestart           = botRestart;
+    window.botCargarUsuarios    = botCargarUsuarios;
+    window.botEditarUsuario     = botEditarUsuario;
+    window.botCancelarEdicion   = botCancelarEdicion;
+    window.botGuardarEdicion    = botGuardarEdicion;
+    window.botToggleUsuario     = botToggleUsuario;
+    window.botAgregarUsuario    = botAgregarUsuario;
+    window.botCargarConfig      = botCargarConfig;
+    window.botGuardarConfig     = botGuardarConfig;
+    window.botDesbloquear       = botDesbloquear;
+    window.botCargarTools       = botCargarTools;
+    window.botBorrarTool        = botBorrarTool;
 }
