@@ -11,6 +11,9 @@ import { fetchData } from './services/apiService.js';
 import { authGuardar, authObtener, authOlvidar, authHeaders, authAsegurar, authPedirClave } from './modules/auth.js';
 import { renderOverview } from './components/renderOverview.js';
 import { renderSpools, getSpoolStatusVisual, SPOOL_STATUS_VISUAL } from './components/renderSpools.js';
+import { renderJuntas } from './components/renderJuntas.js';
+import { renderQC } from './components/renderQC.js';
+import { botInitPanel } from './modules/botHandler.js';
 
 
 
