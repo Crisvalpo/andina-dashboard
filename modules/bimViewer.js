@@ -489,7 +489,10 @@ export async function bimLoadCapaItem(capa, termino) {
         bimGuidsToDbIds(data.guids, (dbIds) => {
             bimState.dbIds = dbIds;
             if (dbIds.length > 0) {
-                bimHighlightElements(dbIds);
+                // Válvulas y soportes: estado binario. Se normaliza a las claves de
+                // la paleta — el backend devuelve "Montada" para válvulas, que no
+                // está en BIM_STATUS_COLORS y caería en un color automático.
+                bimHighlightElements(dbIds, data.montado ? 'MONTADO' : 'PENDIENTE');
                 if (window.innerWidth <= 1024) bimCloseSidebar();
             }
         });
@@ -544,7 +547,7 @@ export async function bimLoadSpool(spoolId) {
         bimGuidsToDbIds(guidsParaAislar, (dbIds) => {
             bimState.dbIds = dbIds;
             if (dbIds.length > 0) {
-                bimHighlightElements(dbIds);   // isolate → x-ray del resto
+                bimHighlightElements(dbIds, data.estado_actual); // color = estado real del spool
                 bimDivReocultarOriginales();   // isolate re-mostró los divididos → re-ocultar
                 if (window.innerWidth <= 1024) bimCloseSidebar();
             }
@@ -741,17 +744,29 @@ export async function bimIsoColorAplicar(nodos) {
 }
 
 /** Resalta en verde los dbIds del spool seleccionado */
-export function bimHighlightElements(dbIds) {
+/**
+ * Resalta el resultado de una búsqueda: lo aísla, lo encuadra y lo tiñe con el
+ * color de SU estado.
+ *
+ * Antes se pintaba siempre de verde brillante, que es el color de MONTADO en la
+ * paleta: un spool en fabricación aparecía verde y se leía como montado. Si no
+ * se conoce el estado no se tiñe nada — el aislamiento y el x-ray del resto ya
+ * lo destacan, y así no se le atribuye un estado que no tiene.
+ */
+export function bimHighlightElements(dbIds, estado) {
     const viewer = bimState.viewer;
     if (!viewer) return;
 
-    // Aislar y colorear en verde brillante (igual que la imagen de referencia)
     viewer.isolate(dbIds);
     viewer.fitToView(dbIds);
 
-    dbIds.forEach(id => {
-        viewer.setThemingColor(id, new THREE.Vector4(0.18, 0.84, 0.44, 1), viewer.model, true);
-    });
+    if (estado) {
+        const [r, g, b] = bimColorDeEstado(String(estado).toUpperCase());
+        const col = new THREE.Vector4(r, g, b, 1);
+        dbIds.forEach(id => viewer.setThemingColor(id, col, viewer.model, true));
+    } else {
+        viewer.clearThemingColors(viewer.model);
+    }
 
     // Mostrar botones de acción
     const actionsEl = document.getElementById('bim-actions');
@@ -1078,8 +1093,9 @@ export async function bimFilterByStatus() {
                 viewer.isolate(dbIds);
                 viewer.fitToView(dbIds);
 
-                // Colorear con el color correspondiente (instanciado dinámicamente)
-                const rawColor = BIM_STATUS_COLORS[status] || [0.18, 0.84, 0.44, 1];
+                // Color desde la fuente única (override del usuario > paleta > auto).
+                // Antes un estado desconocido caía en verde, el color de MONTADO.
+                const rawColor = bimColorDeEstado(status);
                 const color = new THREE.Vector4(rawColor[0], rawColor[1], rawColor[2], rawColor[3]);
                 dbIds.forEach(id => {
                     viewer.setThemingColor(id, color, viewer.model, true);
@@ -2494,12 +2510,14 @@ export function bimTrozoPintarGhost(mesh) {
  */
 export function bimDivGhostPorSpool(guidsActivos) {
     const activos = new Set((guidsActivos || []).map(g => String(g).toLowerCase()));
+    const statusDe = bimStatusPorGuid();
     const focos = [];
     for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
         if (activos.has(key)) {
-            // MISMO verde del resaltado de búsqueda de un spool normal
+            // Con el color de SU estado, igual que el resaltado de un spool normal.
+            // Antes iban en verde fijo, que es el color de MONTADO y se leía como tal.
             mesh.visible = true;
-            bimTrozoPintarEstado(mesh, [0.18, 0.84, 0.44]);
+            bimTrozoPintarPorEstado(mesh, statusDe[key]);
             focos.push(mesh);
         } else {
             bimTrozoPintarGhost(mesh); // x-ray
