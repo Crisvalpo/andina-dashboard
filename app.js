@@ -16,9 +16,13 @@ import {
     currentISOWeek, parseDate, formatDate, getWeekOfDate,
     getVal, getEstado, getJuntaId, getEtapaBadge, getMaxEtapa
 } from './utils/dataHelpers.js';
-import { barLabelsPlugin, doughnutLabelsPlugin } from './components/chartPlugins.js';
 import { renderOverview } from './components/renderOverview.js';
 import { renderJuntas } from './components/renderJuntas.js';
+import { renderSpools } from './components/renderSpools.js';
+import { bimState } from './modules/bimState.js';
+import {
+    BIM_STATUS_COLORS, bimRgbAHex, bimColorDeEstado, bimCargarColoresEstados
+} from './modules/bimColors.js';
 
 
 
@@ -459,336 +463,14 @@ function getSpoolStatusWeight(status) {
 // --- Configuración visual de estados conocidos para tarjetas KPI ---
 // Los COLORES se obtienen de bimColorDeEstado() para mantener sincronía
 // con la sección BIM (incluidos los colores editados por el usuario).
-const SPOOL_STATUS_VISUAL = {
-    'EN FABRICACIÓN':  { icon: 'fa-tools',                label: 'En Fabricación',  order: 1 },
-    'QAQC':            { icon: 'fa-clipboard-check',      label: 'QAQC',             order: 2 },
-    'EN PINT/REVEST.': { icon: 'fa-paint-roller',         label: 'En Pint/Revest.',  order: 3 },
-    'RETIRAR':         { icon: 'fa-exclamation-triangle',  label: 'Retirar',          order: 4 },
-    'POR MONTAR':      { icon: 'fa-truck',                 label: 'Por Montar',       order: 5 },
-    'POSICIONADO':     { icon: 'fa-map-marker-alt',        label: 'Posicionado',      order: 6 },
-    'MONTADO':         { icon: 'fa-check-circle',          label: 'Montado',          order: 7 },
-    'ELIMINADO':       { icon: 'fa-trash-alt',             label: 'Eliminado',        order: 0 },
-    'SIN ESTADO':      { icon: 'fa-question-circle',       label: 'Sin Estado',       order: 999 },
-};
+// SPOOL_STATUS_VISUAL vive en ./components/renderSpools.js
 
 /** Obtiene icono, color y label para cualquier estado (conocido o nuevo).
  *  El color se toma de bimColorDeEstado() → misma fuente que el visor 3D. */
-function getSpoolStatusVisual(normalizedStatus) {
-    // Color: siempre desde la cadena BIM (override usuario → paleta base → auto-hash)
-    const bimRgba = bimColorDeEstado(normalizedStatus);
-    const color   = bimRgbAHex(bimRgba);
-
-    const known = SPOOL_STATUS_VISUAL[normalizedStatus];
-    if (known) return { ...known, color };
-
-    // Estado desconocido: icono genérico
-    return {
-        icon: 'fa-tag',
-        color,
-        label: normalizedStatus.charAt(0) + normalizedStatus.slice(1).toLowerCase(),
-        order: 500  // después de los conocidos
-    };
-}
+// getSpoolStatusVisual vive en ./components/renderSpools.js
 
 
-function renderSpools() {
-    const { spools } = state;
-
-    // Pre-cargar colores editados por el usuario desde BIM (no bloquea el render inicial)
-    // Si ya hay colores cargados se usa la caché; si no, se hace fetch y se re-renderiza.
-    if (!bimState._coloresCargados) {
-        bimCargarColoresEstados().then(() => {
-            bimState._coloresCargados = true;
-            // Re-renderizar tarjetas y chart con los colores reales del usuario
-            if (state.currentSection === 'spools') renderSpools();
-        });
-        bimState._coloresCargados = true; // evitar fetch duplicado
-    }
-
-    // --- JERARQUÍA POR STATUS (LOG_Spool_MS) ---
-    const statusMap = resolveSpoolStatuses();
-
-    // --- CONTEO DINÁMICO por estado normalizado ---
-    const statusCounts = {};  // { 'EN FABRICACIÓN': 57, 'QAQC': 67, ... }
-    let cSinRegistro = 0;
-    let cTotalActivos = 0;
-
-    spools.forEach(s => {
-        const spoolId = resolveSpoolId(s);
-        const rawStatus = statusMap.get(spoolId);
-        if (!rawStatus) {
-            cSinRegistro++;
-            cTotalActivos++;
-            return;
-        }
-        const normalized = normalizeStatus(rawStatus);
-        statusCounts[normalized] = (statusCounts[normalized] || 0) + 1;
-        if (normalized !== 'ELIMINADO') cTotalActivos++;
-    });
-
-    // Agregar "SIN ESTADO" si hay spools sin registro
-    if (cSinRegistro > 0) {
-        statusCounts['SIN ESTADO'] = cSinRegistro;
-    }
-
-    // --- ORDENAR estados: conocidos por orden definido, nuevos alfabético, SIN ESTADO al final ---
-    const sortedStatuses = Object.keys(statusCounts).sort((a, b) => {
-        const va = getSpoolStatusVisual(a);
-        const vb = getSpoolStatusVisual(b);
-        // SIN ESTADO siempre al final (antes de Total)
-        if (a === 'SIN ESTADO') return 1;
-        if (b === 'SIN ESTADO') return -1;
-        if (va.order !== vb.order) return va.order - vb.order;
-        return a.localeCompare(b);
-    });
-
-    // --- GENERAR TARJETAS DINÁMICAS ---
-    const container = document.getElementById('spools-status-cards');
-    if (container) {
-        /** Convierte hex (#rrggbb) a rgba con alpha 0.15 para fondo del icono */
-        function iconBg(hex) {
-            const r = parseInt(hex.slice(1, 3), 16);
-            const g = parseInt(hex.slice(3, 5), 16);
-            const b = parseInt(hex.slice(5, 7), 16);
-            return `rgba(${r}, ${g}, ${b}, 0.15)`;
-        }
-
-        let cardsHtml = sortedStatuses.map(st => {
-            const vis = getSpoolStatusVisual(st);
-            const count = statusCounts[st] || 0;
-            return `<div class="kpi-card glass">
-                <div class="kpi-icon" style="background:${iconBg(vis.color)}"><i class="fas ${vis.icon}" style="color:${vis.color}"></i></div>
-                <div>
-                    <p class="kpi-label">${vis.label}</p>
-                    <p class="kpi-value">${count}</p>
-                </div>
-            </div>`;
-        }).join('');
-
-        // Tarjeta fija: Total Activos (siempre al final)
-        cardsHtml += `<div class="kpi-card glass">
-            <div class="kpi-icon" style="background:rgba(56, 189, 248, 0.15)"><i class="fas fa-industry" style="color:#38bdf8"></i></div>
-            <div>
-                <p class="kpi-label">Total Activos</p>
-                <p class="kpi-value">${cTotalActivos}</p>
-            </div>
-        </div>`;
-
-        container.innerHTML = cardsHtml;
-    }
-
-    // --- CONTEO POR ÁREA (LIST_Spools_MS_ columna AREA) ---
-    const AREAS_VALIDAS = ['TORRE TRANSFERENCIA', 'TORRE TRASFERENCIA', 'PIPE RACK', 'BAJO ESPESADOR'];
-    const areaCount = { 'TORRE TRANSFERENCIA': 0, 'PIPE RACK': 0, 'BAJO ESPESADOR': 0, 'POR DEFINIR': 0 };
-    const areaMountedCount = { 'TORRE TRANSFERENCIA': 0, 'PIPE RACK': 0, 'BAJO ESPESADOR': 0, 'POR DEFINIR': 0 };
-
-    spools.forEach(s => {
-        const area = (s.AREA || s['AREA '] || '').trim().toUpperCase();
-        const spoolId = resolveSpoolId(s);
-        const st = statusMap.get(spoolId);
-        const status = st ? normalizeStatus(st) : '';
-        if (status === 'ELIMINADO') return;
-
-        const isMounted = status === 'MONTADO';
-
-        let targetArea = 'POR DEFINIR';
-        if (area.includes('TORRE')) {
-            targetArea = 'TORRE TRANSFERENCIA';
-        } else if (area.includes('PIPE RACK') || area.includes('RACK')) {
-            targetArea = 'PIPE RACK';
-        } else if (area.includes('BAJO ESPESADOR') || area.includes('ESPESADOR')) {
-            targetArea = 'BAJO ESPESADOR';
-        }
-
-        areaCount[targetArea]++;
-        if (isMounted) {
-            areaMountedCount[targetArea]++;
-        }
-    });
-
-    setText('s-area-torre', areaCount['TORRE TRANSFERENCIA']);
-    setText('s-area-rack',  areaCount['PIPE RACK']);
-    setText('s-area-bajo',  areaCount['BAJO ESPESADOR']);
-    setText('s-area-def',   areaCount['POR DEFINIR']);
-
-    // --- Gráfico: Distribución por Estado (DINÁMICO) ---
-    const ctxEstado = document.getElementById('spools-estado-chart');
-    if (ctxEstado) {
-        if (charts.spoolsEstado) charts.spoolsEstado.destroy();
-
-        // Usar los mismos estados dinámicos (sin "SIN ESTADO" que se muestra como "Sin Registro" en el chart)
-        const chartData = sortedStatuses
-            .map(st => ({
-                label: st === 'SIN ESTADO' ? 'Sin Registro' : getSpoolStatusVisual(st).label,
-                val: statusCounts[st] || 0,
-                color: getSpoolStatusVisual(st).color
-            }))
-            .filter(x => x.val > 0);
-
-        charts.spoolsEstado = new Chart(ctxEstado, {
-            type: 'doughnut',
-            data: {
-                labels: chartData.map(x => x.label),
-                datasets: [{
-                    data: chartData.map(x => x.val),
-                    backgroundColor: chartData.map(x => x.color),
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                cutout: '70%',
-                plugins: { legend: { position: 'right', labels: { color: '#64748b', boxWidth: 12 } } }
-            },
-            plugins: [doughnutLabelsPlugin]
-        });
-    }
-
-    // --- Gráfico: Spools por Área ---
-    const ctxArea = document.getElementById('spools-area-chart');
-    if (ctxArea) {
-        if (charts.spoolsArea) charts.spoolsArea.destroy();
-        const aLabels = ['Torre Transf.', 'Pipe Rack', 'Bajo Espesador', 'Por Definir'];
-        const aMountedData = [
-            areaMountedCount['TORRE TRANSFERENCIA'],
-            areaMountedCount['PIPE RACK'],
-            areaMountedCount['BAJO ESPESADOR'],
-            areaMountedCount['POR DEFINIR']
-        ];
-        const aTotalData = [
-            areaCount['TORRE TRANSFERENCIA'],
-            areaCount['PIPE RACK'],
-            areaCount['BAJO ESPESADOR'],
-            areaCount['POR DEFINIR']
-        ];
-        const aPendingData = aTotalData.map((tot, idx) => tot - aMountedData[idx]);
-
-        charts.spoolsArea = new Chart(ctxArea, {
-            type: 'bar',
-            data: {
-                labels: aLabels,
-                datasets: [
-                    {
-                        label: 'Montados',
-                        data: aMountedData,
-                        backgroundColor: ['#6366f1', '#10b981', '#0ea5e9', '#64748b'],
-                        borderRadius: 6
-                    },
-                    {
-                        label: 'Pendientes',
-                        data: aPendingData,
-                        backgroundColor: [
-                            'rgba(99, 102, 241, 0.25)',
-                            'rgba(16, 185, 129, 0.25)',
-                            'rgba(14, 165, 233, 0.25)',
-                            'rgba(100, 116, 139, 0.25)'
-                        ],
-                        borderRadius: 6
-                    }
-                ]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: { 
-                        stacked: true,
-                        beginAtZero: true, 
-                        grid: { color: '#1e293b' }, 
-                        ticks: { color: '#64748b' },
-                        grace: '12%'
-                    },
-                    x: { 
-                        stacked: true,
-                        grid: { display: false }, 
-                        ticks: { color: '#64748b' } 
-                    }
-                },
-                plugins: { legend: { display: false } }
-            },
-            plugins: [barLabelsPlugin]
-        });
-    }
-
-    // --- Gráfico: Spools por Fluido ---
-    const ctxFluido = document.getElementById('spools-fluido-chart');
-    if (ctxFluido) {
-        if (charts.spoolsFluido) charts.spoolsFluido.destroy();
-
-        let fluidList = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
-        if (!fluidList.length) fluidList = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW'];
-
-        const fluidosMap = {};
-        const fluidosMountedMap = {};
-        fluidList.forEach(f => {
-            fluidosMap[f] = 0;
-            fluidosMountedMap[f] = 0;
-        });
-        fluidosMap['OTROS'] = 0;
-        fluidosMountedMap['OTROS'] = 0;
-
-        spools.forEach(s => {
-            const val = (s.ID_ISO || s['ID_ISO '] || s.LINEA || '').toUpperCase();
-            const spoolId = resolveSpoolId(s);
-            const st = statusMap.get(spoolId);
-            const status = st ? normalizeStatus(st) : '';
-            if (status === 'ELIMINADO') return;
-
-            const isMounted = status === 'MONTADO';
-
-            const fl = fluidList.find(f => val.includes(`-${f}-`) || val.includes(`/${f}/`));
-            const targetFluid = fl || 'OTROS';
-            fluidosMap[targetFluid]++;
-            if (isMounted) {
-                fluidosMountedMap[targetFluid]++;
-            }
-        });
-
-        const labels = Object.keys(fluidosMap).filter(l => fluidosMap[l] > 0).sort((a, b) => fluidosMap[b] - fluidosMap[a]).slice(0, 6);
-        const fTotalData = labels.map(l => fluidosMap[l]);
-        const fMountedData = labels.map(l => fluidosMountedMap[l]);
-        const fPendingData = fTotalData.map((tot, idx) => tot - fMountedData[idx]);
-
-        charts.spoolsFluido = new Chart(ctxFluido, {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [
-                    {
-                        label: 'Montados',
-                        data: fMountedData,
-                        backgroundColor: '#0ea5e9',
-                        borderRadius: 4
-                    },
-                    {
-                        label: 'Pendientes',
-                        data: fPendingData,
-                        backgroundColor: 'rgba(14, 165, 233, 0.25)',
-                        borderRadius: 4
-                    }
-                ]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: { 
-                        stacked: true,
-                        beginAtZero: true, 
-                        grid: { color: '#1e293b' }, 
-                        ticks: { color: '#64748b' },
-                        grace: '12%'
-                    },
-                    x: { 
-                        stacked: true,
-                        grid: { display: false }, 
-                        ticks: { color: '#64748b' } 
-                    }
-                },
-                plugins: { legend: { display: false } }
-            },
-            plugins: [barLabelsPlugin]
-        });
-    }
-}
+// renderSpools vive en ./components/renderSpools.js
 
 // resolveSpoolId y normalizeStatus son importados desde ./utils/statusHelpers.js
 
@@ -988,33 +670,7 @@ function copyLogisticaTable() {
 
 // Estado del visor 3D. Vive aquí hasta que el subsistema BIM completo
 // (~123 símbolos que comparten bimState y divState) se extraiga de una sola vez.
-const bimState = {
-    viewer:        null,   // Instancia del Autodesk.Viewing.GuiViewer3D
-    initialized:   false,  // true cuando el modelo ya cargó
-    sdkLoaded:     false,  // true cuando el script del SDK ya está en el DOM
-    currentGuids:  [],     // GUIDs del spool actualmente seleccionado
-    dbIds:         [],     // dbIds correspondientes en el viewer
-    token:         null,
-    modelUrn:      null,
-    statusesCache: null,   // Caché de { status: [guids] }
-    selectedElement: null, // Elemento 3D clickeado actualmente
-    selectedElements: [],  // Múltiples elementos 3D clickeados
-    mapeoSpools:   null,   // Caché de { [guid]: spoolTag }
-    spoolIndex:    null,   // Caché de { [tagLower]: { id_spool, tag_gestion, id_iso } }
-    isAutoSelecting: false,// Bandera para evitar bucle de selección
-    liveTimer:     null,   // Interval del modo EN VIVO (filtro por estado + polling)
-    liveStatus:    null,   // (legado) estado único en vivo
-    liveGuids:     null,   // (legado) set de guids mostrados
-    liveEstados:   null,   // Estados seguidos EN VIVO (multi-selección)
-    liveSets:      null,   // { estado: Set<guid> } ya mostrados
-    filtroEstados: new Set(), // Estados seleccionados en el filtro (chips)
-    coloresEstados: {},    // Overrides de color por estado (servidor)
-    estadoConteos: null,   // { estado: {total, asociados, sin_asociar} } — conteo REAL de spools
-    capaStatuses:  null,   // Estados de la capa válvula/soporte activa
-    capa:          'spool',// Capa activa: 'spool' | 'valvula' | 'soporte'
-    capaMapeo:     {},     // { valvula: {guidLower:id}, soporte: {...} }
-    capaIndex:     {}      // { valvula: {idLower:row}, soporte: {...} }
-};
+// bimState vive en ./modules/bimState.js
 
 // Config de capas en el frontend (llave, etiqueta, endpoints)
 const BIM_CAPA_UI = {
@@ -1762,21 +1418,7 @@ function bimResetView() {
 }
 
 /** Colores premium para cada estado del Spool en el visualizador 3D (definidos como arrays para evitar errores antes de cargar el SDK) */
-const BIM_STATUS_COLORS = {
-    'MONTADO':         [0.06, 0.75, 0.35, 1], // Verde brillante
-    'POSICIONADO':     [0.95, 0.45, 0.10, 1], // Naranja
-    'POR MONTAR':      [0.95, 0.85, 0.10, 1], // Amarillo
-    'EN PINT/REVEST.': [0.65, 0.30, 0.95, 1], // Morado
-    'QAQC':            [0.10, 0.65, 0.95, 1], // Azul
-    'EN FABRICACIÓN':  [0.30, 0.80, 0.95, 1], // Celeste
-    'RETIRAR':         [0.95, 0.15, 0.15, 1], // Rojo
-    'ELIMINADO':       [0.40, 0.40, 0.40, 0.5], // Gris translúcido
-    // Intensidad 1: la 4ª componente de setThemingColor es cuánto TIÑE, no
-    // transparencia. Con 0.3 el gris casi no se veía y parecía "sin pintar".
-    'SIN ESTADO':      [0.50, 0.50, 0.50, 1], // Gris
-    // Válvulas / soportes (estado binario)
-    'PENDIENTE':       [0.55, 0.55, 0.55, 0.4]  // Gris (pendiente de montaje)
-};
+// BIM_STATUS_COLORS vive en ./modules/bimColors.js
 
 // =================================================================
 // ESTADOS DINÁMICOS + COLORES EDITABLES + FILTRO MULTI-SELECCIÓN
@@ -1786,37 +1428,16 @@ const BIM_STATUS_COLORS = {
 const BIM_ORDEN_FLUJO = ['EN FABRICACIÓN', 'QAQC', 'EN PINT/REVEST.', 'RETIRAR',
     'POR MONTAR', 'POSICIONADO', 'MONTADO', 'ELIMINADO', 'PENDIENTE', 'SIN ESTADO'];
 
-function bimHexARgb(hex) {
-    const h = String(hex).replace('#', '');
-    return [parseInt(h.substr(0, 2), 16) / 255, parseInt(h.substr(2, 2), 16) / 255, parseInt(h.substr(4, 2), 16) / 255, 1];
-}
-function bimRgbAHex(arr) {
-    return '#' + arr.slice(0, 3).map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
-}
+// bimHexARgb vive en ./modules/bimColors.js
+// bimRgbAHex vive en ./modules/bimColors.js
 
 /** Color automático y estable para estados nuevos (hash → tono HSL). */
-function bimColorAuto(st) {
-    let h = 0;
-    for (let i = 0; i < st.length; i++) h = (h * 31 + st.charCodeAt(i)) >>> 0;
-    const hue = h % 360, s = 0.72, l = 0.55;
-    const k = n => (n + hue / 30) % 12;
-    const a = s * Math.min(l, 1 - l);
-    const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    return [f(0), f(8), f(4), 1];
-}
+// bimColorAuto vive en ./modules/bimColors.js
 
 /** Color efectivo de un estado: override guardado > paleta base > auto. */
-function bimColorDeEstado(st) {
-    const key = String(st || '').toUpperCase();
-    if (bimState.coloresEstados && bimState.coloresEstados[key]) return bimHexARgb(bimState.coloresEstados[key]);
-    if (BIM_STATUS_COLORS[key]) return BIM_STATUS_COLORS[key];
-    return bimColorAuto(key);
-}
+// bimColorDeEstado vive en ./modules/bimColors.js
 
-async function bimCargarColoresEstados() {
-    try { bimState.coloresEstados = await (await fetch('/api/bim/estado-colores')).json(); }
-    catch (e) { bimState.coloresEstados = {}; }
-}
+// bimCargarColoresEstados vive en ./modules/bimColors.js
 
 /** Unidad de la capa activa (para etiquetas de conteo). */
 function bimUnidadCapa() {
@@ -5189,7 +4810,6 @@ if (typeof window !== 'undefined') {
     window.bimSearchSpool           = bimSearchSpool;
     window.bimSetCapa               = bimSetCapa;
     window.bimSetMeta               = bimSetMeta;
-    window.bimState                 = bimState;
     window.bimStatusPorGuid         = bimStatusPorGuid;
     window.bimToggleEstado          = bimToggleEstado;
     window.bimToggleMetaExtra       = bimToggleMetaExtra;
@@ -5225,8 +4845,8 @@ if (typeof window !== 'undefined') {
     window.renderCurrentSection     = renderCurrentSection;
     window.renderQC                 = renderQC;
     window.renderSDI                = renderSDI;
-    window.renderSpools             = renderSpools;
-    // renderOverview y renderJuntas los exponen sus propios componentes;
+    // bimState lo expone ./modules/bimState.js;
+    // renderSpools, renderOverview y renderJuntas los exponen sus componentes;
     // renderBarChart, renderJuntasBreakdown, renderLogTable, renderSCurve y
     // renderWelderChart los expone ./components/charts.js
     window.showSection              = showSection;
