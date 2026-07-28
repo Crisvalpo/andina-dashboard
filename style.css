@@ -1476,6 +1476,8 @@ tr:hover td {
     padding-top: 0.75rem;
 }
 
+/* Cabecera desplegable de la lista de elementos: es un <button> para que
+   responda a teclado, pero se ve igual que el resto de títulos del panel. */
 .bim-elements-title {
     font-size: 0.7rem;
     text-transform: uppercase;
@@ -1485,6 +1487,38 @@ tr:hover td {
     display: flex;
     align-items: center;
     gap: 0.4rem;
+    width: 100%;
+    background: none;
+    border: none;
+    padding: 0.2rem 0;
+    font-family: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: left;
+}
+
+.bim-elements-title:hover {
+    color: var(--text);
+}
+
+.bim-elements-count {
+    margin-left: auto;
+    font-size: 0.68rem;
+    letter-spacing: 0;
+    padding: 0.1rem 0.4rem;
+    border-radius: 999px;
+    background: rgba(16,185,129,0.12);
+    border: 1px solid rgba(16,185,129,0.22);
+    color: var(--text-dim);
+}
+
+.bim-elements-chevron {
+    transition: transform 0.2s ease;
+    font-size: 0.65rem;
+}
+
+.bim-elements-title[aria-expanded="true"] .bim-elements-chevron {
+    transform: rotate(180deg);
 }
 
 .bim-elements-list ul {

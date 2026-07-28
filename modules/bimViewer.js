@@ -476,7 +476,7 @@ export async function bimLoadCapaItem(capa, termino) {
     const ui = BIM_CAPA_UI[capa];
     const id = bimResolveCapaId(capa, termino);
 
-    bimSetMeta('<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando elementos...</div>');
+    bimSetMetaCargando('Buscando elementos...');
     try {
         const resp = await fetch(`/api/bim/${capa}/item/${encodeURIComponent(id)}`);
         const data = await resp.json();
@@ -509,7 +509,7 @@ export async function bimLoadSpool(spoolId) {
         return;
     }
 
-    bimSetMeta('<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando elementos...</div>');
+    bimSetMetaCargando('Buscando elementos...');
 
     try {
         const resp = await fetch(`/api/bim/spool/${encodeURIComponent(spoolId)}`);
@@ -910,7 +910,7 @@ export async function bimAplicarFiltroEstados() {
     if (!seleccion.length) { bimResetView(); return; }
     if (!bimState.initialized) return;
 
-    bimSetMeta('<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Aplicando filtro...</div>');
+    bimSetMetaCargando('Aplicando filtro...');
     try {
         let statuses;
         if (bimState.capa === 'spool') {
@@ -994,7 +994,7 @@ export async function bimFilterByStatus() {
     const listEl = document.getElementById('bim-elements-list');
     if (listEl) listEl.style.display = 'none';
 
-    bimSetMeta(`<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Buscando elementos en estado ${status}...</div>`);
+    bimSetMetaCargando(`Buscando elementos en estado ${status}...`);
 
     try {
         // Fuente de estados según capa (spools cachean; válvulas/soportes se consultan directo)
@@ -1025,7 +1025,7 @@ export async function bimFilterByStatus() {
             return;
         }
 
-        bimSetMeta(`<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> Mapeando ${guids.length} elementos en modelo...</div>`);
+        bimSetMetaCargando(`Mapeando ${guids.length} elementos en modelo...`);
 
         bimGuidsToDbIds(guids, (dbIds) => {
             bimState.dbIds = dbIds;
@@ -2833,7 +2833,8 @@ export function bimRenderMeta(data) {
     }
 
 
-    // Lista de elementos
+    // Lista de elementos. Se repuebla contraída en cada spool: un spool agrupa
+    // decenas de GUIDs y dejarla abierta empuja el resto del panel fuera de vista.
     if (els.length > 0) {
         const ul = document.getElementById('bim-elements-ul');
         if (ul) {
@@ -2842,16 +2843,45 @@ export function bimRenderMeta(data) {
                     <i class="fas fa-cube" style="color:var(--accent);margin-right:6px"></i>
                     <span title="${el.guid}">${el.descripcion || el.guid.substring(0, 8) + '...'}</span>
                 </li>`).join('');
+            ul.style.display = 'none';
         }
+        const countEl = document.getElementById('bim-elements-count');
+        if (countEl) countEl.textContent = els.length;
+        const toggle = document.getElementById('bim-elements-toggle');
+        if (toggle) toggle.setAttribute('aria-expanded', 'false');
         const listEl = document.getElementById('bim-elements-list');
         if (listEl) listEl.style.display = 'block';
     }
+}
+
+/** Despliega/contrae la lista de elementos del modelo. */
+export function bimToggleElementsList() {
+    const ul = document.getElementById('bim-elements-ul');
+    const toggle = document.getElementById('bim-elements-toggle');
+    if (!ul) return;
+    const abierto = ul.style.display !== 'none';
+    ul.style.display = abierto ? 'none' : 'flex';
+    if (toggle) toggle.setAttribute('aria-expanded', String(!abierto));
 }
 
 /** Helper: actualiza el contenido del panel de metadata */
 export function bimSetMeta(html) {
     const el = document.getElementById('bim-meta-panel');
     if (el) el.innerHTML = html;
+}
+
+/**
+ * Muestra el indicador de carga del panel de metadata y lo trae a la vista.
+ * En la barra lateral el panel va por debajo de los chips de estado y del
+ * panel de vinculación, así que al buscar un spool el spinner puede quedar
+ * fuera de pantalla y la búsqueda parece no responder.
+ */
+export function bimSetMetaCargando(texto) {
+    bimSetMeta(`<div class="bim-loading-meta"><div class="bim-spinner-sm"></div> ${texto}</div>`);
+    const el = document.getElementById('bim-meta-panel');
+    if (el && typeof el.scrollIntoView === 'function') {
+        el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
 }
 
 /** Helper: actualiza el loader con mensaje opcional de error */
@@ -3564,6 +3594,7 @@ if (typeof window !== 'undefined') {
     window.bimSetMeta               = bimSetMeta;
     window.bimStatusPorGuid         = bimStatusPorGuid;
     window.bimToggleEstado          = bimToggleEstado;
+    window.bimToggleElementsList    = bimToggleElementsList;
     window.bimToggleMetaExtra       = bimToggleMetaExtra;
     window.bimToggleSidebar         = bimToggleSidebar;
     window.bimToggleUnlinkMenu      = bimToggleUnlinkMenu;
