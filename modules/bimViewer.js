@@ -654,6 +654,38 @@ export function bimIsoColorInit() {
         const nodos = ev.nodeIdArray || [];
         bimState._isoColorTimer = setTimeout(() => bimIsoColorAplicar(nodos), 150);
     });
+    bimDivVigilarMostrarTodo();
+}
+
+/**
+ * Vigila que los originales ya divididos NO reaparezcan.
+ *
+ * No se puede borrar un elemento de un modelo APS ya cargado, solo ocultarlo, y
+ * cualquier "mostrar todo" del navegador de Autodesk los resucita. Como esas
+ * herramientas nativas son ciegas a las divisiones, se reacciona a su evento y
+ * se vuelven a esconder.
+ *
+ * Se hace por evento y no sondeando: el sondeo periódico haría parpadear el
+ * original entre que reaparece y se vuelve a ocultar.
+ */
+export function bimDivVigilarMostrarTodo() {
+    const viewer = bimState.viewer;
+    if (!viewer || bimState._vigilaOcultos) return;
+    bimState._vigilaOcultos = true;
+
+    const revisar = () => {
+        if (!divState.ocultos.length) return;
+        clearTimeout(divState._reocultarTimer);
+        // Pequeño respiro: el visor emite varios eventos seguidos al mostrar todo
+        divState._reocultarTimer = setTimeout(() => {
+            if (divState._aislado) return;   // en modo corte manda el aislamiento
+            bimDivReocultarOriginales();
+        }, 120);
+    };
+
+    [Autodesk.Viewing.SHOW_EVENT, Autodesk.Viewing.ISOLATE_EVENT].forEach(evt => {
+        if (evt) viewer.addEventListener(evt, revisar);
+    });
 }
 
 /** Pinta los elementos visibles de la isolación según el estado de su spool. */
@@ -743,6 +775,12 @@ export function bimFitToView() {
 export function bimResetView() {
     bimLiveStop();
     if (!bimState.viewer) return;
+    // Levantar primero el aislamiento del modo corte: showAll() por sí solo no
+    // deshace un isolate() ni devuelve el ghosting a su valor normal.
+    if (divState._aislado) {
+        try { bimState.viewer.isolate([]); bimState.viewer.setGhosting(true); } catch (e) {}
+        divState._aislado = false;
+    }
     bimState.viewer.showAll();
     // Los originales divididos permanecen ocultos PARA SIEMPRE (los reemplaza su clon)
     if (typeof divState !== 'undefined') {
@@ -1376,6 +1414,8 @@ export const divState = {
     guid: null,
     eje: null,              // { p0:Vector3, dir:Vector3 (unit), len, radio } — eje REAL (PCA)
     cortes: [],             // fracciones internas de la sesión (ordenadas)
+    _aislado: false,        // true mientras el modelo está oculto salvo el tramo en edición
+    _reocultarTimer: null,  // debounce del re-ocultado tras un "mostrar todo" nativo
     ids: [],                // id ESTABLE de cada parte; alineado con bimDivPartesSesion()
     _nextId: 1,             // contador de ids de la sesión
     _historial: [],         // cortes en orden de inserción, para deshacer el último
@@ -1927,7 +1967,7 @@ export function bimDivIniciarEdicion(dbId, guid) {
         divState._nextId = 3;
     }
     divState._historial = []; // deshacer solo afecta a lo hecho en esta sesión
-    bimState.viewer.hide(dbId);
+    bimDivAislarTramo(dbId);  // oculta el resto del modelo: sin esto no se puede trabajar
     bimState.viewer.select([]);
     bimDivRedibujarClon();
     bimDivRenderPanel();
@@ -2487,6 +2527,45 @@ export function bimTrozoPintarEstado(mesh, rgb) {
 }
 
 /** Re-oculta los originales divididos (isolate los re-muestra aunque estén hidden). */
+/**
+ * Aísla el tramo en edición: oculta TODO el modelo y deja solo sus trozos, que
+ * al ser overlay se siguen dibujando.
+ *
+ * Sin esto el clon queda enterrado entre el resto de la geometría y no hay forma
+ * cómoda ni de pinchar el trozo correcto ni de asignarle su spool. El
+ * aislamiento se mantiene al salir de las tijeras a propósito: la asignación
+ * ocurre DESPUÉS de cortar, y es justo cuando más se necesita ver solo el tramo.
+ */
+export function bimDivAislarTramo(dbId) {
+    const viewer = bimState.viewer;
+    if (!viewer) return;
+    try {
+        viewer.setGhosting(false);   // el resto desaparece, no queda en rayos X
+        viewer.isolate([dbId]);      // del modelo, solo este elemento
+        viewer.hide(dbId);           // y tampoco él: manda el clon de overlay
+        divState._aislado = true;
+        viewer.impl.invalidate(false, false, true);
+    } catch (e) {
+        console.error('[Dividir] No pude aislar el tramo:', e.message);
+    }
+}
+
+/** Deshace el aislamiento y devuelve el modelo completo a la vista. */
+export function bimDivMostrarModelo() {
+    const viewer = bimState.viewer;
+    if (!viewer) return;
+    try {
+        viewer.isolate([]);
+        viewer.setGhosting(true);
+        divState._aislado = false;
+        bimDivReocultarOriginales();  // los originales ya divididos siguen ocultos
+        bimDivColorearTrozos();
+        viewer.impl.invalidate(false, false, true);
+    } catch (e) {
+        console.error('[Dividir] No pude restaurar la vista:', e.message);
+    }
+}
+
 export function bimDivReocultarOriginales() {
     if (divState.ocultos.length && bimState.viewer) {
         divState.ocultos.forEach(id => bimState.viewer.hide(id));
@@ -2579,8 +2658,15 @@ export async function bimDividirFinalizar() {
     divState.piezas = [];
     bimDivColorearTrozos();
 
+    // El tramo sigue aislado a propósito: es cuando toca asignar cada trozo a su
+    // spool, y con el modelo entero encima no hay forma de pinchar el correcto.
     bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-circle-check bim-meta-icon" style="color:var(--accent)"></i>
-        <p>División lista: <strong>${partes.length} trozos</strong>.<br><small style="opacity:0.7">Sal del modo tijeras y haz clic en cada trozo para asignarle su spool. Puedes dividir otro tramo ahora.</small></p></div>`);
+        <p>División lista: <strong>${partes.length} trozos</strong>.<br>
+        <small style="opacity:0.7">Sal del modo tijeras (✂️) y haz clic en cada trozo para asignarle su spool.
+        El resto del modelo sigue oculto para que puedas pincharlos.</small></p>
+        <button class="bim-scan-btn" onclick="bimDivMostrarModelo()" style="margin-top:10px;justify-content:center;">
+            <i class="fas fa-eye"></i> Ver todo el modelo
+        </button></div>`);
     divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = []; divState.ids = []; divState._historial = []; divState._nextId = 1;
     divState.ext0 = 0; divState.ext1 = 1;
 }
@@ -2625,8 +2711,11 @@ export async function bimDividirRestaurar() {
         return true;
     });
     if (divState.dbId !== null) {
-        bimState.viewer.show(divState.dbId);
+        // Sacarlo de `ocultos` ANTES de restaurar la vista: si no, el propio
+        // bimDivMostrarModelo lo volvería a esconder junto al resto de divididos.
         divState.ocultos = divState.ocultos.filter(id => id !== divState.dbId);
+        bimDivMostrarModelo();
+        bimState.viewer.show(divState.dbId);
     }
     divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = []; divState.ids = []; divState._historial = []; divState._nextId = 1;
     divState.ext0 = 0; divState.ext1 = 1;
@@ -2652,9 +2741,12 @@ export function bimDividirCancelar() {
             });
             bimDivColorearTrozos();
         } else {
+            divState.ocultos = divState.ocultos.filter(id => id !== divState.dbId);
             bimState.viewer.show(divState.dbId); // sin persistencia: vuelve el original
         }
     }
+    // Cancelar deshace también el aislamiento: no se dejó nada a medio asignar.
+    bimDivMostrarModelo();
     bimDividirSalir(false);
     bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p></div>`);
 }
@@ -3656,6 +3748,8 @@ export async function bimSaveLink() {
 if (typeof window !== 'undefined') {
     window.bimCloseScanner          = bimCloseScanner;
     window.bimCloseSidebar          = bimCloseSidebar;
+    window.bimDivMostrarModelo      = bimDivMostrarModelo;
+    window.bimDivReocultarOriginales = bimDivReocultarOriginales;
     window.bimDividirDeshacer       = bimDividirDeshacer;
     window.bimDividirFinalizar      = bimDividirFinalizar;
     window.bimDividirRestaurar      = bimDividirRestaurar;
