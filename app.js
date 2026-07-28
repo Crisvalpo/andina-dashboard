@@ -9,7 +9,6 @@
 // de las secciones sigue definido más abajo en este archivo hasta que su
 // módulo sea reconstruido sin pérdida de funcionalidad.
 import { state, charts } from './modules/state.js';
-import { fetchData } from './services/apiService.js';
 import { setText } from './utils/domUtils.js';
 import { resolveSpoolId, normalizeStatus, resolveSpoolStatuses } from './utils/statusHelpers.js';
 import {
@@ -20,6 +19,11 @@ import { renderOverview } from './components/renderOverview.js';
 import { renderJuntas } from './components/renderJuntas.js';
 import { renderSpools } from './components/renderSpools.js';
 import { renderQC } from './components/renderQC.js';
+import { renderSDI } from './components/renderSDI.js';
+import { loadLogistica } from './components/logistica.js';
+// bimOpenPdf / bimOpenSelectedPdf / bimOpenSelectedPid se invocan desde
+// onclick generados en template strings, así que resuelven por window.
+import { initBimSplitResizer } from './components/pdfViewer.js';
 import { authAsegurar, authHeaders, authObtener, authOlvidar } from './modules/auth.js';
 import { botInitPanel } from './modules/botHandler.js';
 import { bimState } from './modules/bimState.js';
@@ -172,67 +176,9 @@ function renderCurrentSection() {
 // renderWelderChart vive en ./components/charts.js
 
 // ============ RENDER: SDI (RFI) ============
-function renderSDI() {
-    const { sdis, relSdiIso } = state;
+// renderSDI vive en ./components/renderSDI.js
 
-    const total = sdis.length;
-    const respondidas = sdis.filter(s => getVal(s, 'ESTADO').toUpperCase().includes('RESPONDID')).length;
-    const pendientes = total - respondidas;
-
-    setText('sdi-total', total);
-    setText('sdi-pendientes', pendientes);
-    setText('sdi-respondidas', respondidas);
-
-    const tbody = document.getElementById('sdi-tbody');
-    if (!tbody) return;
-
-    if (!total) {
-        tbody.innerHTML = `<tr><td colspan="5" class="empty-msg">Sin consultas registradas</td></tr>`;
-        return;
-    }
-
-    tbody.innerHTML = sdis.map(s => {
-        const fullCodigo = getVal(s, 'CODIGO DAND');
-        const displayCodigo = fullCodigo.length > 5 ? fullCodigo.slice(-5) : fullCodigo;
-
-        const relacionados = relSdiIso.filter(r => getVal(r, 'CODIGO_DAND') === fullCodigo)
-            .flatMap(r => {
-                const list = getVal(r, 'ISOS_VINCULADOS');
-                if (!list) return [];
-                // Soportar tanto coma como punto y coma (AppSheet usa , por defecto en EnumList)
-                return list.split(/[,;]/).map(iso => iso.trim()).filter(iso => iso);
-            })
-            .map(iso => `<span class="badge badge-emplantillado">${iso}</span>`)
-            .join(' ');
-
-        const estado = getVal(s, 'ESTADO').toUpperCase();
-        const isRespondida = estado.includes('RESPONDID');
-        const statusIcon = isRespondida ?
-            '<i class="fas fa-check-circle" style="color:var(--accent)" title="Respondida"></i>' :
-            '<i class="fas fa-dot-circle" style="color:var(--danger)" title="Pendiente"></i>';
-
-        return `<tr>
-            <td style="font-weight:700;color:var(--primary-light);white-space:nowrap;font-size:0.9rem" title="${fullCodigo}">...${displayCodigo}</td>
-            <td style="min-width:300px">
-                <div style="font-weight:600;margin-bottom:8px">${getVal(s, 'NOMBRE Sdis')}</div>
-                <div class="sdi-text-box query"><strong>Consulta:</strong> ${getVal(s, 'Descricpión')}</div>
-                <div class="sdi-text-box response" style="margin-top:10px"><strong>Respuesta Técnica:</strong> ${getVal(s, 'Descripcion de Respuesta') || '<span class="text-dim">Pendiente de revisión...</span>'}</div>
-            </td>
-            <td style="text-align:center">${statusIcon}</td>
-            <td style="white-space:nowrap">${formatDate(getVal(s, 'FECHA ENVÍO'))}</td>
-            <td>${relacionados || '<span class="text-dim">—</span>'}</td>
-        </tr>`;
-    }).join('');
-}
-
-function filterSDI() {
-    const q = document.getElementById('sdi-search').value.toLowerCase();
-    const rows = document.querySelectorAll('#sdi-tbody tr');
-    rows.forEach(row => {
-        const text = row.innerText.toLowerCase();
-        row.style.display = text.includes(q) ? '' : 'none';
-    });
-}
+// filterSDI vive en ./components/renderSDI.js
 
 // ============ API FETCH ============
 async function fetchTable(tableName) {
@@ -502,103 +448,11 @@ function fillKanban(containerId, items, label) {
 // setText es importado desde ./utils/domUtils.js
 
 // ============ LOGÍSTICA MODULE ============
-async function loadLogistica() {
-    const selector = document.getElementById('guide-select');
-    if (!selector) return;
-    
-    // Si ya tiene opciones cargadas, no recargar automáticamente para mayor estabilidad
-    if (selector.options.length > 2) return;
+// loadLogistica vive en ./components/logistica.js
 
-    selector.innerHTML = '<option value="">-- Cargando guías... --</option>';
+// loadLogisticaDetail vive en ./components/logistica.js
 
-    try {
-        const guias = await fetchData('/api/guias');
-        selector.innerHTML = '<option value="">-- Seleccione una Guía --</option>';
-        
-        guias.sort((a,b) => b._RowNumber - a._RowNumber).forEach(g => {
-            const opt = document.createElement('option');
-            opt.value = g.ID_GUIA || g.NUM_GUIA;
-            opt.textContent = `Guía: ${g.NUM_GUIA || g.ID_GUIA} - ${g.CLIENTE || 'Emitida'}`;
-            selector.appendChild(opt);
-        });
-    } catch (e) {
-        console.error("Error cargando guías:", e);
-        selector.innerHTML = '<option value="">Error al cargar</option>';
-    }
-}
-
-async function loadLogisticaDetail(guiaId) {
-    const tbody = document.getElementById('body-logistica');
-    const metaRow = document.getElementById('guide-meta-cards');
-
-    if (!guiaId) {
-        if (metaRow) metaRow.style.display = 'none';
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.6;"><i class="fas fa-info-circle"></i> Seleccione una guía para ver el detalle</td></tr>';
-        return;
-    }
-
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;"><i class="fas fa-spinner fa-spin"></i> Cargando spools...</td></tr>';
-
-    try {
-        const data = await fetchData(`/api/guia/${guiaId}`);
-        const { guia, spools } = data;
-
-        // Mostrar meta data
-        if (metaRow) metaRow.style.display = 'grid';
-        setText('info-origen', guia.ORIGEN || '-');
-        setText('info-destino', guia.DESTINO || '-');
-        setText('info-count', spools.length);
-
-        // Render tabla
-        if (spools.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;opacity:0.6;">No hay spools vinculados a esta guía.</td></tr>';
-        } else {
-            tbody.innerHTML = spools.map(s => `
-                <tr>
-                    <td><strong style="color:var(--primary-light)">${s.ID_SPOOL || '-'}</strong></td>
-                    <td>${s.TAG_SPOOL || '-'}</td>
-                    <td>${s.MAX_NPS_SPOOL || '-'}</td>
-                    <td>${s.METROS_LINEALES || '0'} m</td>
-                    <td>${s.ID_ISO || '-'}</td>
-                    <td><span class="badge ${s.STATUS === 'RECIBIDO' ? 'badge-done' : 'badge-pending'}">${s.STATUS || 'EN TRANSITO'}</span></td>
-                </tr>
-            `).join('');
-        }
-    } catch (e) {
-        console.error("Error cargando detalle de guía:", e);
-        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--error);">Error al cargar datos.</td></tr>';
-    }
-}
-
-function copyLogisticaTable() {
-    const table = document.getElementById('table-logistica');
-    if (!table) return;
-    
-    const rows = table.querySelectorAll('tr');
-    let textToCopy = "";
-
-    rows.forEach(row => {
-        const cols = row.querySelectorAll('th, td');
-        const rowData = [];
-        cols.forEach(col => rowData.push(col.innerText.trim()));
-        textToCopy += rowData.join("\t") + "\n";
-    });
-
-    navigator.clipboard.writeText(textToCopy).then(() => {
-        const btn = document.querySelector('.btn-copy-excel');
-        if (!btn) return;
-        const originalHTML = btn.innerHTML;
-        btn.innerHTML = '<i class="fas fa-check"></i> ¡Copiado!';
-        btn.style.background = '#059669';
-        
-        setTimeout(() => {
-            btn.innerHTML = originalHTML;
-            btn.style.background = '';
-        }, 2000);
-    }).catch(err => {
-        alert("Error al copiar: " + err);
-    });
-}
+// copyLogisticaTable vive en ./components/logistica.js
 
 // =================================================================
 // ============ BIM VIEWER MODULE (APS / Autodesk) =================
@@ -4127,174 +3981,34 @@ async function bimSaveLink() {
  * En PC divide la pantalla (Split Screen), en móviles abre un modal emergente.
  * Usa el proxy del backend para evitar restricciones de X-Frame-Options.
  */
-function bimOpenPdf(url) {
-    const proxyUrl = `/api/iso/proxy-pdf?url=${encodeURIComponent(url)}`;
-
-    if (window.innerWidth > 1024) {
-        // En PC: Pantalla dividida (Split Screen)
-        const splitPanel = document.getElementById('bim-pdf-split-panel');
-        const splitIframe = document.getElementById('bim-pdf-split-iframe');
-        const resizeBar = document.getElementById('bim-pdf-resize-bar');
-        if (splitPanel && splitIframe) {
-            splitIframe.src = proxyUrl;
-            splitPanel.style.display = 'flex';
-            if (resizeBar) resizeBar.style.display = 'flex';
-            
-            // Forzar resize del visor 3D para ajustarse al nuevo ancho
-            if (bimState.viewer) {
-                setTimeout(() => {
-                    bimState.viewer.resize();
-                }, 150);
-            }
-        }
-    } else {
-        // En Móvil: Modal flotante
-        const modal = document.getElementById('pdf-viewer-modal');
-        const iframe = document.getElementById('pdf-viewer-iframe');
-        if (modal && iframe) {
-            iframe.src = proxyUrl;
-            modal.style.display = 'flex';
-        }
-    }
-}
+// bimOpenPdf vive en ./components/pdfViewer.js
 
 /**
  * Cierra la visualización en pantalla dividida (PC).
  */
-function closePdfSplit() {
-    const splitPanel = document.getElementById('bim-pdf-split-panel');
-    const splitIframe = document.getElementById('bim-pdf-split-iframe');
-    const resizeBar = document.getElementById('bim-pdf-resize-bar');
-    if (splitPanel && splitIframe) {
-        splitPanel.style.display = 'none';
-        if (resizeBar) resizeBar.style.display = 'none';
-        splitIframe.src = '';
-        
-        // Restablecer el ancho del panel por defecto al cerrar
-        splitPanel.style.width = '48%';
-        splitPanel.style.flex = '';
-
-        // Forzar resize del visor 3D para ocupar el 100% de nuevo
-        if (bimState.viewer) {
-            setTimeout(() => {
-                bimState.viewer.resize();
-            }, 150);
-        }
-    }
-}
+// closePdfSplit vive en ./components/pdfViewer.js
 
 /**
  * Cierra el visualizador de PDF (ambos modos).
  */
-function closePdfModal() {
-    const modal = document.getElementById('pdf-viewer-modal');
-    const iframe = document.getElementById('pdf-viewer-iframe');
-    if (modal && iframe) {
-        modal.style.display = 'none';
-        iframe.src = '';
-    }
-    closePdfSplit();
-}
+// closePdfModal vive en ./components/pdfViewer.js
 
 /**
  * Obtiene el valor seleccionado en el selector de hojas y lo abre en el visualizador.
  */
-function bimOpenSelectedPdf() {
-    const select = document.getElementById('bim-pdf-sheets-select');
-    if (select && select.value) {
-        bimOpenPdf(select.value);
-    }
-}
+// bimOpenSelectedPdf vive en ./components/pdfViewer.js
 
 /**
  * Obtiene el valor seleccionado en el selector de PIDs y lo abre en el visualizador.
  */
-function bimOpenSelectedPid() {
-    const select = document.getElementById('bim-pdf-pids-select');
-    if (select && select.value) {
-        bimOpenPdf(select.value);
-    }
-}
+// bimOpenSelectedPid vive en ./components/pdfViewer.js
 
 
 /**
  * Inicializa el sistema de redimensionamiento de pantalla dividida (Splitter Bar).
  * Permite arrastrar el divisor en PC para redimensionar el visor 3D y el plano PDF.
  */
-function initBimSplitResizer() {
-    const resizeBar = document.getElementById('bim-pdf-resize-bar');
-    const splitPanel = document.getElementById('bim-pdf-split-panel');
-    const bimLayout = document.querySelector('.bim-layout');
-    const bimSidebar = document.querySelector('.bim-sidebar');
-    const splitIframe = document.getElementById('bim-pdf-split-iframe');
-
-    if (!resizeBar || !splitPanel || !bimLayout) return;
-
-    let isDragging = false;
-
-    resizeBar.addEventListener('mousedown', function (e) {
-        e.preventDefault();
-        isDragging = true;
-        resizeBar.classList.add('dragging');
-        
-        // Evitar que el iframe capture eventos del mouse durante el arrastre
-        if (splitIframe) {
-            splitIframe.style.pointerEvents = 'none';
-        }
-        
-        document.body.style.cursor = 'col-resize';
-    });
-
-    document.addEventListener('mousemove', function (e) {
-        if (!isDragging) return;
-
-        // Calcular anchos dinámicos
-        const layoutRect = bimLayout.getBoundingClientRect();
-        const sidebarWidth = bimSidebar ? bimSidebar.clientWidth : 0;
-        
-        // Ancho total divisible restante (Visor 3D + Divisor + PDF)
-        const totalDivisibleWidth = layoutRect.width - sidebarWidth - resizeBar.clientWidth;
-        
-        // Posición del cursor respecto a la sección divisible
-        const mouseX = e.clientX - layoutRect.left - sidebarWidth;
-        
-        // El ancho asignado al PDF (derecha)
-        const pdfWidth = totalDivisibleWidth - mouseX;
-
-        // Límites de seguridad (mínimo 300px para cada lado)
-        const minWidth = 300;
-        const maxWidth = totalDivisibleWidth - 300;
-        const finalWidth = Math.max(minWidth, Math.min(maxWidth, pdfWidth));
-
-        // Aplicar ancho exacto al panel de PDF
-        splitPanel.style.width = finalWidth + 'px';
-        splitPanel.style.flex = 'none';
-
-        // Redimensionar el visor 3D de Autodesk al vuelo
-        if (bimState.viewer) {
-            bimState.viewer.resize();
-        }
-    });
-
-    document.addEventListener('mouseup', function () {
-        if (isDragging) {
-            isDragging = false;
-            resizeBar.classList.remove('dragging');
-            
-            // Reactivar eventos del mouse en el iframe
-            if (splitIframe) {
-                splitIframe.style.pointerEvents = 'auto';
-            }
-            
-            document.body.style.cursor = '';
-            
-            // Redimensionar una vez más al final
-            if (bimState.viewer) {
-                bimState.viewer.resize();
-            }
-        }
-    });
-}
+// initBimSplitResizer vive en ./components/pdfViewer.js
 
 
 // ============================================================================
@@ -4316,10 +4030,7 @@ if (typeof window !== 'undefined') {
     window.bimGuardarColorEstado    = bimGuardarColorEstado;
     window.bimIsolateElements       = bimIsolateElements;
     window.bimLimpiarFiltroEstados  = bimLimpiarFiltroEstados;
-    window.bimOpenPdf               = bimOpenPdf;
     window.bimOpenScanner           = bimOpenScanner;
-    window.bimOpenSelectedPdf       = bimOpenSelectedPdf;
-    window.bimOpenSelectedPid       = bimOpenSelectedPid;
     window.bimRemoveLink            = bimRemoveLink;
     window.bimResetView             = bimResetView;
     window.bimSaveLink              = bimSaveLink;
@@ -4336,19 +4047,12 @@ if (typeof window !== 'undefined') {
     window.bimTrozoEliminarDivision = bimTrozoEliminarDivision;
     window.bimTrozoVincular         = bimTrozoVincular;
     window.changeWeek               = changeWeek;
-    window.closePdfModal            = closePdfModal;
-    window.closePdfSplit            = closePdfSplit;
-    window.copyLogisticaTable       = copyLogisticaTable;
     window.divState                 = divState;
-    window.filterSDI                = filterSDI;
     // formatDate, getEstado, getEtapaBadge, getJuntaId, getMaxEtapa, getVal,
     // getWeekOfDate y parseDate los expone ./utils/dataHelpers.js
     window.initBimViewer            = initBimViewer;
-    window.loadLogistica            = loadLogistica;
-    window.loadLogisticaDetail      = loadLogisticaDetail;
     window.refreshData              = refreshData;
     window.renderCurrentSection     = renderCurrentSection;
-    window.renderSDI                = renderSDI;
     // bimState lo expone ./modules/bimState.js;
     // renderSpools, renderOverview y renderJuntas los exponen sus componentes;
     // renderBarChart, renderJuntasBreakdown, renderLogTable, renderSCurve y
