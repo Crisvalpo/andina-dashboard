@@ -1,46 +1,22 @@
 /**
- * Andina Piping Dashboard — app.js
+ * Andina Piping Dashboard — app.js (Entrypoint & Orchestrator)
  * AppSheet API V2 | ISO Weeks (Monday start)
  * Secciones: Overview, Juntas, Spools, QC, SDI
  */
 
-// ============ CONFIG ============
-// (Las credenciales de AppSheet ahora se administran de forma segura en el backend)
+import { state, charts, PROJECT_START_DATE, getProjectWeek } from './modules/state.js';
+import { setText, iconBg } from './utils/domUtils.js';
+import { resolveSpoolId, normalizeStatus, parseFechaSpool, resolveSpoolStatuses } from './utils/statusHelpers.js';
+import { fetchData } from './services/apiService.js';
+import { authGuardar, authObtener, authOlvidar, authHeaders, authAsegurar, authPedirClave } from './modules/auth.js';
+import { renderOverview } from './components/renderOverview.js';
+import { renderSpools, getSpoolStatusVisual, SPOOL_STATUS_VISUAL } from './components/renderSpools.js';
 
-// Fecha de inicio del proyecto (Local 00:00:00)
-const PROJECT_START_DATE = new Date(2025, 8, 15); // Septiembre 15, 2025
 
-function getProjectWeek(d = new Date()) {
-    if (!(d instanceof Date) || isNaN(d.getTime())) return null;
-    const start = new Date(PROJECT_START_DATE);
-    start.setHours(0, 0, 0, 0);
-    const current = new Date(d);
-    current.setHours(0, 0, 0, 0);
-    const diff = current - start;
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-    return Math.floor(days / 7);
-}
 
-// ============ STATE ============
-const state = {
-    lineas: [],
-    isos: [],
-    spools: [],
-    juntas: [],
-    ejecuciones: [],   // REG_EjecucionJuntas_MS
-    logSpools: [],     // LOG_Spool_MS
-    sdis: [],
-    relSdiIso: [],     // REL_SDIIso_MS
-    inspecciones: [],  // REG_InspeccionVisual_MS
-    dimensional: [],   // REG_DimensionalSpool_MS
-    personal: [],      // CAT_Personal_MS
-    catUniones: [],    // CAT_TipoUnion_MS
-    catFluidos: [],    // CAT_FluidoServicio_MS
-    currentWeek: getProjectWeek(),
-    currentSection: 'overview'
-};
+// State y Config son importados desde ./modules/state.js
+let charts = window.charts || {};
 
-let charts = {};
 
 // Plugins globales para mostrar etiquetas en los gráficos
 const barLabelsPlugin = {
