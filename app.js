@@ -14,12 +14,11 @@ import { setText } from './utils/domUtils.js';
 import { resolveSpoolId, normalizeStatus, resolveSpoolStatuses } from './utils/statusHelpers.js';
 import {
     currentISOWeek, parseDate, formatDate, getWeekOfDate,
-    getVal, getEstado, getJuntaId, getEtapaBadge, getMaxEtapa, getMaterialLabel
+    getVal, getEstado, getJuntaId, getEtapaBadge, getMaxEtapa
 } from './utils/dataHelpers.js';
 import { barLabelsPlugin, doughnutLabelsPlugin } from './components/chartPlugins.js';
-import {
-    renderWelderChart, renderJuntasBreakdown, renderSCurve, renderBarChart, renderLogTable
-} from './components/charts.js';
+import { renderOverview } from './components/renderOverview.js';
+import { renderJuntas } from './components/renderJuntas.js';
 
 
 
@@ -406,90 +405,7 @@ async function refreshData() {
 // viven en ./utils/dataHelpers.js
 
 // ============ RENDER: OVERVIEW ============
-function renderOverview() {
-    const { lineas, isos, spools, juntas, ejecuciones, sdis } = state;
-
-    // Totales del proyecto
-    setText('kpi-lineas', lineas.length);
-    setText('kpi-isos', isos.length);
-    const activeSpools = spools.filter(s => !String(s.Proceso || '').trim().startsWith('00.'));
-    setText('kpi-spools-total', activeSpools.length);
-    
-    const totalPulgadas = juntas.reduce((sum, j) => {
-        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
-        const nps = parseFloat(npsVal);
-        return sum + (isNaN(nps) ? 0 : nps);
-    }, 0);
-    setText('kpi-total-juntas', `${juntas.length} / ${totalPulgadas.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
-
-    // Líneas sin isométrico — excluye TIE-IN (no requieren cubicación)
-    const isoLineSet = new Set(
-        isos.map(i => (i.ID_LINEA || i['ID_LINEA '] || '').trim()).filter(Boolean)
-    );
-    const lineasSinIso = lineas.filter(l => {
-        const id = (l.ID_LINEA || l['ID_LINEA '] || '').trim();
-        return id && !id.toUpperCase().startsWith('TIE-IN') && !isoLineSet.has(id);
-    }).length;
-    const subEl = document.getElementById('kpi-lineas-sin-iso-sub');
-    if (subEl) subEl.textContent = lineasSinIso > 0 ? `⚠ ${lineasSinIso} sin ISO` : '✓ Todas cubicadas';
-
-    // Estado de avance
-    // Count juntas by max state reached in REG_EjecucionJuntas_MS
-    const ejecutadasJuntas = juntas.filter(j => {
-        const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
-        return et && et.toUpperCase().includes('EJECUTAD');
-    });
-    const ejecutadasCant = ejecutadasJuntas.length;
-    const ejecutadasPulg = ejecutadasJuntas.reduce((sum, j) => {
-        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
-        const nps = parseFloat(npsVal);
-        return sum + (isNaN(nps) ? 0 : nps);
-    }, 0);
-
-    const enProcesoJuntas = juntas.filter(j => {
-        const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
-        return et && (et.toUpperCase().includes('PREARMAD') || et.toUpperCase().includes('EMPLANTILL') || et.toUpperCase().includes('CORTE'));
-    });
-    const enProcesoCant = enProcesoJuntas.length;
-    const enProcesoPulg = enProcesoJuntas.reduce((sum, j) => {
-        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
-        const nps = parseFloat(npsVal);
-        return sum + (isNaN(nps) ? 0 : nps);
-    }, 0);
-
-    const sdiPendientes = sdis.filter(s => {
-        const est = getVal(s, 'ESTADO').toUpperCase();
-        return !est.includes('RESPONDID') && !est.includes('CERRAD');
-    }).length;
-
-    // Semana actual (filtrando por ejecuciones ejecutadas)
-    const weekExec = ejecuciones.filter(e => {
-        const status = getEstado(e).toUpperCase();
-        return status.includes('EJECUTAD') && getWeekOfDate(e.FECHA_EJECUCION) === state.currentWeek;
-    });
-    const semanaActualCant = weekExec.length;
-    const semanaActualPulg = weekExec.reduce((sum, e) => {
-        const npsVal = getVal(e, 'NPS') || getVal(e, 'DIAMETRO_WDI') || 0;
-        const nps = parseFloat(npsVal);
-        return sum + (isNaN(nps) ? 0 : nps);
-    }, 0);
-
-    setText('kpi-ejecutadas', `${ejecutadasCant} / ${ejecutadasPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
-    setText('kpi-en-proceso', `${enProcesoCant} / ${enProcesoPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
-    setText('kpi-semana', `${semanaActualCant} / ${semanaActualPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
-
-    const tag = document.getElementById('week-tag');
-    if (tag) tag.textContent = `S${state.currentWeek}`;
-
-    // S-Curve chart
-    renderSCurve();
-
-    // Bar chart by fluid
-    renderBarChart();
-
-    // Latest movements table
-    renderLogTable();
-}
+// renderOverview vive en ./components/renderOverview.js
 
 // getMaterialLabel vive en ./utils/dataHelpers.js
 
@@ -509,126 +425,7 @@ function toggleJuntaCol(type) {
 // renderLogTable vive en ./components/charts.js
 
 // ============ RENDER: JUNTAS ============
-function renderJuntas() {
-    const { juntas, ejecuciones } = state;
-
-    // Construir un Set de IDs de juntas que tienen al menos un registro EJECUTADA
-    const ejecutadasSet = new Set(
-        ejecuciones
-            .filter(e => getEstado(e).toUpperCase().includes('EJECUTAD'))
-            .map(e => getJuntaId(e).trim())
-            .filter(Boolean)
-    );
-
-    // Count por estado: ejecutadas vs sin iniciar
-    let ejecutadas = 0, pendiente = 0;
-    let ejecutadasPulg = 0, pendientePulg = 0;
-
-    juntas.forEach(j => {
-        const id = (j.ID_JUNTA || j['ID_JUNTA '] || '').trim();
-        const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
-        const nps = parseFloat(npsVal);
-        const validNps = isNaN(nps) ? 0 : nps;
-        
-        if (ejecutadasSet.has(id)) { 
-            ejecutadas++; 
-            ejecutadasPulg += validNps;
-        } else { 
-            pendiente++; 
-            pendientePulg += validNps;
-        }
-    });
-
-    setText('j-ejecutadas', `${ejecutadas} / ${ejecutadasPulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
-    setText('j-pendiente', `${pendiente} / ${pendientePulg.toLocaleString('es-CL', { maximumFractionDigits: 1 })}"`);
-
-    // Welder DI charts
-    renderWelderChart();
-
-    // Desglose Taller vs Terreno
-    renderJuntasBreakdown();
-
-    // Donut
-    if (charts.donut) charts.donut.destroy();
-    const dCtx = document.getElementById('donutChart');
-    if (dCtx) {
-        charts.donut = new Chart(dCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Ejecutadas', 'Sin Iniciar'],
-                datasets: [{
-                    data: [ejecutadas, pendiente],
-                    backgroundColor: ['#10b981', '#334155'],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                cutout: '60%',
-                plugins: { legend: { position: 'bottom', labels: { color: '#64748b', boxWidth: 12 } } }
-            },
-            plugins: [doughnutLabelsPlugin]
-        });
-    }
-
-    // Fluid chart
-    let fluids = state.catFluidos.map(f => (f.ID_FLUIDO || f['ID_FLUIDO '] || '').trim()).filter(Boolean);
-    if (!fluids.length) fluids = ['CT', 'PW', 'IA', 'GW', 'FP', 'RW']; // fallback
-
-    const fluidTotals = fluids.map(f => juntas.filter(j => (j.ID_ISO || j['ID_ISO '] || '').includes(`-${f}-`)).length);
-    const fluidExec = fluids.map(f => {
-        const juntasDelFluido = juntas.filter(j => (j.ID_ISO || j['ID_ISO '] || '').includes(`-${f}-`));
-        return juntasDelFluido.filter(j => {
-            const et = getMaxEtapa(j.ID_JUNTA || j['ID_JUNTA ']);
-            return et && et.toUpperCase().includes('EJECUTAD');
-        }).length;
-    });
-
-    if (charts.fluid) charts.fluid.destroy();
-    const fCtx = document.getElementById('fluidChart');
-    if (fCtx) {
-        charts.fluid = new Chart(fCtx, {
-            type: 'bar',
-            data: {
-                labels: fluids,
-                datasets: [
-                    { label: 'Total', data: fluidTotals, backgroundColor: 'rgba(99,102,241,0.3)', borderRadius: 4 },
-                    { label: 'Ejecutadas', data: fluidExec, backgroundColor: '#6366f1', borderRadius: 4 }
-                ]
-            },
-            options: {
-                responsive: true, maintainAspectRatio: false,
-                scales: {
-                    y: { 
-                        beginAtZero: true, 
-                        grid: { color: '#1e293b' }, 
-                        ticks: { color: '#64748b' },
-                        grace: '12%'
-                    },
-                    x: { grid: { display: false }, ticks: { color: '#64748b' } }
-                },
-                plugins: { legend: { labels: { color: '#64748b', boxWidth: 12 } } }
-            },
-            plugins: [barLabelsPlugin]
-        });
-    }
-
-    // Table
-    const tbody = document.getElementById('juntas-tbody');
-    if (!tbody) return;
-    const weekData = ejecuciones.filter(e => getWeekOfDate(e.FECHA_EJECUCION) === state.currentWeek);
-    const data = weekData.length > 0 ? weekData : [...ejecuciones].sort((a, b) => parseDate(b.FECHA_EJECUCION) - parseDate(a.FECHA_EJECUCION)).slice(0, 20);
-
-    tbody.innerHTML = data.map(e => {
-        return `<tr>
-            <td>${getJuntaId(e) || '--'}</td>
-            <td>${(e.ID_TIPO_UNION || e['ID_TIPO_UNION '] || '--')}</td>
-            <td>${getEtapaBadge(getEstado(e))}</td>
-            <td>${(e.RESPONSABLE || e['RESPONSABLE '] || '--')}</td>
-            <td>${formatDate(e.FECHA_EJECUCION)}</td>
-        </tr>`;
-    }).join('') || `<tr><td colspan="5" class="empty-msg">Sin registros en S${state.currentWeek}</td></tr>`;
-}
+// renderJuntas vive en ./components/renderJuntas.js
 
 // ============ SPOOL STATUS: jerarquía desde LOG_Spool_MS ============
 // Orden de mayor a menor prioridad (el último en la lista gana)
@@ -5426,11 +5223,10 @@ if (typeof window !== 'undefined') {
     window.loadLogisticaDetail      = loadLogisticaDetail;
     window.refreshData              = refreshData;
     window.renderCurrentSection     = renderCurrentSection;
-    window.renderJuntas             = renderJuntas;
-    window.renderOverview           = renderOverview;
     window.renderQC                 = renderQC;
     window.renderSDI                = renderSDI;
     window.renderSpools             = renderSpools;
+    // renderOverview y renderJuntas los exponen sus propios componentes;
     // renderBarChart, renderJuntasBreakdown, renderLogTable, renderSCurve y
     // renderWelderChart los expone ./components/charts.js
     window.showSection              = showSection;
