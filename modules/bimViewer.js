@@ -757,6 +757,14 @@ export function bimHighlightElements(dbIds, estado) {
     const viewer = bimState.viewer;
     if (!viewer) return;
 
+    // El modo corte apaga el ghosting para aislar el tramo. Si se busca un spool
+    // sin haber pulsado antes "Ver todo el modelo", seguiría apagado y el resto
+    // del modelo desaparecería en vez de quedar en rayos X.
+    if (divState._aislado) {
+        try { viewer.setGhosting(true); } catch (e) {}
+        divState._aislado = false;
+    }
+
     viewer.isolate(dbIds);
     viewer.fitToView(dbIds);
 
@@ -1851,27 +1859,43 @@ export async function bimDividirCargarGuardadas() {
         if (!guids.length) return;
         // Por cada división guardada: ocultar el original PARA SIEMPRE y
         // dibujar sus trozos (el clon reemplaza al elemento).
+        // Los fallos aquí eran silenciosos: si el original no resolvía a dbId o su
+        // geometría no se podía leer, sus trozos no se dibujaban y no quedaba
+        // rastro — el spool aparecía incompleto sin ningún aviso.
         guids.forEach(g => {
             bimGuidsToDbIds([g], (ids) => {
-                if (!ids.length) return;
+                if (!ids.length) {
+                    console.warn(`[Dividir] El original ${g} no resuelve a ningún dbId: sus trozos no se dibujarán.`);
+                    return;
+                }
                 const eje = bimEjeDeElemento(ids[0]);
-                if (!eje) return;
+                if (!eje) {
+                    console.warn(`[Dividir] No pude leer la geometría de ${g} (dbId ${ids[0]}): sus trozos no se dibujarán.`);
+                    return;
+                }
                 bimState.viewer.hide(ids[0]);
                 divState.ocultos.push(ids[0]);
                 const partes = bimDivNormalizarPartes(divState.guardadas[g]) || [];
                 const idsG = bimDivIdsGuardados(divState.guardadas[g]);
                 partes.forEach(([a, b], i) => {
                     const m = bimCrearPieza(eje, a, b, eje.colorOrig);
-                    if (m) {
-                        m.userData = { guid: g, idx: i, idParte: idsG[i], a, b, eje };
-                        bimDivRegistrarTrozo(m, g, idsG[i]);
-                        divState.piezasGuardadas.push(m);
+                    if (!m) {
+                        console.warn(`[Dividir] No pude crear el trozo ${g}#p${idsG[i]}.`);
+                        return;
                     }
+                    m.userData = { guid: g, idx: i, idParte: idsG[i], a, b, eje };
+                    bimDivRegistrarTrozo(m, g, idsG[i]);
+                    divState.piezasGuardadas.push(m);
                 });
+                console.log(`[Dividir] ${g}: ${partes.length} trozo(s) dibujados`);
             });
         });
         // Cuando estados+mapeo estén listos, pintar los trozos por su estado
-        setTimeout(bimDivColorearTrozos, 2500);
+        setTimeout(() => {
+            const enMemoria = Object.keys(divState.trozoMeshes).length;
+            console.log(`[Dividir] ${guids.length} división(es) cargadas · ${enMemoria} trozos en memoria`);
+            bimDivColorearTrozos();
+        }, 2500);
     } catch (e) { console.error('[Dividir] Error cargando divisiones:', e.message); }
 }
 
