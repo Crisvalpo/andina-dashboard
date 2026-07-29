@@ -564,8 +564,7 @@
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
 
-                const model = sessionData.model || 'gpt-4o-mini-realtime-preview';
-                const sdpResponse = await fetch(`https://api.openai.com/v1/realtime?model=${model}`, {
+                const sdpResponse = await fetch('https://api.openai.com/v1/realtime', {
                     method: 'POST',
                     body: offer.sdp,
                     headers: {
