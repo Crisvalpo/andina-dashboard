@@ -387,6 +387,45 @@ export async function botBorrarTool(nombre) {
     }
 }
 
+export function botSwitchTab(tab) {
+    const secWa = document.getElementById('sub-sec-wa');
+    const secRealtime = document.getElementById('sub-sec-realtime');
+    const btnWa = document.getElementById('tab-btn-wa');
+    const btnRealtime = document.getElementById('tab-btn-realtime');
+
+    if (tab === 'realtime') {
+        if (secWa) secWa.style.display = 'none';
+        if (secRealtime) secRealtime.style.display = 'block';
+        if (btnWa) {
+            btnWa.style.opacity = '0.6';
+            btnWa.style.background = 'rgba(255, 255, 255, 0.05)';
+            btnWa.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+            btnWa.style.color = 'var(--text-muted)';
+        }
+        if (btnRealtime) {
+            btnRealtime.style.opacity = '1';
+            btnRealtime.style.background = 'rgba(0, 242, 254, 0.15)';
+            btnRealtime.style.borderColor = 'rgba(0, 242, 254, 0.4)';
+            btnRealtime.style.color = '#00f2fe';
+        }
+    } else {
+        if (secWa) secWa.style.display = 'block';
+        if (secRealtime) secRealtime.style.display = 'none';
+        if (btnWa) {
+            btnWa.style.opacity = '1';
+            btnWa.style.background = 'rgba(37, 211, 102, 0.15)';
+            btnWa.style.borderColor = 'rgba(37, 211, 102, 0.4)';
+            btnWa.style.color = '#25d366';
+        }
+        if (btnRealtime) {
+            btnRealtime.style.opacity = '0.6';
+            btnRealtime.style.background = 'rgba(255, 255, 255, 0.05)';
+            btnRealtime.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+            btnRealtime.style.color = 'var(--text-muted)';
+        }
+    }
+}
+
 if (typeof window !== 'undefined') {
     window.botInitPanel         = botInitPanel;
     window.botRefreshStatus     = botRefreshStatus;
@@ -403,4 +442,6 @@ if (typeof window !== 'undefined') {
     window.botDesbloquear       = botDesbloquear;
     window.botCargarTools       = botCargarTools;
     window.botBorrarTool        = botBorrarTool;
+    window.botSwitchTab         = botSwitchTab;
 }
+

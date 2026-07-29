@@ -44,14 +44,14 @@
             overflow: hidden;
         }
 
-        /* Top Header */
+        /* Top Header Minimalista */
         header {
             width: 100%;
             max-width: 440px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 0.75rem 1.25rem;
+            padding: 0.75rem 1rem;
             background: var(--bg-card);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
@@ -61,41 +61,47 @@
             z-index: 20;
         }
 
-        .brand {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
         .brand-logo {
-            width: 38px;
-            height: 38px;
+            width: 40px;
+            height: 40px;
             background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
-            border-radius: 12px;
+            border-radius: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-family: 'Outfit', sans-serif;
             font-weight: 800;
-            font-size: 1.2rem;
+            font-size: 1.3rem;
             color: #fff;
             box-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
         }
 
-        .brand-info h1 {
-            font-family: 'Outfit', sans-serif;
-            font-size: 1.1rem;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            line-height: 1.2;
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
-        .brand-info span {
-            font-size: 0.72rem;
+        .btn-pin-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(0, 242, 254, 0.1);
+            border: 1px solid rgba(0, 242, 254, 0.3);
             color: var(--accent-cyan);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1.2px;
+            font-size: 1.1rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        .btn-pin-icon:hover {
+            background: rgba(0, 242, 254, 0.25);
+            box-shadow: 0 0 14px rgba(0, 242, 254, 0.4);
+            transform: scale(1.05);
         }
 
         /* Status Badge */
@@ -159,8 +165,8 @@
         /* ElevenLabs Style Canvas Orb Container */
         .orb-stage {
             position: relative;
-            width: 250px;
-            height: 250px;
+            width: 260px;
+            height: 260px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -221,36 +227,7 @@
             min-height: 1.35em;
         }
 
-        /* Action bar for PIN Trigger */
-        .action-bar {
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            gap: 0.75rem;
-        }
-
-        .btn-pin-trigger {
-            padding: 8px 18px;
-            border-radius: 30px;
-            background: rgba(0, 242, 254, 0.1);
-            border: 1px solid rgba(0, 242, 254, 0.3);
-            color: var(--accent-cyan);
-            font-size: 0.85rem;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.3s ease;
-        }
-
-        .btn-pin-trigger:hover {
-            background: rgba(0, 242, 254, 0.2);
-            box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
-            transform: translateY(-1px);
-        }
-
-        /* Conversation Card (Clean & Formal) */
+        /* Conversation Card */
         .conversation-card {
             width: 100%;
             background: var(--bg-card);
@@ -262,7 +239,7 @@
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
-            max-height: 180px;
+            max-height: 200px;
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
         }
 
@@ -281,7 +258,7 @@
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
-            max-height: 130px;
+            max-height: 150px;
             scroll-behavior: smooth;
         }
 
@@ -339,7 +316,7 @@
             transform: translateY(-1px);
         }
 
-        /* --- MODAL PIN PAD TÁCTIL (ELEVENLABS / CYBERPUNK STYLE) --- */
+        /* --- MODAL PIN PAD TÁCTIL (CYBERPUNK STYLE) --- */
         .pin-modal-overlay {
             position: fixed;
             top: 0;
@@ -400,7 +377,6 @@
             margin-top: 4px;
         }
 
-        /* Dots indicador del PIN */
         .pin-dots {
             display: flex;
             gap: 14px;
@@ -422,7 +398,6 @@
             box-shadow: 0 0 12px var(--accent-cyan);
         }
 
-        /* Grid del Teclado Numérico */
         .pin-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -511,18 +486,15 @@
 
     <audio id="remote-audio" autoplay></audio>
 
-    <!-- Header -->
+    <!-- Header Minimalista -->
     <header>
         <div class="brand">
             <div class="brand-logo">L</div>
-            <div class="brand-info">
-                <h1>LUKE REALTIME</h1>
-                <span>Eleven Labs Orb &bull; IWP</span>
-            </div>
         </div>
-        <div class="status-badge" id="status-badge">
-            <div class="status-dot"></div>
-            <span id="badge-text">Desconectado</span>
+        <div class="header-actions">
+            <button class="btn-pin-icon" id="open-pin-btn" title="PIN de Supervisor" aria-label="Ingresar PIN de Supervisor">
+                🔑
+            </button>
         </div>
     </header>
 
@@ -538,15 +510,14 @@
 
         <!-- Status Text -->
         <div class="status-text-container">
+            <div style="display:flex; justify-content:center; align-items:center; margin-bottom:4px;">
+                <div class="status-badge" id="status-badge">
+                    <div class="status-dot"></div>
+                    <span id="badge-text">Desconectado</span>
+                </div>
+            </div>
             <div class="status-title" id="status-title">Toca la esfera para hablar</div>
             <div class="status-sub" id="status-sub">Sesión de voz continua inteligente con Luke</div>
-        </div>
-
-        <!-- Action Bar: PIN Trigger -->
-        <div class="action-bar">
-            <button class="btn-pin-trigger" id="open-pin-btn">
-                <span>🔢 Ingresar PIN de Supervisor</span>
-            </button>
         </div>
 
         <!-- Conversation Stream -->
@@ -636,7 +607,7 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             const cx = canvas.width / 2;
             const cy = canvas.height / 2;
-            const baseRadius = 100;
+            const baseRadius = 105;
 
             time += 0.025;
 
@@ -722,7 +693,7 @@
 
             ctx.save();
             ctx.translate(cx, cy);
-            const coreGrad = ctx.createRadialGradient(-25, -25, 5, 0, 0, baseRadius * 0.8);
+            const coreGrad = ctx.createRadialGradient(-25, -25, 5, 0, 0, baseRadius * 0.85);
             coreGrad.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
             coreGrad.addColorStop(0.4, 'rgba(255, 255, 255, 0.1)');
             coreGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
@@ -789,7 +760,6 @@
 
             addBubble(`PIN Ingresado: ****`, 'user');
 
-            // Si la sesión WebRTC está activa, enviar al DataChannel
             if (dataChannel && dataChannel.readyState === 'open') {
                 const event = {
                     type: "conversation.item.create",
@@ -822,8 +792,10 @@
                 .replace(/>/g, "&gt;");
 
             html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="chat-link">🔗 $1</a>');
-            html = html.replace(/(^|[^"])((https?:\/\/[^\s<]+))/g, '$1<a href="$3" target="_blank" rel="noopener" class="chat-link">🔗 Ver Enlace</a>');
+            // Reemplazar sintaxis Markdown [Texto](URL) por botones interactivos
+            html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="chat-link">🔗 $1</a>');
+            // Reemplazar URLs directas que no estén ya dentro de un atributo href
+            html = html.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener" class="chat-link">🔗 Ver Enlace</a>');
             html = html.replace(/\n/g, '<br>');
 
             return html;
@@ -968,7 +940,6 @@
                     if (event.transcript) {
                         addBubble(event.transcript, 'luke');
                         
-                        // Si Luke solicita PIN en su respuesta hablada, abrir el teclado automáticamente
                         const tLower = event.transcript.toLowerCase();
                         if (tLower.includes('pin') || tLower.includes('clave') || tLower.includes('autoriz')) {
                             setTimeout(openPinModal, 600);
@@ -993,6 +964,10 @@
 
                     if (toolName === 'buscar_spool') {
                         await executeBuscarSpool(callId, args.spool_id);
+                    } else if (toolName === 'obtener_isometrico') {
+                        await executeObtenerIsometrico(callId, args.iso_id || args.spool_id);
+                    } else if (toolName === 'obtener_pid') {
+                        await executeObtenerPid(callId, args.query || args.spool_id);
                     } else {
                         await executeDynamicTool(callId, toolName, args);
                     }
@@ -1002,29 +977,84 @@
 
         async function executeBuscarSpool(callId, spoolId) {
             try {
-                const res = await fetch(`/api/bim/spool/${encodeURIComponent(spoolId)}`);
-                if (!res.ok) {
+                // Consultas paralelas: Metadata BIM + PDF Isométrico + PDF P&ID
+                const [resSpool, resIso, resPid] = await Promise.allSettled([
+                    fetch(`/api/bim/spool/${encodeURIComponent(spoolId)}`),
+                    fetch(`/api/iso/pdf/${encodeURIComponent(spoolId)}`),
+                    fetch(`/api/pid/pdf/${encodeURIComponent(spoolId)}`)
+                ]);
+
+                if (resSpool.status !== 'fulfilled' || !resSpool.value.ok) {
                     sendFunctionOutput(callId, { encontrado: false, mensaje: `No se halló el spool ${spoolId}` });
                     return;
                 }
 
-                const data = await res.json();
+                const data = await resSpool.value.json();
+                let isoData = null;
+                if (resIso.status === 'fulfilled' && resIso.value.ok) {
+                    isoData = await resIso.value.json().catch(() => null);
+                }
+
+                let pidData = null;
+                if (resPid.status === 'fulfilled' && resPid.value.ok) {
+                    pidData = await resPid.value.json().catch(() => null);
+                }
+
+                const isoId = data.metadata ? (data.metadata['ID_ISO'] || data.metadata['ISOMÉTRICO']) : null;
+                const isoUrl = isoData?.current_sheet?.pdf_url || (isoData?.sheets && isoData.sheets[0]?.pdf_url) || null;
+
+                const pids = pidData?.pids ? pidData.pids.map(p => ({
+                    id_pid: p.id_pid,
+                    pdf_url: p.pdf_url,
+                    descripcion: p.descripcion
+                })) : [];
+
                 const spoolSummary = {
                     spool_id: data.spool_id,
                     metadata: data.metadata ? {
                         tag_gestion: data.metadata['TAG GESTION'] || data.metadata['SPOOL'],
                         area: data.metadata['AREA'] || data.metadata['ÁREA'],
-                        isometrico: data.metadata['ID_ISO'] || data.metadata['ISOMÉTRICO'],
+                        isometrico: isoId,
                         linea: data.metadata['ID_LINEA'] || data.metadata['LÍNEA'],
                         nps: data.metadata['NPS'] || data.metadata['MAX_NPS_SPOOL'],
                         metros_lineales: data.metadata['METROS_LINEALES']
                     } : null,
+                    isometrico_pdf_url: isoUrl,
+                    pids_asociados: pids,
                     estado_actual: data.estado_actual || 'SIN REGISTRO',
                     estado_fecha: data.estado_fecha || null,
                     cantidad_elementos_bim: data.elements ? data.elements.length : 0
                 };
 
                 sendFunctionOutput(callId, spoolSummary);
+            } catch (err) {
+                sendFunctionOutput(callId, { error: err.message });
+            }
+        }
+
+        async function executeObtenerIsometrico(callId, isoId) {
+            try {
+                const res = await fetch(`/api/iso/pdf/${encodeURIComponent(isoId)}`);
+                if (!res.ok) {
+                    sendFunctionOutput(callId, { encontrado: false, mensaje: `No se halló el isométrico ${isoId}` });
+                    return;
+                }
+                const data = await res.json();
+                sendFunctionOutput(callId, data);
+            } catch (err) {
+                sendFunctionOutput(callId, { error: err.message });
+            }
+        }
+
+        async function executeObtenerPid(callId, query) {
+            try {
+                const res = await fetch(`/api/pid/pdf/${encodeURIComponent(query)}`);
+                if (!res.ok) {
+                    sendFunctionOutput(callId, { encontrado: false, mensaje: `No se halló P&ID para ${query}` });
+                    return;
+                }
+                const data = await res.json();
+                sendFunctionOutput(callId, data);
             } catch (err) {
                 sendFunctionOutput(callId, { error: err.message });
             }

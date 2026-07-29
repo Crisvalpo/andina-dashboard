@@ -1758,7 +1758,7 @@ app.post('/api/realtime/session', async (req, res) => {
         {
             type: 'function',
             name: 'buscar_spool',
-            description: 'Busca información operacional y técnica de un spool del proyecto.',
+            description: 'Busca información operacional, técnica, isométrico y planos P&ID de un spool del proyecto.',
             parameters: {
                 type: 'object',
                 properties: {
@@ -1768,6 +1768,36 @@ app.post('/api/realtime/session', async (req, res) => {
                     }
                 },
                 required: ['spool_id']
+            }
+        },
+        {
+            type: 'function',
+            name: 'obtener_isometrico',
+            description: 'Obtiene el plano isométrico en PDF y sus hojas asociadas dado un ID de isométrico o spool.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    iso_id: {
+                        type: 'string',
+                        description: 'ID del isométrico o tag del spool (ej: "ISO-450-HOJA-1" o "245").'
+                    }
+                },
+                required: ['iso_id']
+            }
+        },
+        {
+            type: 'function',
+            name: 'obtener_pid',
+            description: 'Obtiene los diagramas P&ID en PDF asociados a una línea, spool o ID de P&ID.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    query: {
+                        type: 'string',
+                        description: 'Número de línea, tag de spool o ID del P&ID (ej: "450" o "245").'
+                    }
+                },
+                required: ['query']
             }
         }
     ];
@@ -1808,6 +1838,12 @@ ENTONACIÓN Y RITMO:
 - Natural y conversacional cuando el trabajador pregunta.
 - Más firme y directo cuando detectas una condición o advertencia importante.
 - Cero tono robótico o institucional.
+
+FORMATO DE ENLACES A PLANOS Y DOCUMENTOS:
+- Cuando la herramienta devuelva un enlace a un plano isométrico o P&ID (ejemplo: 'isometrico_pdf_url', 'pdf_url' o elementos en 'pids_asociados'):
+  1. SIEMPRE incluye en el texto de tu respuesta el enlace en formato Markdown: [Ver Isométrico ISO-XXX](URL) o [Ver P&ID PID-YYY](URL).
+  2. En el mensaje hablado por voz, sé natural ("Te dejo el enlace al isométrico en la pantalla").
+  3. NUNCA omitas la URL en formato markdown [Texto](URL) en el texto de respuesta, para que el sistema genere el botón cliqueable para el trabajador.
 
 REGLAS DE SEGURIDAD Y ACCIONES DESTRUCTIVAS:
 - NUNCA ejecutes, confirmes ni solicites automáticamente acciones destructivas o irreversibles.
