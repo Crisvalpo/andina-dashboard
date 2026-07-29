@@ -233,7 +233,91 @@ Ordenado por dependencia y riesgo. Cada paso es verificable por separado.
 
 ---
 
-## 5. Contexto útil
+## 5. Capas de vinculación: spool, válvula y soporte
+
+`LIST_Bim_MS` tiene tres columnas de vínculo — `SPOOL LUKEAPP`, `VALVULA LUKEAPP`
+y `SOPORTE LUKEAPP` — pero no se tratan igual.
+
+### 5.1 Spool no es una capa
+
+`BIM_CAPAS` en el backend solo define **válvula y soporte**:
+
+```js
+const BIM_CAPAS = {
+    valvula: { col: 'VALVULA LUKEAPP', listTable: 'LIST_Valvulas_MS', ... },
+    soporte: { col: 'SOPORTE LUKEAPP', listTable: 'LIST_Soportes_MS', ... }
+};
+```
+
+Spool va por un endpoint aparte, `/api/bim/vincular`, con la columna escrita a
+mano. Esa asimetría es el origen de todo lo demás: hay dos implementaciones del
+mismo concepto, una genérica y otra especial, y solo la genérica sabe de columnas.
+
+### 5.2 Lo que SÍ funciona
+
+`bimSaveLink` enruta bien: `/api/bim/vincular` para spool y
+`/api/bim/:capa/vincular` para válvula y soporte, que escribe en `capa.col`.
+`bimRemoveLink` hace lo mismo al desvincular. **El flujo principal es correcto.**
+
+Medido sobre producción: 1963 filas con spool, 6 con válvula, 5 con soporte, y
+**0 filas con más de una columna rellena**. Los datos están limpios hoy.
+
+### 5.3 Lo que está hardcodeado
+
+Las cuatro llamadas del camino de TROZOS ignoran la capa activa:
+
+| función | llama a | efecto |
+|---|---|---|
+| `bimTrozoVincular` | `/api/bim/vincular` con `{spool}` | escribe siempre en `SPOOL LUKEAPP` |
+| `bimTrozoDesvincular` | `/api/bim/desvincular` | limpia solo `SPOOL LUKEAPP` |
+| `bimTrozoEliminarDivision` | `/api/bim/desvincular` | idem |
+| `bimDividirRestaurar` | `/api/bim/desvincular` | idem |
+
+Y `bimTrozoPointerUp` **no filtra por capa**: estando en válvulas o soportes se
+puede pinchar un trozo, y su panel —que dice "Spool" y usa `trozo-spool-input`—
+escribiría en la columna de spool mientras la interfaz dice otra cosa.
+
+### 5.4 La pregunta de diseño, antes de tocar nada
+
+`bimValidarTubo` restringe la herramienta a **tramos rectos de cañería**: una
+válvula o un soporte no se cortan. Así que conceptualmente un trozo solo puede
+pertenecer a un spool, y que `bimTrozoVincular` escriba en esa columna no es un
+error de destino sino de expresión: hace lo correcto por accidente, sin decirlo,
+y sin impedir el estado incoherente.
+
+**Si eso se confirma**, la solución NO es hacer los trozos multi-capa, sino dejar
+explícito que son de spool y bloquear el camino incoherente. **Si no se confirma**
+—si alguna vez hay que cortar algo que se asigne a un soporte— entonces el camino
+de trozos necesita el mismo enrutado por capa que `bimSaveLink`.
+
+> Pregunta abierta: **¿un trozo puede pertenecer a algo que no sea un spool?**
+
+### 5.5 Plan
+
+Ordenado por riesgo. Los dos primeros no dependen de la respuesta.
+
+**5.5.1 Unificar spool como una capa más** *(refactor, sin cambio funcional)*
+Añadir `spool` a `BIM_CAPAS` con su `col`, `listTable` y `listKey`, y hacer que
+`/api/bim/vincular` sea un alias de `/api/bim/spool/vincular`. Elimina la
+duplicación de 5.1 y con ella la posibilidad de que las dos ramas divarguen.
+
+**5.5.2 Leer las tres columnas al resolver estado** *(ya era el paso 4.1)*
+`/api/bim/statuses` solo mira `SPOOL LUKEAPP`, así que los 11 elementos
+vinculados a válvula o soporte caen en `SIN ESTADO` y se pintan como huérfanos.
+
+**5.5.3 Hacer explícita la regla del trozo** *(depende de 5.4)*
+Si un trozo solo puede ser de spool: que `bimTrozoPointerUp` no seleccione trozos
+fuera de la capa spool, o que el panel del trozo diga claramente que asigna a un
+spool aunque estés en otra capa. Si puede ser de cualquier capa: enrutar las
+cuatro llamadas de 5.3 como hace `bimSaveLink`.
+
+**5.5.4 Desvincular por todas las columnas**
+`bimTrozoDesvincular` limpia solo spool. Sea cual sea la respuesta de 5.4,
+desvincular debería dejar el elemento sin ningún vínculo, no sin uno de tres.
+
+---
+
+## 6. Contexto útil
 
 - `bim-ifc-export.js` ya materializa los trozos como `IfcPipeSegment` reales con
   `Pset_AndinaTrozo` (spool, estado, ISO, fluido, capa, ejecución). Hoy se usa para
