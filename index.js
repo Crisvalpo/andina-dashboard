@@ -2,10 +2,8 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const { CONFIG, resumenSeguro } = require('./config');
-const { fetchAppSheet, fetchAppSheetCached, invalidarCache } = require('./lib/appsheet');
-const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS, requerirSesion } = require('./lib/auth');
 const { getSupabase, asegurarBucketExistente } = require('./lib/supabase');
-const { cargarTools, ejecutarTool } = require('./lib/botTools');
+const { cargarTools, ejecutarTool, registrarTool } = require('./lib/botTools');
 const app = express();
 const PORT = CONFIG.PORT;
 
@@ -1848,6 +1846,12 @@ app.post('/api/realtime/execute-tool', async (req, res) => {
     }
 
     try {
+        if (nombre_funcion === 'crear_herramienta_dinamica') {
+            console.log('[Realtime Meta-Tool] Registrando nueva herramienta persistente en Supabase:', args?.nombre_funcion);
+            const resReg = await registrarTool(args || {}, 'Luke Realtime Voz');
+            return res.json({ success: true, result: resReg });
+        }
+
         const dbTools = await cargarTools();
         const tool = dbTools.find(t => t.nombre_funcion === nombre_funcion);
 
