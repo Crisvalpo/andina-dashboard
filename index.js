@@ -1039,7 +1039,8 @@ const BIM_CAPAS = {
         labelCols:   ['ID_VALVULA', 'ID_LINEA'],  // etiqueta visible: VAL113_03351-CT-...
         montajeTable:'REG_MontajeValvulas_MS',
         montajeKey:  'ID_VALVULA',
-        montajeStatusCol: 'Status',   // "Montada" | (sin fila) → pendiente
+        montajeStatusCol: 'Status',   // estados reales: "Posicionada", "Montada"...
+        montajeFechaCol:  'fecha',    // para quedarse con el ÚLTIMO registro
     },
     soporte: {
         col:         'SOPORTE LUKEAPP',
@@ -1048,7 +1049,8 @@ const BIM_CAPAS = {
         labelCols:   ['ITEM', 'ID_LINEA'],
         montajeTable:'REG_MontajeSoportes_MS',
         montajeKey:  'ID_Soporte',
-        montajeStatusCol: null,        // presencia de fila = montado
+        montajeStatusCol: null,        // sin estado: la presencia de fila = montado
+        montajeFechaCol:  'Fecha',     // ojo, con mayúscula (en válvulas es 'fecha')
     }
 };
 
@@ -1065,6 +1067,36 @@ function bimItemLabel(capa, row) {
 // OJO: se OMITE "DESCRIPCIÓN" a propósito — escribir esa columna (tilde en la Í)
 // dispara System.Text.DecoderFallbackException (400) en AppSheet tras regenerar el app.
 // Está vacía en todas las filas y no se usa, así que nunca la escribimos.
+/**
+ * Estado de montaje ACTUAL de cada ítem de una capa, desde su tabla REG_Montaje*.
+ *
+ * Cada capa tiene su propia regla y no son intercambiables:
+ *   válvulas → columna `Status` con estados reales ("Posicionada", "Montada"…)
+ *   soportes → sin columna de estado: la presencia de la fila ya significa montado
+ *
+ * Se queda con el ÚLTIMO registro por fecha (desempate por _RowNumber), igual
+ * criterio que los spools sobre LOG_Spool_MS: una única regla para "estado actual".
+ *
+ * Devuelve { idLower: { status, fecha, row } }. Sin fila -> el ítem no aparece,
+ * y quien consulte decide si eso es PENDIENTE.
+ */
+function estadosMontajeDeCapa(capa, montajeRows) {
+    const out = {};
+    (montajeRows || []).forEach(r => {
+        const id = String(r[capa.montajeKey] || '').trim().toLowerCase();
+        if (!id) return;
+        const fecha = capa.montajeFechaCol ? parseFechaLog(r[capa.montajeFechaCol]) : 0;
+        const row   = parseInt(r._RowNumber || '0', 10) || 0;
+        const prev  = out[id];
+        if (prev && !(fecha > prev.fecha || (fecha === prev.fecha && row > prev.row))) return;
+
+        // Sin columna de estado, la fila en sí es el estado: montado.
+        const bruto = capa.montajeStatusCol ? String(r[capa.montajeStatusCol] || '').trim() : '';
+        out[id] = { status: (bruto || 'MONTADO').toUpperCase(), fecha, row };
+    });
+    return out;
+}
+
 const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP',
     'CWP', 'Line Number', 'TAG', 'AutoCad Size'];
 
@@ -1137,10 +1169,12 @@ app.get('/api/bim/:capa/item/:id', async (req, res) => {
                 tag:  String(r['TAG'] || '').trim()
             }));
 
-        // Estado de montaje: fila en REG_Montaje* con ese id
-        const montajes = montajeRows.filter(r => String(r[capa.montajeKey] || '').trim().toLowerCase() === id.toLowerCase());
-        let montado = montajes.length > 0;
-        let statusMontaje = montado ? (capa.montajeStatusCol ? String(montajes[0][capa.montajeStatusCol] || 'Montada').trim() : 'Montado') : 'Pendiente';
+        // Estado de montaje por la MISMA regla que el filtro por estado: último
+        // registro por fecha. Antes se tomaba montajes[0], que es orden arbitrario:
+        // con dos reportes de la misma válvula podía ganar el viejo.
+        const entrada = estadosMontajeDeCapa(capa, montajeRows)[id.toLowerCase()];
+        const montado = !!entrada;
+        const statusMontaje = entrada ? entrada.status : 'PENDIENTE';
 
         res.json({
             id,
@@ -1167,17 +1201,20 @@ app.get('/api/bim/:capa/statuses', async (req, res) => {
             fetchAppSheet(capa.montajeTable).catch(() => [])
         ]);
 
-        // Set de ids montados
-        const montados = new Set(
-            montajeRows.map(r => String(r[capa.montajeKey] || '').trim().toLowerCase()).filter(Boolean)
-        );
+        // Antes solo se miraba si EXISTÍA fila de montaje y se repartía en dos
+        // cajones fijos. Eso contaba una válvula "Posicionada" como MONTADO, que
+        // son etapas distintas: el avance salía inflado. Ahora manda el estado
+        // real de la capa; los soportes siguen siendo binarios porque su tabla
+        // no tiene columna de estado.
+        const estados = estadosMontajeDeCapa(capa, montajeRows);
 
-        const result = { 'MONTADO': [], 'PENDIENTE': [] };
+        const result = { 'PENDIENTE': [] };
         bimRows.forEach(row => {
             const guid = String(row['Elemento GUID'] || '').trim();
             const id   = String(row[capa.col] || '').trim().toLowerCase();
             if (!guid || !id) return;
-            (montados.has(id) ? result['MONTADO'] : result['PENDIENTE']).push(guid);
+            const st = estados[id] ? estados[id].status : 'PENDIENTE';
+            (result[st] = result[st] || []).push(guid);
         });
         res.json(result);
     } catch (e) {

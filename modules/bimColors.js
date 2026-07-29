@@ -24,8 +24,16 @@ export const BIM_STATUS_COLORS = {
     // Intensidad 1: la 4ª componente de setThemingColor es cuánto TIÑE, no
     // transparencia. Con 0.3 el gris casi no se veía y parecía "sin pintar".
     'SIN ESTADO':      [0.50, 0.50, 0.50, 1], // Gris
-    // Válvulas / soportes (estado binario)
-    'PENDIENTE':       [0.55, 0.55, 0.55, 0.4]  // Gris (pendiente de montaje)
+    // Válvulas / soportes: PENDIENTE = sin registro de montaje
+    'PENDIENTE':       [0.55, 0.55, 0.55, 0.4], // Gris
+
+    // REG_MontajeValvulas_MS escribe el estado en femenino ("Posicionada",
+    // "Montada"). Se declaran aquí con el MISMO color que su equivalente en
+    // masculino en vez de normalizar el texto: así el visor pinta igual dos
+    // formas del mismo estado, pero la ficha sigue mostrando lo que escribió
+    // terreno, que es la autoridad.
+    'MONTADA':         [0.06, 0.75, 0.35, 1],
+    'POSICIONADA':     [0.95, 0.45, 0.10, 1]
 };
 
 export function bimHexARgb(hex) {

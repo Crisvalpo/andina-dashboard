@@ -489,10 +489,10 @@ export async function bimLoadCapaItem(capa, termino) {
         bimGuidsToDbIds(data.guids, (dbIds) => {
             bimState.dbIds = dbIds;
             if (dbIds.length > 0) {
-                // Válvulas y soportes: estado binario. Se normaliza a las claves de
-                // la paleta — el backend devuelve "Montada" para válvulas, que no
-                // está en BIM_STATUS_COLORS y caería en un color automático.
-                bimHighlightElements(dbIds, data.montado ? 'MONTADO' : 'PENDIENTE');
+                // Estado real de la capa. Las válvulas tienen estados propios
+                // ("Posicionada", "Montada"); los soportes son binarios porque su
+                // tabla de montaje no lleva columna de estado.
+                bimHighlightElements(dbIds, data.status || 'PENDIENTE');
                 if (window.innerWidth <= 1024) bimCloseSidebar();
             }
         });
