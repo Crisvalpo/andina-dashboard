@@ -1733,7 +1733,7 @@ app.get('/guia/:id', (req, res) => {
 // =================================================================
 // LUKE REALTIME — PILOTO SPOOL (GPT Realtime WebRTC)
 // =================================================================
-app.get('/realtime', (req, res) => {
+app.get(['/realtime', '/realtime.html'], (req, res) => {
     res.sendFile(path.join(__dirname, 'realtime.html'));
 });
 
