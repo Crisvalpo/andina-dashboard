@@ -387,7 +387,62 @@ aún no es config es que **spool sigue sin ser una capa** (paso 5.5.1).
 
 ---
 
-## 7. Contexto útil
+## 7. Soportes por spool (entrega por paquete)
+
+**Objetivo:** saber qué soportes van en cada spool y si están montados, para poder
+decir "el spool 509 está terminado: fabricado, montado y con sus soportes puestos".
+
+### 7.1 La relación es muchos a muchos
+
+Un soporte de pipe rack sostiene varias líneas a la vez, y un spool tiene varios
+soportes. **No es una columna en `LIST_Soportes_MS`**: funcionaría hasta el primer
+soporte compartido y luego habría que deshacerlo con datos ya cargados. Si se
+persiste, va en una tabla de relación (`REL_SoporteSpool_MS`).
+
+### 7.2 La línea NO sirve como atajo
+
+`ID_LINEA` une soportes y spools con cobertura total: las 64 líneas con soportes
+están todas entre las 101 con spools. Pero la granularidad no alcanza — en
+`03351-CT-200-H2-0002-N` hay **36 spools y 54 soportes**. Atribuir los 54 a cada
+uno de los 36 no dice nada útil.
+
+Sirve para avance **por línea**, que es una métrica válida y sale gratis hoy. No
+sirve para entrega por spool.
+
+### 7.3 Derivar del modelo 3D, no teclearlo
+
+Soportes y spools se vinculan ambos a GUIDs en `LIST_Bim_MS`. Con los dos
+vinculados, la **proximidad geométrica** dice qué spool toca cada soporte sin que
+nadie lo teclee.
+
+Lo importante del razonamiento: **el trabajo manual es el mismo en ambos caminos**.
+Catastrar 515 soportes contra spools a mano, o vincular esos mismos 515 soportes
+al 3D. Pero el segundo camino da además la visualización, el filtro por estado y
+la relación derivada — y no se equivoca al teclear. Hoy hay 5 soportes vinculados
+al 3D de 515.
+
+Ruta recomendada:
+1. Vincular soportes al 3D (trabajo de catastro que ya estaba pendiente).
+2. Derivar candidatos soporte→spool por proximidad.
+3. Que el usuario confirme o corrija en la app; persistir en `REL_SoporteSpool_MS`.
+   La geometría propone, la persona decide: en los límites entre spools la
+   proximidad sola es ambigua.
+
+### 7.4 El dato de montaje ya existe
+
+**83 de 515 soportes ya tienen registro de montaje** en `REG_MontajeSoportes_MS`.
+En cuanto exista la relación, el "¿están montados?" sale solo — no hay que
+capturar nada nuevo en terreno.
+
+### 7.5 Lo que NO hay que hacer
+
+Crear una columna de spool en `LIST_Soportes_MS` y regenerar AppSheet: modela un
+muchos-a-muchos como uno-a-uno, obliga a rellenar 515 filas a mano, y se rompe con
+el primer soporte de rack compartido.
+
+---
+
+## 8. Contexto útil
 
 - `bim-ifc-export.js` ya materializa los trozos como `IfcPipeSegment` reales con
   `Pset_AndinaTrozo` (spool, estado, ISO, fluido, capa, ejecución). Hoy se usa para
