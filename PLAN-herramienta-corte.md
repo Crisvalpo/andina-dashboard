@@ -290,7 +290,12 @@ explícito que son de spool y bloquear el camino incoherente. **Si no se confirm
 —si alguna vez hay que cortar algo que se asigne a un soporte— entonces el camino
 de trozos necesita el mismo enrutado por capa que `bimSaveLink`.
 
-> Pregunta abierta: **¿un trozo puede pertenecer a algo que no sea un spool?**
+> **Respondida (2026-07-29): NO.** Un trozo solo puede ser de un spool — la
+> herramienta es para cortar cañería. Se bloquea el camino incoherente en vez de
+> enrutarlo por capa.
+>
+> Queda abierta una capa futura, **uniones**, que sería la cuarta categoría junto
+> a spool, válvula y soporte. No cambia esta decisión: una unión tampoco se corta.
 
 ### 5.5 Plan
 
@@ -305,15 +310,35 @@ duplicación de 5.1 y con ella la posibilidad de que las dos ramas divarguen.
 `/api/bim/statuses` solo mira `SPOOL LUKEAPP`, así que los 11 elementos
 vinculados a válvula o soporte caen en `SIN ESTADO` y se pintan como huérfanos.
 
-**5.5.3 Hacer explícita la regla del trozo** *(depende de 5.4)*
-Si un trozo solo puede ser de spool: que `bimTrozoPointerUp` no seleccione trozos
-fuera de la capa spool, o que el panel del trozo diga claramente que asigna a un
-spool aunque estés en otra capa. Si puede ser de cualquier capa: enrutar las
-cuatro llamadas de 5.3 como hace `bimSaveLink`.
+**5.5.3 Hacer explícita la regla del trozo** — HECHO
+`bimTrozoPointerUp` no selecciona trozos fuera de la capa spool, y
+`bimTrozoVincular` lleva una guarda propia por ser global en `window`. Desvincular
+sigue limpiando solo `SPOOL LUKEAPP`, que ahora es correcto: si un trozo solo
+puede tener vínculo de spool, limpiar esa columna lo deja sin ningún vínculo.
 
-**5.5.4 Desvincular por todas las columnas**
-`bimTrozoDesvincular` limpia solo spool. Sea cual sea la respuesta de 5.4,
-desvincular debería dejar el elemento sin ningún vínculo, no sin uno de tres.
+**5.5.4 El escáner QR debe respetar la capa** — HECHO
+`bimOnQRDetected` llamaba siempre a `bimLoadSpool`, así que escanear en la
+sección de válvulas buscaba un spool y el mensaje decía "Cargando spool". Ahora
+enruta como `bimSearchSpool`.
+
+**5.5.5 Capa futura: uniones**
+Añadirla debería ser configuración, no código: una entrada en `BIM_CAPAS`
+(columna, tabla maestra, llave, tabla de montaje), otra en `BIM_CAPA_UI`
+(etiqueta, placeholder) y un botón en `index.html`. El paso 5.5.1 —unificar spool
+como una capa más— es lo que hace que eso sea cierto también para spool.
+
+### 5.6 Verificado y descartado
+
+No son problema, aunque lo parecían:
+
+- `bimSaveLink` y `bimRemoveLink` **sí** enrutan por capa.
+- La autoselección por spool al pinchar un elemento **sí** respeta la capa: en
+  válvulas y soportes va por el flujo simple (1 elemento = 1 ítem, sin auto-grupo).
+- Los datos están limpios: 0 filas con más de una columna de vínculo rellena.
+- Los endpoints de capa responden: `/api/bim/valvula/item/VAL001` devuelve ficha y
+  etiqueta; los statuses reparten en MONTADO/PENDIENTE.
+- Hay 167 válvulas y 515 soportes en las tablas maestras, con 2 y 83 registros de
+  montaje. El dato maestro existe; lo que falta es vincularlos al 3D (6 y 5 hoy).
 
 ---
 

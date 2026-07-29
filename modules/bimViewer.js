@@ -1615,6 +1615,11 @@ export function bimTrozoBajoRayo(ev) {
 
 export function bimTrozoPointerUp(ev) {
     if (divState.activo || !divState._downSel) return;
+    // Los trozos son SOLO de spool: la herramienta corta cañería, y ni válvulas
+    // ni soportes se dividen. Fuera de esa capa el clic se deja pasar al visor,
+    // porque el panel del trozo asigna a la columna SPOOL LUKEAPP y en otra capa
+    // estaría escribiendo en un sitio distinto del que anuncia la interfaz.
+    if (bimState.capa !== 'spool') { divState._downSel = null; return; }
     const dx = Math.abs(ev.clientX - divState._downSel.x);
     const dy = Math.abs(ev.clientY - divState._downSel.y);
     divState._downSel = null;
@@ -1770,6 +1775,13 @@ export async function bimTrozoEliminarDivision(key) {
 
 export async function bimTrozoVincular(key) {
     console.log('[Trozo] Vincular solicitado:', key);
+    // Escribe en SPOOL LUKEAPP a propósito: un trozo solo puede ser de un spool.
+    // La guarda es defensa en profundidad — bimTrozoPointerUp ya impide llegar
+    // aquí desde otra capa, pero esta función también es global en window.
+    if (bimState.capa !== 'spool') {
+        alert('Los trozos solo se asignan a spools. Cambia a la capa Spools para vincularlo.');
+        return;
+    }
     const mesh = divState.trozoMeshes[key];
     const input = document.getElementById('trozo-spool-input');
     const tag = input ? input.value.trim() : '';
@@ -3480,21 +3492,28 @@ export function bimOnQRDetected(value) {
         resultEl.style.display = 'flex';
     }
 
-    bimScannerSetStatus(`<i class="fas fa-check-circle" style="color:var(--accent)"></i> ¡Detectado! Cargando spool...`);
+    // El QR se interpreta según la capa activa: escanear en la sección de
+    // válvulas busca una válvula, no un spool.
+    const capa = bimState.capa;
+    const etiqueta = (BIM_CAPA_UI[capa]?.label || 'spool').toLowerCase();
+    bimScannerSetStatus(`<i class="fas fa-check-circle" style="color:var(--accent)"></i> ¡Detectado! Cargando ${etiqueta}...`);
 
     // Esperar 1.2s para que el usuario vea el resultado y luego cerrar
     setTimeout(() => {
         bimCloseScanner();
 
-        // Cargar el spool en el visor
         const inputEl = document.getElementById('bim-search-input');
         if (inputEl) inputEl.value = value;
 
+        const cargar = () => (capa === 'spool')
+            ? bimLoadSpool(value)
+            : bimLoadCapaItem(capa, value);
+
         if (bimState.initialized) {
-            bimLoadSpool(value);
+            cargar();
         } else {
-            // Si el viewer no está listo, inicializarlo primero con el spool
-            initBimViewer().then(() => bimLoadSpool(value)).catch(console.error);
+            // Si el viewer no está listo, inicializarlo primero
+            initBimViewer().then(cargar).catch(console.error);
         }
     }, 1200);
 }
