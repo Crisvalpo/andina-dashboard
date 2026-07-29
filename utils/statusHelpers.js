@@ -10,16 +10,7 @@ export function resolveSpoolId(s) {
 
 export function normalizeStatus(st) {
     if (!st) return '';
-    const s = st.trim().toUpperCase();
-    if (s.includes('FABRICAC')) return 'EN FABRICACIÓN';
-    if (s === 'QAQC')          return 'QAQC';
-    if (s.includes('PINT'))    return 'EN PINT/REVEST.';
-    if (s.includes('RETIR'))   return 'RETIRAR';
-    if (s.includes('MONTAR'))  return 'POR MONTAR';
-    if (s.includes('POSICION')) return 'POSICIONADO';
-    if (s.includes('MONTAD'))  return 'MONTADO';
-    if (s.includes('ELIMIN'))  return 'ELIMINADO';
-    return st.trim();
+    return st.trim().toUpperCase();
 }
 
 export function parseFechaSpool(str) {

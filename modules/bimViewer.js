@@ -489,7 +489,10 @@ export async function bimLoadCapaItem(capa, termino) {
         bimGuidsToDbIds(data.guids, (dbIds) => {
             bimState.dbIds = dbIds;
             if (dbIds.length > 0) {
-                bimHighlightElements(dbIds);
+                // Válvulas y soportes: estado binario. Se normaliza a las claves de
+                // la paleta — el backend devuelve "Montada" para válvulas, que no
+                // está en BIM_STATUS_COLORS y caería en un color automático.
+                bimHighlightElements(dbIds, data.montado ? 'MONTADO' : 'PENDIENTE');
                 if (window.innerWidth <= 1024) bimCloseSidebar();
             }
         });
@@ -544,7 +547,7 @@ export async function bimLoadSpool(spoolId) {
         bimGuidsToDbIds(guidsParaAislar, (dbIds) => {
             bimState.dbIds = dbIds;
             if (dbIds.length > 0) {
-                bimHighlightElements(dbIds);   // isolate → x-ray del resto
+                bimHighlightElements(dbIds, data.estado_actual); // color = estado real del spool
                 bimDivReocultarOriginales();   // isolate re-mostró los divididos → re-ocultar
                 if (window.innerWidth <= 1024) bimCloseSidebar();
             }
@@ -654,6 +657,38 @@ export function bimIsoColorInit() {
         const nodos = ev.nodeIdArray || [];
         bimState._isoColorTimer = setTimeout(() => bimIsoColorAplicar(nodos), 150);
     });
+    bimDivVigilarMostrarTodo();
+}
+
+/**
+ * Vigila que los originales ya divididos NO reaparezcan.
+ *
+ * No se puede borrar un elemento de un modelo APS ya cargado, solo ocultarlo, y
+ * cualquier "mostrar todo" del navegador de Autodesk los resucita. Como esas
+ * herramientas nativas son ciegas a las divisiones, se reacciona a su evento y
+ * se vuelven a esconder.
+ *
+ * Se hace por evento y no sondeando: el sondeo periódico haría parpadear el
+ * original entre que reaparece y se vuelve a ocultar.
+ */
+export function bimDivVigilarMostrarTodo() {
+    const viewer = bimState.viewer;
+    if (!viewer || bimState._vigilaOcultos) return;
+    bimState._vigilaOcultos = true;
+
+    const revisar = () => {
+        if (!divState.ocultos.length) return;
+        clearTimeout(divState._reocultarTimer);
+        // Pequeño respiro: el visor emite varios eventos seguidos al mostrar todo
+        divState._reocultarTimer = setTimeout(() => {
+            if (divState._aislado) return;   // en modo corte manda el aislamiento
+            bimDivReocultarOriginales();
+        }, 120);
+    };
+
+    [Autodesk.Viewing.SHOW_EVENT, Autodesk.Viewing.ISOLATE_EVENT].forEach(evt => {
+        if (evt) viewer.addEventListener(evt, revisar);
+    });
 }
 
 /** Pinta los elementos visibles de la isolación según el estado de su spool. */
@@ -709,17 +744,37 @@ export async function bimIsoColorAplicar(nodos) {
 }
 
 /** Resalta en verde los dbIds del spool seleccionado */
-export function bimHighlightElements(dbIds) {
+/**
+ * Resalta el resultado de una búsqueda: lo aísla, lo encuadra y lo tiñe con el
+ * color de SU estado.
+ *
+ * Antes se pintaba siempre de verde brillante, que es el color de MONTADO en la
+ * paleta: un spool en fabricación aparecía verde y se leía como montado. Si no
+ * se conoce el estado no se tiñe nada — el aislamiento y el x-ray del resto ya
+ * lo destacan, y así no se le atribuye un estado que no tiene.
+ */
+export function bimHighlightElements(dbIds, estado) {
     const viewer = bimState.viewer;
     if (!viewer) return;
 
-    // Aislar y colorear en verde brillante (igual que la imagen de referencia)
+    // El modo corte apaga el ghosting para aislar el tramo. Si se busca un spool
+    // sin haber pulsado antes "Ver todo el modelo", seguiría apagado y el resto
+    // del modelo desaparecería en vez de quedar en rayos X.
+    if (divState._aislado) {
+        try { viewer.setGhosting(true); } catch (e) {}
+        divState._aislado = false;
+    }
+
     viewer.isolate(dbIds);
     viewer.fitToView(dbIds);
 
-    dbIds.forEach(id => {
-        viewer.setThemingColor(id, new THREE.Vector4(0.18, 0.84, 0.44, 1), viewer.model, true);
-    });
+    if (estado) {
+        const [r, g, b] = bimColorDeEstado(String(estado).toUpperCase());
+        const col = new THREE.Vector4(r, g, b, 1);
+        dbIds.forEach(id => viewer.setThemingColor(id, col, viewer.model, true));
+    } else {
+        viewer.clearThemingColors(viewer.model);
+    }
 
     // Mostrar botones de acción
     const actionsEl = document.getElementById('bim-actions');
@@ -743,6 +798,12 @@ export function bimFitToView() {
 export function bimResetView() {
     bimLiveStop();
     if (!bimState.viewer) return;
+    // Levantar primero el aislamiento del modo corte: showAll() por sí solo no
+    // deshace un isolate() ni devuelve el ghosting a su valor normal.
+    if (divState._aislado) {
+        try { bimState.viewer.isolate([]); bimState.viewer.setGhosting(true); } catch (e) {}
+        divState._aislado = false;
+    }
     bimState.viewer.showAll();
     // Los originales divididos permanecen ocultos PARA SIEMPRE (los reemplaza su clon)
     if (typeof divState !== 'undefined') {
@@ -1040,8 +1101,9 @@ export async function bimFilterByStatus() {
                 viewer.isolate(dbIds);
                 viewer.fitToView(dbIds);
 
-                // Colorear con el color correspondiente (instanciado dinámicamente)
-                const rawColor = BIM_STATUS_COLORS[status] || [0.18, 0.84, 0.44, 1];
+                // Color desde la fuente única (override del usuario > paleta > auto).
+                // Antes un estado desconocido caía en verde, el color de MONTADO.
+                const rawColor = bimColorDeEstado(status);
                 const color = new THREE.Vector4(rawColor[0], rawColor[1], rawColor[2], rawColor[3]);
                 dbIds.forEach(id => {
                     viewer.setThemingColor(id, color, viewer.model, true);
@@ -1375,7 +1437,12 @@ export const divState = {
     dbId: null,             // elemento en edición
     guid: null,
     eje: null,              // { p0:Vector3, dir:Vector3 (unit), len, radio } — eje REAL (PCA)
-    cortes: [],             // fracciones internas de la sesión
+    cortes: [],             // fracciones internas de la sesión (ordenadas)
+    _aislado: false,        // true mientras el modelo está oculto salvo el tramo en edición
+    _reocultarTimer: null,  // debounce del re-ocultado tras un "mostrar todo" nativo
+    ids: [],                // id ESTABLE de cada parte; alineado con bimDivPartesSesion()
+    _nextId: 1,             // contador de ids de la sesión
+    _historial: [],         // cortes en orden de inserción, para deshacer el último
     ext0: 0, ext1: 1,       // extremos (alargar/acortar el clon más allá del original)
     piezas: [],             // meshes overlay del clon en edición
     guardadas: {},          // { guidLower: [[a,b],...] } persistidas
@@ -1387,9 +1454,31 @@ export const divState = {
 /** Normaliza el formato guardado: [0.42] (cortes viejos) o [[a,b],...] (partes). */
 export function bimDivNormalizarPartes(raw) {
     if (!Array.isArray(raw) || !raw.length) return null;
-    if (Array.isArray(raw[0])) return raw;
-    const bordes = [0, ...raw, 1];
+    if (raw[0] && typeof raw[0] === 'object' && !Array.isArray(raw[0])) {
+        return raw.map(p => [p.a, p.b]);          // formato con id → solo geometría
+    }
+    if (Array.isArray(raw[0])) return raw;         // [[a,b],...]
+    const bordes = [0, ...raw, 1];                 // legado: lista de cortes
     return bordes.slice(0, -1).map((a, i) => [a, bordes[i + 1]]);
+}
+
+/**
+ * Ids estables de una división guardada. El formato antiguo no los lleva, así
+ * que se derivan de la posición: es exactamente lo que `#pN` significaba, de
+ * modo que las vinculaciones ya existentes siguen apuntando a su trozo.
+ */
+export function bimDivIdsGuardados(raw) {
+    const partes = bimDivNormalizarPartes(raw);
+    if (!partes) return [];
+    if (raw[0] && typeof raw[0] === 'object' && !Array.isArray(raw[0])) {
+        return raw.map((p, i) => Number(p.id) || i + 1);
+    }
+    return partes.map((_, i) => i + 1);
+}
+
+/** Partes de la sesión con su id estable: [{id, a, b}]. Es lo que se persiste. */
+export function bimDivPartesConId() {
+    return bimDivPartesSesion().map(([a, b], i) => ({ id: divState.ids[i], a, b }));
 }
 
 /** Partes actuales de la sesión de edición (extremos + cortes internos). */
@@ -1770,26 +1859,43 @@ export async function bimDividirCargarGuardadas() {
         if (!guids.length) return;
         // Por cada división guardada: ocultar el original PARA SIEMPRE y
         // dibujar sus trozos (el clon reemplaza al elemento).
+        // Los fallos aquí eran silenciosos: si el original no resolvía a dbId o su
+        // geometría no se podía leer, sus trozos no se dibujaban y no quedaba
+        // rastro — el spool aparecía incompleto sin ningún aviso.
         guids.forEach(g => {
             bimGuidsToDbIds([g], (ids) => {
-                if (!ids.length) return;
+                if (!ids.length) {
+                    console.warn(`[Dividir] El original ${g} no resuelve a ningún dbId: sus trozos no se dibujarán.`);
+                    return;
+                }
                 const eje = bimEjeDeElemento(ids[0]);
-                if (!eje) return;
+                if (!eje) {
+                    console.warn(`[Dividir] No pude leer la geometría de ${g} (dbId ${ids[0]}): sus trozos no se dibujarán.`);
+                    return;
+                }
                 bimState.viewer.hide(ids[0]);
                 divState.ocultos.push(ids[0]);
                 const partes = bimDivNormalizarPartes(divState.guardadas[g]) || [];
+                const idsG = bimDivIdsGuardados(divState.guardadas[g]);
                 partes.forEach(([a, b], i) => {
                     const m = bimCrearPieza(eje, a, b, eje.colorOrig);
-                    if (m) {
-                        m.userData = { guid: g, idx: i, a, b, eje };
-                        bimDivRegistrarTrozo(m, g, i);
-                        divState.piezasGuardadas.push(m);
+                    if (!m) {
+                        console.warn(`[Dividir] No pude crear el trozo ${g}#p${idsG[i]}.`);
+                        return;
                     }
+                    m.userData = { guid: g, idx: i, idParte: idsG[i], a, b, eje };
+                    bimDivRegistrarTrozo(m, g, idsG[i]);
+                    divState.piezasGuardadas.push(m);
                 });
+                console.log(`[Dividir] ${g}: ${partes.length} trozo(s) dibujados`);
             });
         });
         // Cuando estados+mapeo estén listos, pintar los trozos por su estado
-        setTimeout(bimDivColorearTrozos, 2500);
+        setTimeout(() => {
+            const enMemoria = Object.keys(divState.trozoMeshes).length;
+            console.log(`[Dividir] ${guids.length} división(es) cargadas · ${enMemoria} trozos en memoria`);
+            bimDivColorearTrozos();
+        }, 2500);
     } catch (e) { console.error('[Dividir] Error cargando divisiones:', e.message); }
 }
 
@@ -1891,11 +1997,17 @@ export function bimDivIniciarEdicion(dbId, guid) {
         divState.ext0 = previas[0][0];
         divState.ext1 = previas[previas.length - 1][1];
         divState.cortes = previas.slice(0, -1).map(p => p[1]);
+        // Recuperar los ids con los que ya están vinculados los trozos
+        divState.ids = bimDivIdsGuardados(divState.guardadas[gl]);
+        divState._nextId = Math.max(0, ...divState.ids) + 1;
     } else {
         divState.ext0 = 0; divState.ext1 = 1;
         divState.cortes = [0.5]; // ← división a la MITAD de inmediato
+        divState.ids = [1, 2];
+        divState._nextId = 3;
     }
-    bimState.viewer.hide(dbId);
+    divState._historial = []; // deshacer solo afecta a lo hecho en esta sesión
+    bimDivAislarTramo(dbId);  // oculta el resto del modelo: sin esto no se puede trabajar
     bimState.viewer.select([]);
     bimDivRedibujarClon();
     bimDivRenderPanel();
@@ -1921,7 +2033,7 @@ export function bimDivAutoGuardar() {
 
 export async function bimDivGuardarAhora() {
     if (!divState.guid) return;
-    const partes = bimDivPartesSesion();
+    const partes = bimDivPartesConId();
     try {
         const resp = await fetch('/api/bim/divisiones', {
             method: 'POST',
@@ -1954,7 +2066,7 @@ export function bimDividirSalir(conSesionAbierta = true) {
         canvas.removeEventListener('pointerup', bimDivPointerUp, true);
         canvas.removeEventListener('click', bimDivClickBlock, true);
     }
-    divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = [];
+    divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = []; divState.ids = []; divState._historial = []; divState._nextId = 1;
     divState.ext0 = 0; divState.ext1 = 1;
 }
 
@@ -2093,9 +2205,23 @@ export function bimDivPointerUp(ev) {
     // Bloquear la selección nativa sólo cuando el clic realmente corta
     ev.stopPropagation(); ev.preventDefault();
     divState._consume = true;
-    if (divState.cortes.some(c => Math.abs(c - t) < 0.03)) return;
-    divState.cortes.push(t);
-    divState.cortes.sort((a, b) => a - b);
+
+    // El clic divide EL TROZO PINCHADO por su mitad, no corta en el punto exacto
+    // del clic. Así los demás trozos conservan su geometría y su vinculación al
+    // spool, que es lo que permite reeditar sin rehacer el trabajo.
+    const partes = bimDivPartesSesion();
+    const k = partes.findIndex(([a, b]) => t >= a && t <= b);
+    if (k === -1) return;
+
+    const [a, b] = partes[k];
+    const medio = (a + b) / 2;
+    if (Math.abs(b - a) < 0.06) return;                       // trozo ya demasiado corto
+    if (divState.cortes.some(c => Math.abs(c - medio) < 0.01)) return;
+
+    divState.cortes.push(medio);
+    divState.cortes.sort((x, y) => x - y);
+    divState._historial.push(medio);                          // deshacer quita ESTE corte
+    divState.ids.splice(k + 1, 0, divState._nextId++);         // el trozo k conserva su id
     bimBeep();
     bimDivRedibujarClon();
     bimDivRenderPanel();
@@ -2268,7 +2394,7 @@ export function bimDivRedibujarClon() {
     bimDivPartesSesion().forEach(([a, b], i) => {
         const m = bimCrearPieza(divState.eje, a, b, divState.eje.colorOrig);
         if (m) {
-            m.userData = { guid: divState.guid, idx: i, a, b, eje: divState.eje };
+            m.userData = { guid: divState.guid, idx: i, idParte: divState.ids[i], a, b, eje: divState.eje };
             divState.piezas.push(m);
         }
     });
@@ -2330,8 +2456,15 @@ export function bimCrearManilla(eje, t, colorHex) {
 // ---- Registro de trozos persistidos: clave `${guidLower}#p${n}` → mesh ----
 divState.trozoMeshes = {};
 
-export function bimDivRegistrarTrozo(mesh, guid, idx) {
-    const key = `${String(guid).toLowerCase()}#p${idx + 1}`;
+/**
+ * Registra un trozo bajo su clave estable `guid#p<id>`.
+ *
+ * `id` es el id de la PARTE, no su posición. Con la clave posicional anterior,
+ * insertar un corte reetiquetaba a los trozos siguientes y cada uno heredaba en
+ * silencio la vinculación del vecino.
+ */
+export function bimDivRegistrarTrozo(mesh, guid, id) {
+    const key = `${String(guid).toLowerCase()}#p${id}`;
     mesh.userData.key = key;
     divState.trozoMeshes[key] = mesh;
     return key;
@@ -2401,12 +2534,14 @@ export function bimTrozoPintarGhost(mesh) {
  */
 export function bimDivGhostPorSpool(guidsActivos) {
     const activos = new Set((guidsActivos || []).map(g => String(g).toLowerCase()));
+    const statusDe = bimStatusPorGuid();
     const focos = [];
     for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
         if (activos.has(key)) {
-            // MISMO verde del resaltado de búsqueda de un spool normal
+            // Con el color de SU estado, igual que el resaltado de un spool normal.
+            // Antes iban en verde fijo, que es el color de MONTADO y se leía como tal.
             mesh.visible = true;
-            bimTrozoPintarEstado(mesh, [0.18, 0.84, 0.44]);
+            bimTrozoPintarPorEstado(mesh, statusDe[key]);
             focos.push(mesh);
         } else {
             bimTrozoPintarGhost(mesh); // x-ray
@@ -2434,6 +2569,45 @@ export function bimTrozoPintarEstado(mesh, rgb) {
 }
 
 /** Re-oculta los originales divididos (isolate los re-muestra aunque estén hidden). */
+/**
+ * Aísla el tramo en edición: oculta TODO el modelo y deja solo sus trozos, que
+ * al ser overlay se siguen dibujando.
+ *
+ * Sin esto el clon queda enterrado entre el resto de la geometría y no hay forma
+ * cómoda ni de pinchar el trozo correcto ni de asignarle su spool. El
+ * aislamiento se mantiene al salir de las tijeras a propósito: la asignación
+ * ocurre DESPUÉS de cortar, y es justo cuando más se necesita ver solo el tramo.
+ */
+export function bimDivAislarTramo(dbId) {
+    const viewer = bimState.viewer;
+    if (!viewer) return;
+    try {
+        viewer.setGhosting(false);   // el resto desaparece, no queda en rayos X
+        viewer.isolate([dbId]);      // del modelo, solo este elemento
+        viewer.hide(dbId);           // y tampoco él: manda el clon de overlay
+        divState._aislado = true;
+        viewer.impl.invalidate(false, false, true);
+    } catch (e) {
+        console.error('[Dividir] No pude aislar el tramo:', e.message);
+    }
+}
+
+/** Deshace el aislamiento y devuelve el modelo completo a la vista. */
+export function bimDivMostrarModelo() {
+    const viewer = bimState.viewer;
+    if (!viewer) return;
+    try {
+        viewer.isolate([]);
+        viewer.setGhosting(true);
+        divState._aislado = false;
+        bimDivReocultarOriginales();  // los originales ya divididos siguen ocultos
+        bimDivColorearTrozos();
+        viewer.impl.invalidate(false, false, true);
+    } catch (e) {
+        console.error('[Dividir] No pude restaurar la vista:', e.message);
+    }
+}
+
 export function bimDivReocultarOriginales() {
     if (divState.ocultos.length && bimState.viewer) {
         divState.ocultos.forEach(id => bimState.viewer.hide(id));
@@ -2489,9 +2663,20 @@ export function bimDividirExtender(cual, delta) {
     bimDivRenderPanel();
 }
 
+/**
+ * Deshace el ÚLTIMO corte hecho en esta sesión, no el último por posición.
+ * Con "el clic divide el trozo pinchado", cortar en el medio y deshacer quitaba
+ * el corte de más a la derecha, que no es lo que el usuario acaba de hacer.
+ */
 export function bimDividirDeshacer() {
-    if (!divState.cortes.length) return;
-    divState.cortes.pop();
+    if (!divState._historial.length || divState.cortes.length <= 1) return;
+
+    const corte = divState._historial.pop();
+    const i = divState.cortes.findIndex(c => Math.abs(c - corte) < 1e-9);
+    if (i === -1) return;
+
+    divState.cortes.splice(i, 1);
+    divState.ids.splice(i + 1, 1); // al fusionar, sobrevive el id del trozo izquierdo
     bimDivRedibujarClon();
     bimDivRenderPanel();
     bimDivAutoGuardar();
@@ -2510,14 +2695,21 @@ export async function bimDividirFinalizar() {
     // Quitar manillas; las piezas pasan a ser trozos persistidos clicables
     (divState.handles || []).forEach(m => { try { bimState.viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {} });
     divState.handles = [];
-    divState.piezas.forEach((m, i) => bimDivRegistrarTrozo(m, divState.guid, i));
+    divState.piezas.forEach((m, i) => bimDivRegistrarTrozo(m, divState.guid, divState.ids[i]));
     divState.piezasGuardadas.push(...divState.piezas);
     divState.piezas = [];
     bimDivColorearTrozos();
 
+    // El tramo sigue aislado a propósito: es cuando toca asignar cada trozo a su
+    // spool, y con el modelo entero encima no hay forma de pinchar el correcto.
     bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-circle-check bim-meta-icon" style="color:var(--accent)"></i>
-        <p>División lista: <strong>${partes.length} trozos</strong>.<br><small style="opacity:0.7">Sal del modo tijeras y haz clic en cada trozo para asignarle su spool. Puedes dividir otro tramo ahora.</small></p></div>`);
-    divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = [];
+        <p>División lista: <strong>${partes.length} trozos</strong>.<br>
+        <small style="opacity:0.7">Sal del modo tijeras (✂️) y haz clic en cada trozo para asignarle su spool.
+        El resto del modelo sigue oculto para que puedas pincharlos.</small></p>
+        <button class="bim-scan-btn" onclick="bimDivMostrarModelo()" style="margin-top:10px;justify-content:center;">
+            <i class="fas fa-eye"></i> Ver todo el modelo
+        </button></div>`);
+    divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = []; divState.ids = []; divState._historial = []; divState._nextId = 1;
     divState.ext0 = 0; divState.ext1 = 1;
 }
 
@@ -2525,19 +2717,33 @@ export async function bimDividirFinalizar() {
 export async function bimDividirRestaurar() {
     if (!divState.guid) return;
     if (!confirm('¿Eliminar la división y volver a mostrar el elemento original?')) return;
-    if (divState.guardadas[divState.guid.toLowerCase()]) {
+    const gl = divState.guid.toLowerCase();
+    if (divState.guardadas[gl]) {
         const desbloqueado = await authAsegurar('bim');
         if (!desbloqueado) return;
+
+        // Desvincular los trozos ANTES de borrar la división: si no, sus filas
+        // `guid#pN` quedan en LIST_Bim_MS apuntando a geometría inexistente y
+        // siguen contando como elementos vinculados.
+        const claves = Object.keys(divState.trozoMeshes).filter(k => k.startsWith(gl + '#p'));
+        if (claves.length) {
+            await fetch('/api/bim/desvincular', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+                body: JSON.stringify({ elements: claves.map(guid => ({ guid })) })
+            }).catch(() => {});
+            if (bimState.mapeoSpools) claves.forEach(k => { delete bimState.mapeoSpools[k]; });
+        }
+
         await fetch('/api/bim/divisiones', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
             body: JSON.stringify({ guid: divState.guid, cortes: [] })
         }).catch(() => {});
-        delete divState.guardadas[divState.guid.toLowerCase()];
+        delete divState.guardadas[gl];
     }
     bimDivLimpiarSesion();
     // Quitar también los trozos persistidos de este guid (mesh + registro)
-    const gl = divState.guid.toLowerCase();
     divState.piezasGuardadas = divState.piezasGuardadas.filter(m => {
         if (String(m.userData?.guid || '').toLowerCase() === gl) {
             try { bimState.viewer.impl.removeOverlay(DIV_OVERLAY, m); } catch (e) {}
@@ -2547,10 +2753,13 @@ export async function bimDividirRestaurar() {
         return true;
     });
     if (divState.dbId !== null) {
-        bimState.viewer.show(divState.dbId);
+        // Sacarlo de `ocultos` ANTES de restaurar la vista: si no, el propio
+        // bimDivMostrarModelo lo volvería a esconder junto al resto de divididos.
         divState.ocultos = divState.ocultos.filter(id => id !== divState.dbId);
+        bimDivMostrarModelo();
+        bimState.viewer.show(divState.dbId);
     }
-    divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = [];
+    divState.dbId = null; divState.guid = null; divState.eje = null; divState.cortes = []; divState.ids = []; divState._historial = []; divState._nextId = 1;
     divState.ext0 = 0; divState.ext1 = 1;
     bimSetMeta('<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Original restaurado. Haz clic en otro tubo para dividirlo, o sal con las tijeras.</p></div>');
 }
@@ -2563,19 +2772,23 @@ export function bimDividirCancelar() {
         if (guardada) {
             // Tenía división persistida: re-dibujar la versión guardada
             const partes = bimDivNormalizarPartes(guardada) || [];
+            const idsG = bimDivIdsGuardados(guardada);
             partes.forEach(([a, b], i) => {
                 const m = bimCrearPieza(divState.eje, a, b, divState.eje.colorOrig);
                 if (m) {
-                    m.userData = { guid: divState.guid, idx: i, a, b, eje: divState.eje };
-                    bimDivRegistrarTrozo(m, divState.guid, i);
+                    m.userData = { guid: divState.guid, idx: i, idParte: idsG[i], a, b, eje: divState.eje };
+                    bimDivRegistrarTrozo(m, divState.guid, idsG[i]);
                     divState.piezasGuardadas.push(m);
                 }
             });
             bimDivColorearTrozos();
         } else {
+            divState.ocultos = divState.ocultos.filter(id => id !== divState.dbId);
             bimState.viewer.show(divState.dbId); // sin persistencia: vuelve el original
         }
     }
+    // Cancelar deshace también el aislamiento: no se dejó nada a medio asignar.
+    bimDivMostrarModelo();
     bimDividirSalir(false);
     bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p></div>`);
 }
@@ -3577,6 +3790,8 @@ export async function bimSaveLink() {
 if (typeof window !== 'undefined') {
     window.bimCloseScanner          = bimCloseScanner;
     window.bimCloseSidebar          = bimCloseSidebar;
+    window.bimDivMostrarModelo      = bimDivMostrarModelo;
+    window.bimDivReocultarOriginales = bimDivReocultarOriginales;
     window.bimDividirDeshacer       = bimDividirDeshacer;
     window.bimDividirFinalizar      = bimDividirFinalizar;
     window.bimDividirRestaurar      = bimDividirRestaurar;

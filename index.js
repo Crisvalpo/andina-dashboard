@@ -247,19 +247,12 @@ function parseFechaLog(str) {
     return new Date(+yyyy, mm - 1, dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
 }
 
-// Normaliza un STATUS libre al conjunto canónico del visor.
+// El estado se toma tal cual lo escribe terreno en LOG_Spool_MS; solo se
+// homogeneiza la caja. LOG es la única autoridad: plegar variantes aquí
+// escondía estados que el usuario sí quiere distinguir (p.ej. "En Pintura").
 function normalizarEstadoSpool(st) {
     if (!st) return 'SIN ESTADO';
-    const s = String(st).toUpperCase().trim();
-    if (s.includes('FABRICA')) return 'EN FABRICACIÓN';
-    if (s.includes('QAQC') || s.includes('QA/QC')) return 'QAQC';
-    if (s.includes('PINT') || s.includes('REVEST')) return 'EN PINT/REVEST.';
-    if (s.includes('RETIRAR')) return 'RETIRAR';
-    if (s.includes('POR MONTAR') || s.includes('POR_MONTAR')) return 'POR MONTAR';
-    if (s.includes('POSICIONADO')) return 'POSICIONADO';
-    if (s.includes('MONTADO') || s.includes('MONTAJE')) return 'MONTADO';
-    if (s.includes('ELIMINADO')) return 'ELIMINADO';
-    return s;
+    return String(st).trim().toUpperCase();
 }
 
 /**
@@ -448,16 +441,7 @@ app.get('/api/bim/statuses', async (req, res) => {
 
         function normalizeStatus(st) {
             if (!st) return 'SIN ESTADO';
-            const s = st.toUpperCase().trim();
-            if (s.includes('FABRICA')) return 'EN FABRICACIÓN';
-            if (s.includes('QAQC') || s.includes('QA/QC')) return 'QAQC';
-            if (s.includes('PINT') || s.includes('REVEST')) return 'EN PINT/REVEST.';
-            if (s.includes('RETIRAR')) return 'RETIRAR';
-            if (s.includes('POR MONTAR') || s.includes('POR_MONTAR')) return 'POR MONTAR';
-            if (s.includes('POSICIONADO')) return 'POSICIONADO';
-            if (s.includes('MONTADO') || s.includes('MONTAJE')) return 'MONTADO';
-            if (s.includes('ELIMINADO')) return 'ELIMINADO';
-            return s;
+            return String(st).trim().toUpperCase();
         }
 
         // Estado ACTUAL de cada spool = ÚLTIMO registro de LOG_Spool_MS por fecha
@@ -1401,6 +1385,26 @@ app.post('/api/bim/estado-colores', requerirPermiso('bim'), async (req, res) => 
 // Los cortes son fracciones [0..1] sobre el eje del elemento; se guardan
 // en Supabase (andina.bim_divisiones) sin tocar el modelo APS.
 // =================================================================
+/**
+ * Normaliza una división persistida a [{id, a, b}].
+ *
+ * El id identifica al trozo de forma ESTABLE: la clave con la que se vincula a
+ * un spool es `guid#p<id>`, no su posición. Sin eso, insertar un corte
+ * reetiquetaba a los trozos siguientes y su vinculación se quedaba con el
+ * trozo equivocado en silencio.
+ *
+ * Formato antiguo [[a,b],...]: se le asigna id = posición+1, que es
+ * exactamente lo que `#pN` significaba hasta ahora, así que las vinculaciones
+ * existentes siguen siendo válidas sin migrar datos.
+ */
+function normalizarPartesDivision(raw) {
+    if (!Array.isArray(raw) || !raw.length) return null;
+    return raw.map((p, i) => Array.isArray(p)
+        ? { id: i + 1, a: p[0], b: p[1] }
+        : { id: Number(p.id) || i + 1, a: p.a, b: p.b }
+    );
+}
+
 app.get('/api/bim/divisiones', async (req, res) => {
     try {
         const supabase = getSupabase();
@@ -1408,7 +1412,8 @@ app.get('/api/bim/divisiones', async (req, res) => {
         if (error) throw new Error(error.message);
         const out = {};
         (data || []).forEach(r => {
-            if (Array.isArray(r.cortes) && r.cortes.length) out[String(r.guid).toLowerCase()] = r.cortes;
+            const partes = normalizarPartesDivision(r.cortes);
+            if (partes) out[String(r.guid).toLowerCase()] = partes;
         });
         res.json(out);
     } catch (e) {
@@ -1423,17 +1428,29 @@ app.post('/api/bim/divisiones', requerirPermiso('bim'), async (req, res) => {
     const guid = String(req.body?.guid || '').trim().toLowerCase();
     if (!guid) return res.status(400).json({ error: 'Falta guid' });
 
-    // Formato nuevo: partes = pares [a,b] con a<b (pueden salir de [0,1] al alargar el clon)
+    // partes = [{id, a, b}] con a<b (pueden salir de [0,1] al alargar el clon).
+    // Se acepta también el formato antiguo [[a,b],...]: se le asigna id por
+    // posición, que es lo que `#pN` significaba, así que no rompe vinculaciones.
     let partes = null;
     if (Array.isArray(req.body?.partes)) {
-        partes = req.body.partes.filter(p => Array.isArray(p) && p.length === 2 &&
-            typeof p[0] === 'number' && typeof p[1] === 'number' && p[1] > p[0] &&
-            p[0] > -1 && p[1] < 2);
+        partes = req.body.partes
+            .map((p, i) => Array.isArray(p) ? { id: i + 1, a: p[0], b: p[1] } : p)
+            .filter(p => p && typeof p.a === 'number' && typeof p.b === 'number' &&
+                p.b > p.a && p.a > -1 && p.b < 2 && Number.isFinite(Number(p.id)))
+            .map(p => ({ id: Number(p.id), a: p.a, b: p.b }));
+
+        // Los ids deben ser únicos: si se repiten, dos trozos compartirían clave
+        // y su vinculación al spool se pisaría.
+        const vistos = new Set();
+        for (const p of partes) {
+            if (vistos.has(p.id)) return res.status(400).json({ error: `id de parte duplicado: ${p.id}` });
+            vistos.add(p.id);
+        }
     } else if (Array.isArray(req.body?.cortes)) {
         const cortes = req.body.cortes.filter(t => typeof t === 'number' && t > 0 && t < 1).sort((a, b) => a - b);
         if (cortes.length) {
             const bordes = [0, ...cortes, 1];
-            partes = bordes.slice(0, -1).map((a, i) => [a, bordes[i + 1]]);
+            partes = bordes.slice(0, -1).map((a, i) => ({ id: i + 1, a, b: bordes[i + 1] }));
         } else partes = [];
     }
 
