@@ -5,6 +5,7 @@ const { CONFIG, resumenSeguro } = require('./config');
 const { fetchAppSheet, fetchAppSheetCached, invalidarCache } = require('./lib/appsheet');
 const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS, requerirSesion } = require('./lib/auth');
 const { getSupabase, asegurarBucketExistente } = require('./lib/supabase');
+const { cargarTools, ejecutarTool } = require('./lib/botTools');
 const app = express();
 const PORT = CONFIG.PORT;
 
@@ -1752,6 +1753,42 @@ app.post('/api/realtime/session', async (req, res) => {
         return res.status(400).send('SDP offer inválido o vacío.');
     }
 
+    // 1. Herramientas base/estáticas
+    const toolsEstaticas = [
+        {
+            type: 'function',
+            name: 'buscar_spool',
+            description: 'Busca información operacional y técnica de un spool del proyecto.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    spool_id: {
+                        type: 'string',
+                        description: 'Número o TAG de gestión del spool a consultar (ejemplo: "245" o "SPOOL-245").'
+                    }
+                },
+                required: ['spool_id']
+            }
+        }
+    ];
+
+    // 2. Cargar dinámicamente las herramientas creadas por Gemini en Supabase (bot_tools_dinamicas)
+    let toolsDinamicas = [];
+    try {
+        const dbTools = await cargarTools();
+        toolsDinamicas = dbTools.map(t => ({
+            type: 'function',
+            name: t.nombre_funcion,
+            description: t.descripcion,
+            parameters: t.esquema_json?.parameters || t.esquema_json || { type: 'object', properties: {} }
+        }));
+        console.log(`[Realtime] Cargas ${toolsDinamicas.length} herramientas dinámicas desde Supabase.`);
+    } catch (errTools) {
+        console.warn('[Realtime] No se pudieron precargar tools dinámicas:', errTools.message);
+    }
+
+    const allTools = [...toolsEstaticas, ...toolsDinamicas];
+
     // Configuración de la sesión Realtime (modelo, voz, instrucciones, tools)
     const sessionConfig = JSON.stringify({
         type: 'realtime',
@@ -1760,31 +1797,14 @@ app.post('/api/realtime/session', async (req, res) => {
             output: { voice: CONFIG.OPENAI_REALTIME_VOICE || 'ash' }
         },
         instructions: `Eres Luke, asistente de terreno de IWP en proyecto Andina.
-Ayudas a trabajadores de montaje industrial a consultar información de spools.
+Ayudas a trabajadores de montaje industrial a consultar información del proyecto.
 Responde en español, de manera natural, breve y clara.
-Cuando el usuario solicite información sobre un spool, utiliza la herramienta buscar_spool.
-Nunca inventes información.
 Utiliza exclusivamente la información proporcionada por las herramientas.
+Cuando el usuario consulte por spools, juntas, isométricos u otros datos, utiliza la herramienta correspondiente.
+Nunca inventes información.
 Mantén el contexto de la conversación.
-Si el usuario hace una pregunta relacionada con el spool que acabamos de consultar, entiende que se refiere al mismo spool.
 Las respuestas deben ser breves porque el usuario está trabajando en terreno y escucha las respuestas mediante audio.`,
-        tools: [
-            {
-                type: 'function',
-                name: 'buscar_spool',
-                description: 'Busca información operacional y técnica de un spool del proyecto.',
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        spool_id: {
-                            type: 'string',
-                            description: 'Número o TAG de gestión del spool a consultar (ejemplo: "245" o "SPOOL-245").'
-                        }
-                    },
-                    required: ['spool_id']
-                }
-            }
-        ]
+        tools: allTools
     });
 
     try {
@@ -1793,7 +1813,7 @@ Las respuestas deben ser breves porque el usuario está trabajando en terreno y 
         formData.set('sdp', sdpOffer);
         formData.set('session', sessionConfig);
 
-        console.log('[Realtime] Enviando SDP offer a OpenAI /v1/realtime/calls...');
+        console.log('[Realtime] Enviando SDP offer a OpenAI /v1/realtime/calls con', allTools.length, 'tools...');
 
         const response = await fetch('https://api.openai.com/v1/realtime/calls', {
             method: 'POST',
@@ -1817,6 +1837,30 @@ Las respuestas deben ser breves porque el usuario está trabajando en terreno y 
     } catch (e) {
         console.error('[Realtime Session Exception]', e.message);
         res.status(500).send(e.message);
+    }
+});
+
+// Endpoint proxy para ejecutar cualquier herramienta dinámica del catálogo (botTools)
+app.post('/api/realtime/execute-tool', async (req, res) => {
+    const { nombre_funcion, args } = req.body || {};
+    if (!nombre_funcion) {
+        return res.status(400).json({ error: 'nombre_funcion es requerido.' });
+    }
+
+    try {
+        const dbTools = await cargarTools();
+        const tool = dbTools.find(t => t.nombre_funcion === nombre_funcion);
+
+        if (!tool) {
+            return res.status(404).json({ error: `Herramienta "${nombre_funcion}" no encontrada en el catálogo.` });
+        }
+
+        console.log(`[Realtime Execute Tool] Ejecutando "${nombre_funcion}" con args:`, args);
+        const resultado = await ejecutarTool(tool, args || {});
+        res.json({ success: true, result: resultado });
+    } catch (e) {
+        console.error(`[Realtime Execute Tool Error] ${nombre_funcion}:`, e.message);
+        res.status(500).json({ error: e.message });
     }
 });
 
