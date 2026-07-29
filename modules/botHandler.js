@@ -84,8 +84,10 @@ export async function botRefreshQr(silencioso = false) {
         const r = await fetch('/api/bot/qr', { headers: authHeaders('bot') });
         const d = await r.json();
 
-        if (d.qrDataUrl) {
-            img.src = d.qrDataUrl;
+        const qrUrl = d.qrDataUrl || (d.qr ? `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(d.qr)}&margin=10` : null);
+
+        if (qrUrl) {
+            img.src = qrUrl;
             img.style.display = 'block';
             hint.textContent = '📲 Escanea este código desde WhatsApp > Dispositivos vinculados';
         } else {

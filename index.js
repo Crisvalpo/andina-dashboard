@@ -1603,7 +1603,11 @@ app.get('/api/bot/status', async (req, res) => {
 app.get('/api/bot/qr', async (req, res) => {
     try {
         const r = await fetch(`${CONFIG.WA_BRIDGE_URL}/qr`, { signal: AbortSignal.timeout(5000) });
-        res.json(await r.json());
+        const data = await r.json();
+        if (data.qr && !data.qrDataUrl) {
+            data.qrDataUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(data.qr)}&margin=10`;
+        }
+        res.json(data);
     } catch (e) {
         res.json({ success: false, status: 'bridge_offline', qr: null, qrDataUrl: null });
     }
