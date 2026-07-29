@@ -1745,16 +1745,20 @@ app.post('/api/realtime/session', async (req, res) => {
     }
 
     try {
-        const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+        const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
             method: 'POST',
             headers: {
                 'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                model: CONFIG.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview',
-                voice: CONFIG.OPENAI_REALTIME_VOICE || 'ash',
-                instructions: `Eres Luke, asistente de terreno de IWP en proyecto Andina.
+                session: {
+                    type: 'realtime',
+                    model: CONFIG.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview',
+                    audio: {
+                        output: { voice: CONFIG.OPENAI_REALTIME_VOICE || 'ash' }
+                    },
+                    instructions: `Eres Luke, asistente de terreno de IWP en proyecto Andina.
 Ayudas a trabajadores de montaje industrial a consultar información de spools.
 Responde en español, de manera natural, breve y clara.
 Cuando el usuario solicite información sobre un spool, utiliza la herramienta buscar_spool.
@@ -1763,23 +1767,24 @@ Utiliza exclusivamente la información proporcionada por las herramientas.
 Mantén el contexto de la conversación.
 Si el usuario hace una pregunta relacionada con el spool que acabamos de consultar, entiende que se refiere al mismo spool.
 Las respuestas deben ser breves porque el usuario está trabajando en terreno y escucha las respuestas mediante audio.`,
-                tools: [
-                    {
-                        type: 'function',
-                        name: 'buscar_spool',
-                        description: 'Busca información operacional y técnica de un spool del proyecto.',
-                        parameters: {
-                            type: 'object',
-                            properties: {
-                                spool_id: {
-                                    type: 'string',
-                                    description: 'Número o TAG de gestión del spool a consultar (ejemplo: "245" o "SPOOL-245").'
-                                }
-                            },
-                            required: ['spool_id']
+                    tools: [
+                        {
+                            type: 'function',
+                            name: 'buscar_spool',
+                            description: 'Busca información operacional y técnica de un spool del proyecto.',
+                            parameters: {
+                                type: 'object',
+                                properties: {
+                                    spool_id: {
+                                        type: 'string',
+                                        description: 'Número o TAG de gestión del spool a consultar (ejemplo: "245" o "SPOOL-245").'
+                                    }
+                                },
+                                required: ['spool_id']
+                            }
                         }
-                    }
-                ]
+                    ]
+                }
             })
         });
 

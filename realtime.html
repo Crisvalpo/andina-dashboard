@@ -535,7 +535,7 @@
                     throw new Error(sessionData.error || 'Error obteniendo sesión del servidor');
                 }
 
-                const clientSecret = sessionData.client_secret?.value;
+                const clientSecret = sessionData.value || sessionData.client_secret?.value;
                 if (!clientSecret) {
                     throw new Error('El servidor no devolvió una clave efímera válida.');
                 }
