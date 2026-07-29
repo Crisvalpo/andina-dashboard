@@ -342,7 +342,52 @@ No son problema, aunque lo parecían:
 
 ---
 
-## 6. Contexto útil
+## 6. Válvulas y soportes: lo que queda
+
+Hecho ya: enrutado por capa del escáner QR, trozos bloqueados fuera de spool,
+estado desde `REG_Montaje*` con la regla de cada capa, bot alineado con las
+etapas de válvula, textos del panel de vinculación por capa, y color propio de
+cada sección en la barra lateral.
+
+### 6.1 El coloreo global sigue ignorando dos columnas *(el más importante)*
+
+`/api/bim/statuses` — el que pinta el modelo — solo lee `SPOOL LUKEAPP`, así que
+los elementos vinculados a válvula o soporte caen en `SIN ESTADO` y se ven como
+huérfanos. Hoy son 11 y no se nota; con las 167 válvulas y 515 soportes de las
+tablas maestras serían **682 elementos correctamente vinculados pintados como si
+nadie los hubiera catastrado**, y el filtro por estado no serviría para dirigir
+ese trabajo.
+
+Es el paso 4.1 con el matiz aprendido: no es "leer tres columnas", son **tres
+fuentes con tres reglas** — spool desde `LOG_Spool_MS` por fecha, válvula desde
+`REG_MontajeValvulas_MS` por su columna `Status`, soporte por presencia de fila.
+La función `estadosMontajeDeCapa()` ya resuelve las dos últimas; falta unirlas.
+
+### 6.2 Isométrico y P&ID en válvulas y soportes *(pendiente de evaluar)*
+
+Los spools ofrecen ambos planos en su ficha. Las válvulas y soportes tienen
+`ID_LINEA`, que es justo por donde se resuelven: `/api/iso/pdf/:idIso` va por ISO
+y `/api/pid/pdf/:spoolId` resuelve el spool a su línea. Técnicamente hay por
+dónde, pero falta comprobar si desde `ID_LINEA` se llega al ISO correcto y qué
+hacer cuando una línea tiene varias hojas.
+
+### 6.3 Oportunidad de catastro, no de código
+
+**83 registros de montaje de soportes** ya capturados en terreno, y solo **5
+soportes vinculados al 3D**. El dato existe; en cuanto se vinculen, esos estados
+aparecen solos en el visor. Lo mismo con las 2 válvulas con montaje, ninguna de
+ellas vinculada todavía.
+
+### 6.4 Capa futura: uniones
+
+Tras los cambios de esta sesión, añadirla es configuración: una entrada en
+`BIM_CAPAS` (backend), otra en `BIM_CAPA_UI` (etiquetas y textos del panel), su
+par de variables de color en `style.css` y un botón en `index.html`. Lo único que
+aún no es config es que **spool sigue sin ser una capa** (paso 5.5.1).
+
+---
+
+## 7. Contexto útil
 
 - `bim-ifc-export.js` ya materializa los trozos como `IfcPipeSegment` reales con
   `Pset_AndinaTrozo` (spool, estado, ISO, fluido, capa, ejecución). Hoy se usa para

@@ -57,6 +57,15 @@ export async function bimSetCapa(capa) {
     const btn = document.getElementById(`bim-capa-${capa}`);
     if (btn) btn.classList.add('active');
 
+    // UI: color de la capa en toda la barra lateral. El CSS lee la clase y
+    // redefine --capa-color, así que el tinte, el borde y el panel de
+    // vinculación cambian juntos y se ve de un vistazo en qué sección estás.
+    const aside = document.querySelector('.bim-sidebar');
+    if (aside) {
+        Object.keys(BIM_CAPA_UI).forEach(c => aside.classList.remove(`capa-${c}`));
+        aside.classList.add(`capa-${capa}`);
+    }
+
     // UI: etiqueta y placeholder de búsqueda
     const lbl = document.getElementById('bim-search-label');
     if (lbl) lbl.innerHTML = `<i class="fas fa-search"></i> ${BIM_CAPA_UI[capa].buscar}`;
