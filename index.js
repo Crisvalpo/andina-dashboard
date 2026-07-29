@@ -684,23 +684,41 @@ app.get('/api/pid/pdf/:query', async (req, res) => {
 
 // GET /api/iso/pdf/:isoId → Obtiene la hoja actual y todas las demás hojas de la misma línea (isométrico multi-hoja) desde LOG_Iso_MS
 app.get('/api/iso/pdf/:isoId', async (req, res) => {
-    const isoId = decodeURIComponent(req.params.isoId).trim();
+    const rawParam = decodeURIComponent(req.params.isoId).trim();
 
     try {
-        console.log(`[ISO PDF] Buscando hojas e isométricos para "${isoId}"...`);
-        const rawIso = await fetchAppSheet('LOG_Iso_MS');
+        console.log(`[ISO PDF] Buscando hojas e isométricos para "${rawParam}"...`);
         const appName = CONFIG.APPSHEET_APP_ID || 'LukeAPP_Andina-526211656';
 
+        // 0. Si el parámetro es el TAG de un spool (ej: "515"), resolver primero a su ID_ISO
+        let targetIsoId = rawParam;
+        try {
+            const spools = await fetchAppSheetCached('LIST_Spools_MS_');
+            const spool = spools.find(s => 
+                String(s.ID_SPOOL || '').trim().toLowerCase() === rawParam.toLowerCase() ||
+                String(s['TAG GESTION'] || '').trim().toLowerCase() === rawParam.toLowerCase() ||
+                String(s.SPOOL || '').trim().toLowerCase() === rawParam.toLowerCase()
+            );
+            if (spool && (spool.ID_ISO || spool['ISOMÉTRICO'])) {
+                targetIsoId = String(spool.ID_ISO || spool['ISOMÉTRICO']).trim();
+                console.log(`[ISO PDF] Parámetro "${rawParam}" resuelto a ID_ISO: "${targetIsoId}"`);
+            }
+        } catch (e) {
+            console.warn('[ISO PDF] No se pudo verificar en LIST_Spools_MS_:', e.message);
+        }
+
+        const rawIso = await fetchAppSheet('LOG_Iso_MS');
+
         // 1. Deducir la línea base (prefijo quitando _HOJA-X o similar)
-        let lineaPrefijo = isoId;
-        const hojaIndex = isoId.toUpperCase().lastIndexOf('HOJA');
+        let lineaPrefijo = targetIsoId;
+        const hojaIndex = targetIsoId.toUpperCase().lastIndexOf('HOJA');
         if (hojaIndex > 0) {
-            lineaPrefijo = isoId.substring(0, hojaIndex).replace(/[-_]+$/, '');
+            lineaPrefijo = targetIsoId.substring(0, hojaIndex).replace(/[-_]+$/, '');
         }
 
         const normalizar = (s) => String(s || '').trim().replace(/["'\s]+/g, '').toLowerCase();
         const prefijoNorm = normalizar(lineaPrefijo);
-        const isoIdNorm = normalizar(isoId);
+        const isoIdNorm = normalizar(targetIsoId);
 
         const sheets = [];
         let currentSheet = null;
