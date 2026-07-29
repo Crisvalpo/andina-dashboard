@@ -38,7 +38,7 @@ const CONFIG = {
 
     // --- OpenAI Realtime (Luke Voice Agent) ---
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
-    OPENAI_REALTIME_MODEL: process.env.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview',
+    OPENAI_REALTIME_MODEL: process.env.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',
     OPENAI_REALTIME_VOICE: process.env.OPENAI_REALTIME_VOICE || 'ash',
 
     // --- Control de acceso (escritura) ---

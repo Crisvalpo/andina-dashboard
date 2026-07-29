@@ -1755,7 +1755,7 @@ app.post('/api/realtime/session', async (req, res) => {
     // Configuración de la sesión Realtime (modelo, voz, instrucciones, tools)
     const sessionConfig = JSON.stringify({
         type: 'realtime',
-        model: CONFIG.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview',
+        model: CONFIG.OPENAI_REALTIME_MODEL || 'gpt-realtime-2.1-mini',
         audio: {
             output: { voice: CONFIG.OPENAI_REALTIME_VOICE || 'ash' }
         },
