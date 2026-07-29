@@ -27,10 +27,23 @@ import { authAsegurar, authHeaders, authObtener, authOlvidar } from './auth.js';
 // (~123 símbolos que comparten bimState y divState) se extraiga de una sola vez.
 
 // Config de capas en el frontend (llave, etiqueta, endpoints)
+// Todo el texto que cambia con la capa vive aquí. `vincularLabel` y
+// `vincularPlaceholder` son los del panel de vinculación: antes los fijaba
+// bimRenderCapaSelection, que solo corre en válvulas/soportes, así que al volver
+// a Spools se quedaban con el texto de la capa anterior.
 export const BIM_CAPA_UI = {
-    spool:   { label: 'Spool',   buscar: 'Buscar Spool',   placeholder: 'TAG Gestión (ej: 217)' },
-    valvula: { label: 'Válvula', buscar: 'Buscar Válvula', placeholder: 'ID Válvula (ej: VAL113)' },
-    soporte: { label: 'Soporte', buscar: 'Buscar Soporte', placeholder: 'ID/ITEM Soporte (ej: 148)' }
+    spool: {
+        label: 'Spool', buscar: 'Buscar Spool', placeholder: 'TAG Gestión (ej: 217)',
+        vincularLabel: 'Código Spool (LUKEAPP):', vincularPlaceholder: 'Ej: 217'
+    },
+    valvula: {
+        label: 'Válvula', buscar: 'Buscar Válvula', placeholder: 'ID Válvula (ej: VAL113)',
+        vincularLabel: 'ID Válvula (ID_VALVULA):', vincularPlaceholder: 'ID Válvula (ej: VAL113)'
+    },
+    soporte: {
+        label: 'Soporte', buscar: 'Buscar Soporte', placeholder: 'ID/ITEM Soporte (ej: 148)',
+        vincularLabel: 'ITEM Soporte (ej: 148):', vincularPlaceholder: 'ID/ITEM Soporte (ej: 148)'
+    }
 };
 
 /** Cambia la capa activa (Spools / Válvulas / Soportes) y recarga su mapeo+índice. */
@@ -49,6 +62,16 @@ export async function bimSetCapa(capa) {
     if (lbl) lbl.innerHTML = `<i class="fas fa-search"></i> ${BIM_CAPA_UI[capa].buscar}`;
     const inp = document.getElementById('bim-search-input');
     if (inp) { inp.placeholder = BIM_CAPA_UI[capa].placeholder; inp.value = ''; }
+
+    // UI: panel de vinculación. Se fija aquí y no al pintar la selección porque
+    // este es el único punto que conoce la capa activa en TODOS los casos; si no,
+    // al volver a Spools quedaba pidiendo un "ID Válvula".
+    const vLbl = document.querySelector('#bim-link-panel label[for="bim-link-spool"]');
+    if (vLbl) vLbl.textContent = BIM_CAPA_UI[capa].vincularLabel;
+    const vInp = document.getElementById('bim-link-spool');
+    if (vInp) { vInp.placeholder = BIM_CAPA_UI[capa].vincularPlaceholder; vInp.value = ''; }
+    const vTit = document.querySelector('#bim-link-panel h4');
+    if (vTit) vTit.innerHTML = `<i class="fas fa-link"></i> Vincular ${BIM_CAPA_UI[capa].label}`;
 
     // Limpiar selección/panel y colores
     if (bimState.viewer) { bimState.viewer.clearThemingColors(bimState.viewer.model); bimState.viewer.select([]); }
@@ -317,7 +340,8 @@ export function bimStartViewer() {
                                             // Actualizar título de panel en UI
                                             const linkTitle = document.querySelector('#bim-link-panel h4');
                                             if (linkTitle) {
-                                                linkTitle.innerHTML = `<i class="fas fa-link"></i> Vincular (${selectedList.length} selec.)`;
+                                                // Nombrar la capa: "Vincular (1 selec.)" no decía a qué se vincula
+                                                linkTitle.innerHTML = `<i class="fas fa-link"></i> Vincular ${BIM_CAPA_UI.spool.label} (${selectedList.length} selec.)`;
                                             }
 
                                             // Mostrar resumen del GUID
@@ -3147,10 +3171,7 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
     const infoEl = document.getElementById('bim-link-spool-info');
     const inputEl = document.getElementById('bim-link-spool');
 
-    // Etiqueta del campo de entrada
-    const fieldLabel = document.querySelector('#bim-link-panel label[for="bim-link-spool"]');
-    if (fieldLabel) fieldLabel.textContent = capa === 'valvula' ? 'ID Válvula (ID_VALVULA):' : 'ITEM Soporte (ej: 148):';
-    if (inputEl) inputEl.placeholder = ui.placeholder;
+    // La etiqueta y el placeholder del campo los fija bimSetCapa (una sola fuente)
 
     if (idsSel.length > 0) {
         if (statusContainer) statusContainer.style.display = 'flex';
