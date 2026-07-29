@@ -247,19 +247,12 @@ function parseFechaLog(str) {
     return new Date(+yyyy, mm - 1, dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
 }
 
-// Normaliza un STATUS libre al conjunto canónico del visor.
+// El estado se toma tal cual lo escribe terreno en LOG_Spool_MS; solo se
+// homogeneiza la caja. LOG es la única autoridad: plegar variantes aquí
+// escondía estados que el usuario sí quiere distinguir (p.ej. "En Pintura").
 function normalizarEstadoSpool(st) {
     if (!st) return 'SIN ESTADO';
-    const s = String(st).toUpperCase().trim();
-    if (s.includes('FABRICA')) return 'EN FABRICACIÓN';
-    if (s.includes('QAQC') || s.includes('QA/QC')) return 'QAQC';
-    if (s.includes('PINT') || s.includes('REVEST')) return 'EN PINT/REVEST.';
-    if (s.includes('RETIRAR')) return 'RETIRAR';
-    if (s.includes('POR MONTAR') || s.includes('POR_MONTAR')) return 'POR MONTAR';
-    if (s.includes('POSICIONADO')) return 'POSICIONADO';
-    if (s.includes('MONTADO') || s.includes('MONTAJE')) return 'MONTADO';
-    if (s.includes('ELIMINADO')) return 'ELIMINADO';
-    return s;
+    return String(st).trim().toUpperCase();
 }
 
 /**
@@ -448,16 +441,7 @@ app.get('/api/bim/statuses', async (req, res) => {
 
         function normalizeStatus(st) {
             if (!st) return 'SIN ESTADO';
-            const s = st.toUpperCase().trim();
-            if (s.includes('FABRICA')) return 'EN FABRICACIÓN';
-            if (s.includes('QAQC') || s.includes('QA/QC')) return 'QAQC';
-            if (s.includes('PINT') || s.includes('REVEST')) return 'EN PINT/REVEST.';
-            if (s.includes('RETIRAR')) return 'RETIRAR';
-            if (s.includes('POR MONTAR') || s.includes('POR_MONTAR')) return 'POR MONTAR';
-            if (s.includes('POSICIONADO')) return 'POSICIONADO';
-            if (s.includes('MONTADO') || s.includes('MONTAJE')) return 'MONTADO';
-            if (s.includes('ELIMINADO')) return 'ELIMINADO';
-            return s;
+            return String(st).trim().toUpperCase();
         }
 
         // Estado ACTUAL de cada spool = ÚLTIMO registro de LOG_Spool_MS por fecha
