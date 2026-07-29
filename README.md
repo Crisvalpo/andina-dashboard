@@ -54,3 +54,20 @@ El dashboard se alimenta actualmente de los siguientes modelos de AppSheet:
 *   `CAT_FluidoServicio_MS` / `CAT_TipoUnion_MS`: Catálogos dinámicos auxiliares de fluidos y uniones.
 *   `CAT_Personal_MS`: Catálogo de personal del proyecto.
 *   `LOG_SDI_MS` / `REL_SDIIso_MS`: Listado de consultas técnicas (RFI) e isométricos relacionados.
+
+---
+
+## 🎙️ LUKE REALTIME — Piloto Spool (OpenAI WebRTC)
+
+`andina-dashboard` incluye una interfaz de voz continua basada en **GPT Realtime WebRTC** (`/realtime`), diseñada para que trabajadores en terreno puedan interactuar por voz con el asistente Luke para consultar la información en tiempo real de los spools.
+
+### Configuración
+1. En el archivo `.env`, añadir la API Key de OpenAI con permisos para la API Realtime:
+   ```env
+   OPENAI_API_KEY=sk-proj-...
+   OPENAI_REALTIME_MODEL=gpt-4o-mini-realtime-preview
+   OPENAI_REALTIME_VOICE=ash
+   ```
+2. Acceder desde un navegador móvil a `http://localhost:3005/realtime` (o el dominio público).
+3. Presionar el botón 🎙️ **HABLA CON LUKE**, otorgar permiso de micrófono y comenzar a preguntar por voz (ejemplo: *"Luke, háblame del spool 245"*).
+

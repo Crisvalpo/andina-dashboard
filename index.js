@@ -1730,9 +1730,78 @@ app.get('/guia/:id', (req, res) => {
     res.sendFile(path.join(__dirname, 'guia.html'));
 });
 
+// =================================================================
+// LUKE REALTIME — PILOTO SPOOL (GPT Realtime WebRTC)
+// =================================================================
+app.get('/realtime', (req, res) => {
+    res.sendFile(path.join(__dirname, 'realtime.html'));
+});
+
+app.post('/api/realtime/session', async (req, res) => {
+    if (!CONFIG.OPENAI_API_KEY) {
+        return res.status(500).json({
+            error: 'OPENAI_API_KEY no está configurada en el servidor (.env).'
+        });
+    }
+
+    try {
+        const response = await fetch('https://api.openai.com/v1/realtime/sessions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: CONFIG.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview',
+                voice: CONFIG.OPENAI_REALTIME_VOICE || 'ash',
+                instructions: `Eres Luke, asistente de terreno de IWP en proyecto Andina.
+Ayudas a trabajadores de montaje industrial a consultar información de spools.
+Responde en español, de manera natural, breve y clara.
+Cuando el usuario solicite información sobre un spool, utiliza la herramienta buscar_spool.
+Nunca inventes información.
+Utiliza exclusivamente la información proporcionada por las herramientas.
+Mantén el contexto de la conversación.
+Si el usuario hace una pregunta relacionada con el spool que acabamos de consultar, entiende que se refiere al mismo spool.
+Las respuestas deben ser breves porque el usuario está trabajando en terreno y escucha las respuestas mediante audio.`,
+                tools: [
+                    {
+                        type: 'function',
+                        name: 'buscar_spool',
+                        description: 'Busca información operacional y técnica de un spool del proyecto.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                spool_id: {
+                                    type: 'string',
+                                    description: 'Número o TAG de gestión del spool a consultar (ejemplo: "245" o "SPOOL-245").'
+                                }
+                            },
+                            required: ['spool_id']
+                        }
+                    }
+                ]
+            })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+            console.error('[Realtime Session Error]', data);
+            return res.status(response.status).json({
+                error: data.error?.message || 'Error al crear la sesión Realtime en OpenAI'
+            });
+        }
+
+        res.json(data);
+    } catch (e) {
+        console.error('[Realtime Session Exception]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // SPA fallback (Dashboard principal / Error 404 handler)
 app.get('{*path}', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(__dirname, 'realtime.html').endsWith(req.path) ? path.join(__dirname, 'realtime.html') : path.join(__dirname, 'index.html'));
 });
 
 app.listen(PORT, '0.0.0.0', () => {

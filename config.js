@@ -36,6 +36,11 @@ const CONFIG = {
     APS_CLIENT_SECRET: process.env.APS_CLIENT_SECRET || '',
     APS_MODEL_URN: process.env.APS_MODEL_URN || '',
 
+    // --- OpenAI Realtime (Luke Voice Agent) ---
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',
+    OPENAI_REALTIME_MODEL: process.env.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview',
+    OPENAI_REALTIME_VOICE: process.env.OPENAI_REALTIME_VOICE || 'ash',
+
     // --- Control de acceso (escritura) ---
     // Claves compartidas por área; validadas en servidor. Solo en .env.
     CLAVE_BIM: process.env.CLAVE_BIM || '',       // desbloquea vincular elementos 3D
@@ -49,6 +54,7 @@ const CLAVES_SECRETAS = [
     'APPSHEET_ACCESS_KEY',
     'SUPABASE_SERVICE_ROLE_KEY',
     'GEMINI_API_KEY',
+    'OPENAI_API_KEY',
     'WA_BRIDGE_SECRET',
     'APS_CLIENT_SECRET',
     'CLAVE_BIM',
