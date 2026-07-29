@@ -511,7 +511,10 @@
             }
         });
 
-        // Iniciar sesión Realtime WebRTC
+        // Iniciar sesión Realtime WebRTC (flujo GA unificado)
+        // El navegador envía su SDP offer al backend, que lo reenvía a OpenAI
+        // y devuelve el SDP answer. No hay tokens efímeros ni llamadas
+        // directas del navegador a api.openai.com.
         async function startRealtimeSession() {
             setUIState('connecting');
             addLog('Iniciando sesión de micrófono y WebRTC...', 'info');
@@ -527,22 +530,7 @@
                 });
                 addLog('Micrófono activado.', 'info');
 
-                // 2. Solicitar sesión temporal al backend
-                const sessionRes = await fetch('/api/realtime/session', { method: 'POST' });
-                const sessionData = await sessionRes.json();
-
-                if (!sessionRes.ok) {
-                    throw new Error(sessionData.error || 'Error obteniendo sesión del servidor');
-                }
-
-                const clientSecret = sessionData.value || sessionData.client_secret?.value;
-                if (!clientSecret) {
-                    throw new Error('El servidor no devolvió una clave efímera válida.');
-                }
-
-                addLog('Sesión temporal obtenida. Creando PeerConnection WebRTC...', 'info');
-
-                // 3. Crear WebRTC PeerConnection
+                // 2. Crear WebRTC PeerConnection
                 peerConnection = new RTCPeerConnection();
 
                 // Reproducir audio remoto enviado por OpenAI Realtime
@@ -556,28 +544,31 @@
                     peerConnection.addTrack(track, localMediaStream);
                 });
 
-                // 4. Crear DataChannel para eventos OpenAI
+                // 3. Crear DataChannel para eventos OpenAI
                 dataChannel = peerConnection.createDataChannel('oai-events');
                 setupDataChannel(dataChannel);
 
-                // 5. SDP Handshake con OpenAI Realtime API
+                // 4. Crear SDP offer
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
 
-                const sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
+                addLog('SDP offer creado. Enviando al backend...', 'info');
+
+                // 5. Enviar SDP offer al backend (que lo reenvía a OpenAI /v1/realtime/calls)
+                const sdpResponse = await fetch('/api/realtime/session', {
                     method: 'POST',
                     body: offer.sdp,
                     headers: {
-                        'Authorization': `Bearer ${clientSecret}`,
                         'Content-Type': 'application/sdp'
                     }
                 });
 
                 if (!sdpResponse.ok) {
                     const errText = await sdpResponse.text();
-                    throw new Error(`OpenAI WebRTC SDP Error (${sdpResponse.status}): ${errText}`);
+                    throw new Error(`Error del backend (${sdpResponse.status}): ${errText}`);
                 }
 
+                // 6. Establecer SDP answer recibida desde OpenAI (vía backend)
                 const answerSdp = await sdpResponse.text();
                 await peerConnection.setRemoteDescription({
                     type: 'answer',

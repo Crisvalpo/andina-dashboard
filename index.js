@@ -1731,34 +1731,35 @@ app.get('/guia/:id', (req, res) => {
 });
 
 // =================================================================
-// LUKE REALTIME — PILOTO SPOOL (GPT Realtime WebRTC)
+// LUKE REALTIME — PILOTO SPOOL (GPT Realtime WebRTC — GA Unified)
+// Flujo: Navegador → SDP offer → Backend → POST /v1/realtime/calls
+//        → SDP answer → Navegador → WebRTC conectado
 // =================================================================
 app.get(['/realtime', '/realtime.html'], (req, res) => {
     res.sendFile(path.join(__dirname, 'realtime.html'));
 });
 
+// Acepta el SDP offer del navegador como texto plano
+app.use('/api/realtime/session', express.text({ type: ['application/sdp', 'text/plain'] }));
+
 app.post('/api/realtime/session', async (req, res) => {
     if (!CONFIG.OPENAI_API_KEY) {
-        return res.status(500).json({
-            error: 'OPENAI_API_KEY no está configurada en el servidor (.env).'
-        });
+        return res.status(500).send('OPENAI_API_KEY no está configurada en el servidor (.env).');
     }
 
-    try {
-        const response = await fetch('https://api.openai.com/v1/realtime/client_secrets', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                session: {
-                    type: 'realtime',
-                    model: CONFIG.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview',
-                    audio: {
-                        output: { voice: CONFIG.OPENAI_REALTIME_VOICE || 'ash' }
-                    },
-                    instructions: `Eres Luke, asistente de terreno de IWP en proyecto Andina.
+    const sdpOffer = req.body;
+    if (!sdpOffer || typeof sdpOffer !== 'string' || sdpOffer.length < 10) {
+        return res.status(400).send('SDP offer inválido o vacío.');
+    }
+
+    // Configuración de la sesión Realtime (modelo, voz, instrucciones, tools)
+    const sessionConfig = JSON.stringify({
+        type: 'realtime',
+        model: CONFIG.OPENAI_REALTIME_MODEL || 'gpt-4o-mini-realtime-preview',
+        audio: {
+            output: { voice: CONFIG.OPENAI_REALTIME_VOICE || 'ash' }
+        },
+        instructions: `Eres Luke, asistente de terreno de IWP en proyecto Andina.
 Ayudas a trabajadores de montaje industrial a consultar información de spools.
 Responde en español, de manera natural, breve y clara.
 Cuando el usuario solicite información sobre un spool, utiliza la herramienta buscar_spool.
@@ -1767,46 +1768,61 @@ Utiliza exclusivamente la información proporcionada por las herramientas.
 Mantén el contexto de la conversación.
 Si el usuario hace una pregunta relacionada con el spool que acabamos de consultar, entiende que se refiere al mismo spool.
 Las respuestas deben ser breves porque el usuario está trabajando en terreno y escucha las respuestas mediante audio.`,
-                    tools: [
-                        {
-                            type: 'function',
-                            name: 'buscar_spool',
-                            description: 'Busca información operacional y técnica de un spool del proyecto.',
-                            parameters: {
-                                type: 'object',
-                                properties: {
-                                    spool_id: {
-                                        type: 'string',
-                                        description: 'Número o TAG de gestión del spool a consultar (ejemplo: "245" o "SPOOL-245").'
-                                    }
-                                },
-                                required: ['spool_id']
-                            }
+        tools: [
+            {
+                type: 'function',
+                name: 'buscar_spool',
+                description: 'Busca información operacional y técnica de un spool del proyecto.',
+                parameters: {
+                    type: 'object',
+                    properties: {
+                        spool_id: {
+                            type: 'string',
+                            description: 'Número o TAG de gestión del spool a consultar (ejemplo: "245" o "SPOOL-245").'
                         }
-                    ]
+                    },
+                    required: ['spool_id']
                 }
-            })
+            }
+        ]
+    });
+
+    try {
+        // Construir multipart form: sdp + session config
+        const formData = new FormData();
+        formData.set('sdp', sdpOffer);
+        formData.set('session', sessionConfig);
+
+        console.log('[Realtime] Enviando SDP offer a OpenAI /v1/realtime/calls...');
+
+        const response = await fetch('https://api.openai.com/v1/realtime/calls', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${CONFIG.OPENAI_API_KEY}`,
+            },
+            body: formData,
         });
 
-        const data = await response.json();
-
         if (!response.ok) {
-            console.error('[Realtime Session Error]', data);
-            return res.status(response.status).json({
-                error: data.error?.message || 'Error al crear la sesión Realtime en OpenAI'
-            });
+            const errText = await response.text();
+            console.error('[Realtime SDP Error]', response.status, errText);
+            return res.status(response.status).send(errText);
         }
 
-        res.json(data);
+        // Devolver el SDP answer al navegador
+        const sdpAnswer = await response.text();
+        console.log('[Realtime] SDP answer recibida de OpenAI, enviando al navegador.');
+        res.type('application/sdp').send(sdpAnswer);
+
     } catch (e) {
         console.error('[Realtime Session Exception]', e.message);
-        res.status(500).json({ error: e.message });
+        res.status(500).send(e.message);
     }
 });
 
 // SPA fallback (Dashboard principal / Error 404 handler)
 app.get('{*path}', (req, res) => {
-    res.sendFile(path.join(__dirname, 'realtime.html').endsWith(req.path) ? path.join(__dirname, 'realtime.html') : path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.listen(PORT, '0.0.0.0', () => {
