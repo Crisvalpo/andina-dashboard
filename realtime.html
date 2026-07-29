@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LUKE IWP — Realtime Spool</title>
+    <title>LUKE IWP — Asistente de Terreno</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -33,8 +33,8 @@
             font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
             background-color: var(--bg-dark);
             background-image: 
-                radial-gradient(circle at 50% 0%, rgba(0, 210, 255, 0.15), transparent 50%),
-                radial-gradient(circle at 100% 100%, rgba(121, 40, 202, 0.1), transparent 50%);
+                radial-gradient(circle at 50% 0%, rgba(0, 210, 255, 0.12), transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(121, 40, 202, 0.08), transparent 50%);
             color: var(--text-primary);
             min-height: 100vh;
             display: flex;
@@ -79,7 +79,7 @@
             font-weight: 800;
             font-size: 1.2rem;
             color: #fff;
-            box-shadow: 0 0 15px rgba(0, 210, 255, 0.4);
+            box-shadow: 0 0 15px rgba(0, 210, 255, 0.3);
         }
 
         .brand-info h1 {
@@ -165,11 +165,11 @@
             margin: auto 0;
         }
 
-        /* Sphere / Orb visualizer container */
+        /* Visualizer Container */
         .visualizer-container {
             position: relative;
-            width: 240px;
-            height: 240px;
+            width: 220px;
+            height: 220px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -209,18 +209,18 @@
             100% { transform: scale(1.4); opacity: 0; }
         }
 
-        /* Mic Main Button */
+        /* Mic Button */
         .mic-button {
             position: relative;
             z-index: 10;
-            width: 140px;
-            height: 140px;
+            width: 130px;
+            height: 130px;
             border-radius: 50%;
-            border: 2px solid rgba(255, 255, 255, 0.2);
+            border: 2px solid rgba(255, 255, 255, 0.15);
             background: linear-gradient(145deg, rgba(20, 30, 55, 0.9), rgba(10, 16, 32, 0.95));
             box-shadow: 
                 0 15px 35px rgba(0, 0, 0, 0.5),
-                inset 0 2px 5px rgba(255, 255, 255, 0.2);
+                inset 0 2px 5px rgba(255, 255, 255, 0.15);
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -231,7 +231,7 @@
         }
 
         .mic-button:hover {
-            transform: scale(1.05);
+            transform: scale(1.04);
             border-color: var(--accent-blue);
         }
 
@@ -240,7 +240,7 @@
         }
 
         .mic-icon {
-            font-size: 3.2rem;
+            font-size: 3rem;
             transition: all 0.3s ease;
             filter: drop-shadow(0 0 10px rgba(0, 210, 255, 0.3));
         }
@@ -248,100 +248,96 @@
         .visualizer-container.active .mic-button {
             border-color: var(--accent-blue);
             box-shadow: 
-                0 0 30px rgba(0, 210, 255, 0.4),
-                inset 0 2px 10px rgba(0, 210, 255, 0.4);
+                0 0 30px rgba(0, 210, 255, 0.35),
+                inset 0 2px 10px rgba(0, 210, 255, 0.3);
         }
 
         .visualizer-container.speaking .mic-button {
             border-color: var(--accent-purple);
             box-shadow: 
-                0 0 35px rgba(121, 40, 202, 0.5),
-                inset 0 2px 10px rgba(121, 40, 202, 0.4);
+                0 0 35px rgba(121, 40, 202, 0.4),
+                inset 0 2px 10px rgba(121, 40, 202, 0.3);
         }
 
-        /* Status Label Below Button */
+        /* Status Label */
         .status-text-container {
             text-align: center;
             display: flex;
             flex-direction: column;
-            gap: 0.25rem;
+            gap: 0.3rem;
         }
 
         .status-title {
             font-family: 'Outfit', sans-serif;
-            font-size: 1.4rem;
+            font-size: 1.35rem;
             font-weight: 700;
             color: var(--text-primary);
         }
 
         .status-sub {
-            font-size: 0.9rem;
+            font-size: 0.88rem;
             color: var(--text-secondary);
             min-height: 1.35em;
         }
 
-        /* Live Activity Log Card */
-        .activity-card {
+        /* Conversation Card (Clean & Formal) */
+        .conversation-card {
             width: 100%;
             background: var(--bg-card);
             backdrop-filter: blur(16px);
             -webkit-backdrop-filter: blur(16px);
             border: 1px solid var(--border-glass);
             border-radius: 20px;
-            padding: 1rem 1.25rem;
+            padding: 1.2rem 1.25rem;
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
-            max-height: 180px;
+            max-height: 220px;
             box-shadow: 0 10px 30px rgba(0,0,0,0.3);
         }
 
-        .activity-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.8rem;
+        .conversation-header {
+            font-size: 0.75rem;
             font-weight: 700;
             color: var(--text-muted);
             text-transform: uppercase;
-            letter-spacing: 0.8px;
+            letter-spacing: 1px;
         }
 
-        .activity-log {
-            font-size: 0.88rem;
-            color: var(--text-secondary);
-            line-height: 1.4;
+        .chat-stream {
+            font-size: 0.9rem;
+            line-height: 1.5;
             overflow-y: auto;
             display: flex;
             flex-direction: column;
-            gap: 0.5rem;
-            max-height: 120px;
+            gap: 0.75rem;
+            max-height: 160px;
             scroll-behavior: smooth;
         }
 
-        .log-entry {
-            padding: 6px 10px;
-            border-radius: 8px;
-            background: rgba(255, 255, 255, 0.03);
-            border-left: 3px solid var(--text-muted);
+        .chat-bubble {
+            padding: 10px 14px;
+            border-radius: 14px;
+            max-width: 90%;
             word-break: break-word;
+            font-size: 0.9rem;
+            line-height: 1.45;
         }
 
-        .log-entry.user {
-            border-left-color: var(--accent-blue);
+        .chat-bubble.user {
+            align-self: flex-end;
+            background: linear-gradient(135deg, rgba(0, 210, 255, 0.2), rgba(0, 150, 255, 0.15));
+            border: 1px solid rgba(0, 210, 255, 0.3);
+            color: #ffffff;
+            border-bottom-right-radius: 4px;
+        }
+
+        .chat-bubble.luke {
+            align-self: flex-start;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-glass);
             color: var(--text-primary);
-        }
-
-        .log-entry.luke {
-            border-left-color: var(--accent-purple);
-            color: #e2e8f0;
-        }
-
-        .log-entry.tool {
-            border-left-color: var(--accent-amber);
-            font-size: 0.8rem;
-            color: #fcd34d;
-            font-family: monospace;
+            border-bottom-left-radius: 4px;
         }
 
         /* Footer */
@@ -362,7 +358,6 @@
             text-decoration: none;
         }
 
-        /* Audio Element Hidden */
         #remote-audio {
             display: none;
         }
@@ -370,7 +365,6 @@
 </head>
 <body>
 
-    <!-- Audio Element para reproducir la respuesta hablada -->
     <audio id="remote-audio" autoplay></audio>
 
     <!-- Header -->
@@ -379,7 +373,7 @@
             <div class="brand-logo">L</div>
             <div class="brand-info">
                 <h1>LUKE REALTIME</h1>
-                <span>Piloto Spool</span>
+                <span>Asistente de Terreno</span>
             </div>
         </div>
         <div class="status-badge" id="status-badge">
@@ -402,29 +396,28 @@
         <!-- Status Text -->
         <div class="status-text-container">
             <div class="status-title" id="status-title">Presiona para Hablar</div>
-            <div class="status-sub" id="status-sub">Haz clic para iniciar la sesión de voz continua con Luke</div>
+            <div class="status-sub" id="status-sub">Haz clic para iniciar la sesión de voz con Luke</div>
         </div>
 
-        <!-- Activity Log Card -->
-        <div class="activity-card">
-            <div class="activity-header">
-                <span>Actividad en tiempo real</span>
-                <span id="tool-indicator" style="display:none; color: var(--accent-amber);">⚡ TOOL ACTIVE</span>
+        <!-- Conversation Stream -->
+        <div class="conversation-card">
+            <div class="conversation-header">
+                Conversación en Terreno
             </div>
-            <div class="activity-log" id="activity-log">
-                <div class="log-entry">Listo para conectar. Presiona el micrófono.</div>
+            <div class="chat-stream" id="chat-stream">
+                <div class="chat-bubble luke">Hola, soy Luke. Presiona el micrófono para consultarme sobre cualquier spool del proyecto.</div>
             </div>
         </div>
     </main>
 
     <!-- Footer -->
     <footer>
-        <span>Andina Dashboard &bull; IWP Terreno</span>
+        <span>Andina Dashboard &bull; IWP</span>
         <a href="/">Volver al Dashboard &rarr;</a>
     </footer>
 
     <script>
-        // Referencias a elementos DOM
+        // Referencias DOM
         const micBtn = document.getElementById('mic-btn');
         const micIcon = document.getElementById('mic-icon');
         const visualizer = document.getElementById('visualizer');
@@ -432,26 +425,23 @@
         const badgeText = document.getElementById('badge-text');
         const statusTitle = document.getElementById('status-title');
         const statusSub = document.getElementById('status-sub');
-        const activityLog = document.getElementById('activity-log');
-        const toolIndicator = document.getElementById('tool-indicator');
+        const chatStream = document.getElementById('chat-stream');
         const remoteAudio = document.getElementById('remote-audio');
 
-        // Variables de estado WebRTC
+        // Estado WebRTC
         let peerConnection = null;
         let dataChannel = null;
         let localMediaStream = null;
         let isSessionActive = false;
 
-        // Función para agregar logs visuales
-        function addLog(text, type = 'info') {
-            const entry = document.createElement('div');
-            entry.className = `log-entry ${type}`;
-            entry.innerText = text;
-            activityLog.appendChild(entry);
-            activityLog.scrollTop = activityLog.scrollHeight;
+        function addBubble(text, sender = 'luke') {
+            const bubble = document.createElement('div');
+            bubble.className = `chat-bubble ${sender}`;
+            bubble.innerText = text;
+            chatStream.appendChild(bubble);
+            chatStream.scrollTop = chatStream.scrollHeight;
         }
 
-        // Actualizar UI según el estado
         function setUIState(state, subText = '') {
             statusBadge.className = 'status-badge ' + state;
 
@@ -459,50 +449,49 @@
                 case 'disconnected':
                     badgeText.innerText = 'Desconectado';
                     statusTitle.innerText = 'Presiona para Hablar';
-                    statusSub.innerText = subText || 'Haz clic para iniciar la sesión de voz continua con Luke';
+                    statusSub.innerText = subText || 'Haz clic para iniciar la sesión de voz con Luke';
                     visualizer.className = 'visualizer-container';
                     micIcon.innerText = '🎙️';
                     break;
                 case 'connecting':
                     badgeText.innerText = 'Conectando...';
-                    statusTitle.innerText = 'Estableciendo Conexión';
-                    statusSub.innerText = subText || 'Solicitando sesión temporal e instalando canal WebRTC...';
+                    statusTitle.innerText = 'Estableciendo Enlace';
+                    statusSub.innerText = subText || 'Iniciando canal de voz de alta velocidad...';
                     visualizer.className = 'visualizer-container active';
                     micIcon.innerText = '⏳';
                     break;
                 case 'connected':
                 case 'listening':
-                    badgeText.innerText = 'Conectado';
-                    statusTitle.innerText = 'Escuchando...';
-                    statusSub.innerText = subText || 'Háblale a Luke (ej: "Luke, háblame del spool 245")';
+                    badgeText.innerText = 'Escuchando';
+                    statusTitle.innerText = 'Te escucho...';
+                    statusSub.innerText = subText || 'Puedes hablar naturalmente (ej: "Luke, háblame del spool 245")';
                     visualizer.className = 'visualizer-container listening active';
                     micIcon.innerText = '🎙️';
                     break;
                 case 'thinking':
-                    badgeText.innerText = 'Consultando...';
-                    statusTitle.innerText = 'Procesando...';
-                    statusSub.innerText = subText || 'Luke está analizando tu consulta...';
+                    badgeText.innerText = 'Consultando';
+                    statusTitle.innerText = 'Buscando información...';
+                    statusSub.innerText = subText || 'Consultando datos del proyecto en tiempo real...';
                     visualizer.className = 'visualizer-container active';
-                    micIcon.innerText = '🧠';
+                    micIcon.innerText = '🔍';
                     break;
                 case 'speaking':
                     badgeText.innerText = 'Luke Hablando';
                     statusTitle.innerText = 'Luke respondiendo';
-                    statusSub.innerText = subText || 'Escuchando la respuesta por voz...';
+                    statusSub.innerText = subText || 'Escuchando respuesta por voz...';
                     visualizer.className = 'visualizer-container speaking active';
                     micIcon.innerText = '🔊';
                     break;
                 case 'error':
                     badgeText.innerText = 'Error';
                     statusTitle.innerText = 'Error de Conexión';
-                    statusSub.innerText = subText || 'Ocurrió un problema al conectar. Intenta nuevamente.';
+                    statusSub.innerText = subText || 'No se pudo conectar. Intenta nuevamente.';
                     visualizer.className = 'visualizer-container';
                     micIcon.innerText = '⚠️';
                     break;
             }
         }
 
-        // Manejador del botón del micrófono
         micBtn.addEventListener('click', () => {
             if (isSessionActive) {
                 stopRealtimeSession();
@@ -511,64 +500,41 @@
             }
         });
 
-        // Iniciar sesión Realtime WebRTC (flujo GA unificado)
-        // El navegador envía su SDP offer al backend, que lo reenvía a OpenAI
-        // y devuelve el SDP answer. No hay tokens efímeros ni llamadas
-        // directas del navegador a api.openai.com.
         async function startRealtimeSession() {
             setUIState('connecting');
-            addLog('Iniciando sesión de micrófono y WebRTC...', 'info');
 
             try {
-                // 1. Obtener audio del micrófono
                 localMediaStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true
-                    }
+                    audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
                 });
-                addLog('Micrófono activado.', 'info');
 
-                // 2. Crear WebRTC PeerConnection
                 peerConnection = new RTCPeerConnection();
 
-                // Reproducir audio remoto enviado por OpenAI Realtime
                 peerConnection.ontrack = (event) => {
-                    addLog('Canal de audio de respuesta recibido.', 'info');
                     remoteAudio.srcObject = event.streams[0];
                 };
 
-                // Añadir micrófono local a la conexión
                 localMediaStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, localMediaStream);
                 });
 
-                // 3. Crear DataChannel para eventos OpenAI
                 dataChannel = peerConnection.createDataChannel('oai-events');
                 setupDataChannel(dataChannel);
 
-                // 4. Crear SDP offer
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
 
-                addLog('SDP offer creado. Enviando al backend...', 'info');
-
-                // 5. Enviar SDP offer al backend (que lo reenvía a OpenAI /v1/realtime/calls)
                 const sdpResponse = await fetch('/api/realtime/session', {
                     method: 'POST',
                     body: offer.sdp,
-                    headers: {
-                        'Content-Type': 'application/sdp'
-                    }
+                    headers: { 'Content-Type': 'application/sdp' }
                 });
 
                 if (!sdpResponse.ok) {
                     const errText = await sdpResponse.text();
-                    throw new Error(`Error del backend (${sdpResponse.status}): ${errText}`);
+                    throw new Error(errText || 'Error al conectar con el servidor');
                 }
 
-                // 6. Establecer SDP answer recibida desde OpenAI (vía backend)
                 const answerSdp = await sdpResponse.text();
                 await peerConnection.setRemoteDescription({
                     type: 'answer',
@@ -577,51 +543,31 @@
 
                 isSessionActive = true;
                 setUIState('listening');
-                addLog('¡Conectado exitosamente con Luke Realtime!', 'info');
 
             } catch (err) {
                 console.error('[Realtime Error]', err);
-                addLog(`Error: ${err.message}`, 'error');
                 setUIState('error', err.message);
                 stopRealtimeSession();
             }
         }
 
-        // Configurar escuchadores del DataChannel
         function setupDataChannel(dc) {
-            dc.onopen = () => {
-                addLog('Canal de datos abierto con OpenAI.', 'info');
-            };
-
-            dc.onclose = () => {
-                addLog('Canal de datos cerrado.', 'info');
-            };
-
-            dc.onerror = (err) => {
-                console.error('[DataChannel Error]', err);
-            };
-
             dc.onmessage = async (event) => {
                 try {
                     const msg = JSON.parse(event.data);
                     handleRealtimeEvent(msg);
-                } catch (e) {
-                    console.warn('[DataChannel parse error]', e, event.data);
-                }
+                } catch (e) {}
             };
         }
 
-        // Manejar eventos provenientes de GPT Realtime
         async function handleRealtimeEvent(event) {
-            // console.log('[Realtime Event]', event.type, event);
-
             switch (event.type) {
                 case 'input_audio_buffer.speech_started':
-                    setUIState('listening', 'Escuchando tu voz...');
+                    setUIState('listening');
                     break;
 
                 case 'input_audio_buffer.speech_stopped':
-                    setUIState('thinking', 'Analizando mensaje...');
+                    setUIState('thinking');
                     break;
 
                 case 'response.audio_transcript.delta':
@@ -630,63 +576,43 @@
 
                 case 'response.audio_transcript.done':
                     if (event.transcript) {
-                        addLog(`Luke: "${event.transcript}"`, 'luke');
+                        addBubble(event.transcript, 'luke');
                     }
                     setUIState('listening');
                     break;
 
                 case 'conversation.item.input_audio_transcription.completed':
                     if (event.transcript) {
-                        addLog(`Usuario: "${event.transcript}"`, 'user');
+                        addBubble(event.transcript, 'user');
                     }
                     break;
 
-                // --- MANEJO DE LLAMADA A HERRAMIENTAS (FUNCTION CALLING) ---
                 case 'response.function_call_arguments.done':
                     const toolName = event.name;
                     const callId = event.call_id;
                     let args = {};
-                    try {
-                        args = JSON.parse(event.arguments || '{}');
-                    } catch (e) {}
-
-                    addLog(`Tool call: ${toolName}(${JSON.stringify(args)})`, 'tool');
-                    toolIndicator.style.display = 'inline';
+                    try { args = JSON.parse(event.arguments || '{}'); } catch (e) {}
 
                     if (toolName === 'buscar_spool') {
                         const spoolId = args.spool_id;
-                        setUIState('thinking', `Consultando spool ${spoolId} en Andina Dashboard...`);
+                        setUIState('thinking', `Obteniendo datos del spool ${spoolId}...`);
                         await executeBuscarSpool(callId, spoolId);
                     } else {
-                        // Herramienta desconocida fallback
-                        sendFunctionOutput(callId, { error: `Herramienta ${toolName} no implementada` });
+                        sendFunctionOutput(callId, { error: `Capacidad no soportada.` });
                     }
-                    break;
-
-                case 'response.done':
-                    toolIndicator.style.display = 'none';
                     break;
             }
         }
 
-        // Ejecutar la tool 'buscar_spool' consultando al backend existente
         async function executeBuscarSpool(callId, spoolId) {
             try {
-                addLog(`Consultando /api/bim/spool/${encodeURIComponent(spoolId)}...`, 'info');
                 const res = await fetch(`/api/bim/spool/${encodeURIComponent(spoolId)}`);
-                
                 if (!res.ok) {
-                    const errData = await res.json().catch(() => ({}));
-                    sendFunctionOutput(callId, {
-                        encontrado: false,
-                        mensaje: errData.error || `No se encontró información para el spool ${spoolId}`
-                    });
+                    sendFunctionOutput(callId, { encontrado: false, mensaje: `No se halló el spool ${spoolId}` });
                     return;
                 }
 
                 const data = await res.json();
-                
-                // Formatear resumen limpio para GPT
                 const spoolSummary = {
                     spool_id: data.spool_id,
                     metadata: data.metadata ? {
@@ -697,71 +623,39 @@
                         nps: data.metadata['NPS'] || data.metadata['MAX_NPS_SPOOL'],
                         metros_lineales: data.metadata['METROS_LINEALES']
                     } : null,
-                    estado_actual: data.estado_actual || 'SIN REGISTRO DE LOG',
+                    estado_actual: data.estado_actual || 'SIN REGISTRO',
                     estado_fecha: data.estado_fecha || null,
                     cantidad_elementos_bim: data.elements ? data.elements.length : 0,
                     elementos: data.elements ? data.elements.map(el => ({
                         descripcion: el.descripcion,
-                        numero_linea: el.numero_linea,
-                        cwp: el.cwp
+                        numero_linea: el.numero_linea
                     })) : []
                 };
 
-                addLog(`Spool ${spoolId} obtenido: Estado=${spoolSummary.estado_actual}`, 'tool');
-
-                // Enviar la respuesta de la tool a OpenAI
                 sendFunctionOutput(callId, spoolSummary);
-
             } catch (err) {
-                console.error('[Tool execution error]', err);
-                sendFunctionOutput(callId, { error: `Error consultando spool: ${err.message}` });
+                sendFunctionOutput(callId, { error: err.message });
             }
         }
 
-        // Enviar resultado de función a través de DataChannel a OpenAI
         function sendFunctionOutput(callId, outputObject) {
             if (!dataChannel || dataChannel.readyState !== 'open') return;
 
-            const itemMessage = {
+            dataChannel.send(JSON.stringify({
                 type: 'conversation.item.create',
-                item: {
-                    type: 'function_call_output',
-                    call_id: callId,
-                    output: JSON.stringify(outputObject)
-                }
-            };
-            dataChannel.send(JSON.stringify(itemMessage));
+                item: { type: 'function_call_output', call_id: callId, output: JSON.stringify(outputObject) }
+            }));
 
-            // Solicitar a OpenAI que genere la respuesta basada en el tool output
-            const responseCreateMessage = {
-                type: 'response.create'
-            };
-            dataChannel.send(JSON.stringify(responseCreateMessage));
-            setUIState('thinking', 'Luke procesando respuesta del spool...');
+            dataChannel.send(JSON.stringify({ type: 'response.create' }));
+            setUIState('thinking');
         }
 
-        // Detener la sesión Realtime WebRTC
         function stopRealtimeSession() {
             isSessionActive = false;
-            
-            if (dataChannel) {
-                dataChannel.close();
-                dataChannel = null;
-            }
-
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
-            }
-
-            if (localMediaStream) {
-                localMediaStream.getTracks().forEach(track => track.stop());
-                localMediaStream = null;
-            }
-
-            toolIndicator.style.display = 'none';
+            if (dataChannel) { dataChannel.close(); dataChannel = null; }
+            if (peerConnection) { peerConnection.close(); peerConnection = null; }
+            if (localMediaStream) { localMediaStream.getTracks().forEach(t => t.stop()); localMediaStream = null; }
             setUIState('disconnected');
-            addLog('Sesión de voz finalizada.', 'info');
         }
     </script>
 </body>
