@@ -239,7 +239,8 @@
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
-            max-height: 200px;
+            min-height: 200px;
+            max-height: 320px;
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
         }
 
@@ -258,7 +259,7 @@
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
-            max-height: 150px;
+            max-height: 250px;
             scroll-behavior: smooth;
         }
 
@@ -922,10 +923,42 @@
             };
         }
 
+        let currentLukeBubble = null;
+        let currentLukeText = '';
+
+        function appendLukeDelta(deltaText) {
+            if (!deltaText) return;
+            if (!currentLukeBubble) {
+                currentLukeBubble = document.createElement('div');
+                currentLukeBubble.className = 'chat-bubble luke';
+                currentLukeText = '';
+                chatStream.appendChild(currentLukeBubble);
+            }
+            currentLukeText += deltaText;
+            currentLukeBubble.innerHTML = parseTextToHTML(currentLukeText);
+            chatStream.scrollTop = chatStream.scrollHeight;
+        }
+
+        function finalizeLukeTranscript(fullText) {
+            if (fullText) {
+                if (!currentLukeBubble) {
+                    addBubble(fullText, 'luke');
+                } else {
+                    currentLukeText = fullText;
+                    currentLukeBubble.innerHTML = parseTextToHTML(fullText);
+                }
+            }
+            currentLukeBubble = null;
+            currentLukeText = '';
+            chatStream.scrollTop = chatStream.scrollHeight;
+        }
+
         async function handleRealtimeEvent(event) {
             switch (event.type) {
                 case 'input_audio_buffer.speech_started':
                     setUIState('listening');
+                    currentLukeBubble = null;
+                    currentLukeText = '';
                     break;
 
                 case 'input_audio_buffer.speech_stopped':
@@ -933,19 +966,25 @@
                     break;
 
                 case 'response.audio_transcript.delta':
+                case 'response.text.delta':
                     setUIState('speaking');
+                    if (event.delta) {
+                        appendLukeDelta(event.delta);
+                    }
                     break;
 
                 case 'response.audio_transcript.done':
-                    if (event.transcript) {
-                        addBubble(event.transcript, 'luke');
-                        
-                        const tLower = event.transcript.toLowerCase();
+                case 'response.text.done':
+                    setUIState('listening');
+                    const textDone = event.transcript || event.text || '';
+                    finalizeLukeTranscript(textDone);
+                    
+                    if (textDone) {
+                        const tLower = textDone.toLowerCase();
                         if (tLower.includes('pin') || tLower.includes('clave') || tLower.includes('autoriz')) {
                             setTimeout(openPinModal, 600);
                         }
                     }
-                    setUIState('listening');
                     break;
 
                 case 'conversation.item.input_audio_transcription.completed':
@@ -985,6 +1024,7 @@
                 ]);
 
                 if (resSpool.status !== 'fulfilled' || !resSpool.value.ok) {
+                    addBubble(`⚠️ No se encontró información para el spool **${spoolId}**.`, 'luke');
                     sendFunctionOutput(callId, { encontrado: false, mensaje: `No se halló el spool ${spoolId}` });
                     return;
                 }
@@ -1026,8 +1066,27 @@
                     cantidad_elementos_bim: data.elements ? data.elements.length : 0
                 };
 
+                // Generar tarjeta interactiva con links de planos
+                let card = `📦 **Spool ${data.spool_id}**\n`;
+                if (spoolSummary.metadata?.area) card += `• **Área:** ${spoolSummary.metadata.area}\n`;
+                if (spoolSummary.metadata?.linea) card += `• **Línea:** ${spoolSummary.metadata.linea}\n`;
+                card += `• **Estado:** ${spoolSummary.estado_actual}\n`;
+
+                if (isoId) {
+                    card += `• **Isométrico:** ${isoId}\n`;
+                    if (isoUrl) card += `[Ver Isométrico ${isoId}](${isoUrl})\n`;
+                }
+
+                if (pids && pids.length > 0) {
+                    pids.forEach(p => {
+                        card += `[Ver P&ID ${p.id_pid}](${p.pdf_url})\n`;
+                    });
+                }
+
+                addBubble(card, 'luke');
                 sendFunctionOutput(callId, spoolSummary);
             } catch (err) {
+                addBubble(`⚠️ Error al consultar el spool ${spoolId}: ${err.message}`, 'luke');
                 sendFunctionOutput(callId, { error: err.message });
             }
         }
@@ -1036,12 +1095,28 @@
             try {
                 const res = await fetch(`/api/iso/pdf/${encodeURIComponent(isoId)}`);
                 if (!res.ok) {
+                    addBubble(`⚠️ No se encontró el isométrico **${isoId}**.`, 'luke');
                     sendFunctionOutput(callId, { encontrado: false, mensaje: `No se halló el isométrico ${isoId}` });
                     return;
                 }
                 const data = await res.json();
+                
+                let card = `📐 **Plano Isométrico ${isoId}**\n`;
+                if (data.current_sheet?.pdf_url) {
+                    card += `[Ver Isométrico ${data.current_sheet.hoja_label || isoId}](${data.current_sheet.pdf_url})\n`;
+                }
+                if (data.sheets && data.sheets.length > 1) {
+                    data.sheets.forEach(s => {
+                        if (s.pdf_url && s.pdf_url !== data.current_sheet?.pdf_url) {
+                            card += `[Ver ${s.hoja_label || s.id_iso}](${s.pdf_url})\n`;
+                        }
+                    });
+                }
+                addBubble(card, 'luke');
+
                 sendFunctionOutput(callId, data);
             } catch (err) {
+                addBubble(`⚠️ Error al consultar el isométrico: ${err.message}`, 'luke');
                 sendFunctionOutput(callId, { error: err.message });
             }
         }
@@ -1050,12 +1125,24 @@
             try {
                 const res = await fetch(`/api/pid/pdf/${encodeURIComponent(query)}`);
                 if (!res.ok) {
+                    addBubble(`⚠️ No se encontraron planos P&ID para **${query}**.`, 'luke');
                     sendFunctionOutput(callId, { encontrado: false, mensaje: `No se halló P&ID para ${query}` });
                     return;
                 }
                 const data = await res.json();
+                
+                let card = `🗺️ **Diagrama P&ID (${query})**\n`;
+                if (data.pids && data.pids.length > 0) {
+                    data.pids.forEach(p => {
+                        card += `• **${p.id_pid}**: ${p.descripcion || ''}\n`;
+                        card += `[Ver P&ID ${p.id_pid}](${p.pdf_url})\n`;
+                    });
+                }
+                addBubble(card, 'luke');
+
                 sendFunctionOutput(callId, data);
             } catch (err) {
+                addBubble(`⚠️ Error al consultar P&ID: ${err.message}`, 'luke');
                 sendFunctionOutput(callId, { error: err.message });
             }
         }
@@ -1075,7 +1162,16 @@
                 }
 
                 const data = await res.json();
-                sendFunctionOutput(callId, data.result || data);
+                const resObj = data.result || data;
+                
+                // Si la tool dinámica devuelve información, renderizarla como texto/JSON formateado
+                if (typeof resObj === 'object') {
+                    addBubble(`✨ **${toolName}**:\n\`\`\`json\n${JSON.stringify(resObj, null, 2).slice(0, 300)}\n\`\`\``, 'luke');
+                } else if (typeof resObj === 'string') {
+                    addBubble(`✨ **${toolName}**: ${resObj}`, 'luke');
+                }
+
+                sendFunctionOutput(callId, resObj);
             } catch (err) {
                 sendFunctionOutput(callId, { error: err.message });
             }
