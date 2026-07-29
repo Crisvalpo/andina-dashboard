@@ -288,6 +288,30 @@
             border-bottom-left-radius: 4px;
         }
 
+        /* Estilo de enlaces interactivos cliqueables */
+        .chat-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin: 4px 2px;
+            padding: 4px 10px;
+            background: rgba(0, 242, 254, 0.12);
+            border: 1px solid rgba(0, 242, 254, 0.35);
+            border-radius: 8px;
+            color: var(--accent-cyan);
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-decoration: none;
+            transition: all 0.25s ease;
+        }
+
+        .chat-link:hover {
+            background: rgba(0, 242, 254, 0.25);
+            border-color: var(--accent-cyan);
+            box-shadow: 0 0 12px rgba(0, 242, 254, 0.4);
+            transform: translateY(-1px);
+        }
+
         /* Footer */
         footer {
             width: 100%;
@@ -499,11 +523,35 @@
         // Start render loop
         drawOrb();
 
-        // --- UI STATE MANAGEMENT ---
+        // --- UI STATE MANAGEMENT & PARSER ---
+        function parseTextToHTML(text) {
+            if (!text) return '';
+
+            // Escapar HTML base para evitar inyección
+            let html = text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+
+            // Convertir negritas Markdown **texto** o *texto*
+            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+            // Convertir links Markdown [Texto](url) -> <a href="url" target="_blank" class="chat-link">🔗 Texto</a>
+            html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="chat-link">🔗 $1</a>');
+
+            // Convertir URLs sueltas http(s):// no capturadas por el regex anterior
+            html = html.replace(/(^|[^"])((https?:\/\/[^\s<]+))/g, '$1<a href="$3" target="_blank" rel="noopener" class="chat-link">🔗 Ver Enlace</a>');
+
+            // Convertir saltos de línea
+            html = html.replace(/\n/g, '<br>');
+
+            return html;
+        }
+
         function addBubble(text, sender = 'luke') {
             const bubble = document.createElement('div');
             bubble.className = `chat-bubble ${sender}`;
-            bubble.innerText = text;
+            bubble.innerHTML = parseTextToHTML(text);
             chatStream.appendChild(bubble);
             chatStream.scrollTop = chatStream.scrollHeight;
         }
