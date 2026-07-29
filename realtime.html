@@ -564,7 +564,7 @@
                 const offer = await peerConnection.createOffer();
                 await peerConnection.setLocalDescription(offer);
 
-                const sdpResponse = await fetch('https://api.openai.com/v1/realtime', {
+                const sdpResponse = await fetch('https://api.openai.com/v1/realtime/calls', {
                     method: 'POST',
                     body: offer.sdp,
                     headers: {
