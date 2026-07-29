@@ -10,7 +10,7 @@
     <style>
         :root {
             --bg-dark: #060913;
-            --bg-card: rgba(13, 20, 38, 0.7);
+            --bg-card: rgba(13, 20, 38, 0.75);
             --border-glass: rgba(255, 255, 255, 0.08);
             --accent-cyan: #00f2fe;
             --accent-blue: #4facfe;
@@ -40,7 +40,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: space-between;
-            padding: 1.5rem 1rem;
+            padding: 1.25rem 1rem;
             overflow: hidden;
         }
 
@@ -151,7 +151,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 1.5rem;
+            gap: 1.25rem;
             margin: auto 0;
             z-index: 10;
         }
@@ -159,8 +159,8 @@
         /* ElevenLabs Style Canvas Orb Container */
         .orb-stage {
             position: relative;
-            width: 280px;
-            height: 280px;
+            width: 250px;
+            height: 250px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -176,12 +176,11 @@
             pointer-events: none;
         }
 
-        /* Invisible overlay button for tap interaction */
         .orb-tap-area {
             position: relative;
             z-index: 15;
-            width: 150px;
-            height: 150px;
+            width: 140px;
+            height: 140px;
             border-radius: 50%;
             background: transparent;
             border: none;
@@ -210,16 +209,45 @@
 
         .status-title {
             font-family: 'Outfit', sans-serif;
-            font-size: 1.4rem;
+            font-size: 1.35rem;
             font-weight: 700;
             color: var(--text-primary);
             letter-spacing: 0.3px;
         }
 
         .status-sub {
-            font-size: 0.88rem;
+            font-size: 0.85rem;
             color: var(--text-secondary);
             min-height: 1.35em;
+        }
+
+        /* Action bar for PIN Trigger */
+        .action-bar {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+
+        .btn-pin-trigger {
+            padding: 8px 18px;
+            border-radius: 30px;
+            background: rgba(0, 242, 254, 0.1);
+            border: 1px solid rgba(0, 242, 254, 0.3);
+            color: var(--accent-cyan);
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.3s ease;
+        }
+
+        .btn-pin-trigger:hover {
+            background: rgba(0, 242, 254, 0.2);
+            box-shadow: 0 0 15px rgba(0, 242, 254, 0.3);
+            transform: translateY(-1px);
         }
 
         /* Conversation Card (Clean & Formal) */
@@ -230,11 +258,11 @@
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid var(--border-glass);
             border-radius: 24px;
-            padding: 1.25rem;
+            padding: 1.15rem;
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
-            max-height: 200px;
+            max-height: 180px;
             box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
         }
 
@@ -253,7 +281,7 @@
             display: flex;
             flex-direction: column;
             gap: 0.75rem;
-            max-height: 140px;
+            max-height: 130px;
             scroll-behavior: smooth;
         }
 
@@ -288,7 +316,6 @@
             border-bottom-left-radius: 4px;
         }
 
-        /* Estilo de enlaces interactivos cliqueables */
         .chat-link {
             display: inline-flex;
             align-items: center;
@@ -310,6 +337,150 @@
             border-color: var(--accent-cyan);
             box-shadow: 0 0 12px rgba(0, 242, 254, 0.4);
             transform: translateY(-1px);
+        }
+
+        /* --- MODAL PIN PAD TÁCTIL (ELEVENLABS / CYBERPUNK STYLE) --- */
+        .pin-modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(4, 8, 20, 0.85);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .pin-modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .pin-card {
+            width: 90%;
+            max-width: 340px;
+            background: rgba(15, 23, 42, 0.95);
+            border: 1px solid rgba(0, 242, 254, 0.25);
+            border-radius: 28px;
+            padding: 1.75rem 1.5rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1.2rem;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.7), 0 0 30px rgba(0, 242, 254, 0.15);
+            transform: scale(0.9);
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .pin-modal-overlay.active .pin-card {
+            transform: scale(1);
+        }
+
+        .pin-header {
+            text-align: center;
+        }
+
+        .pin-header h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .pin-header p {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+
+        /* Dots indicador del PIN */
+        .pin-dots {
+            display: flex;
+            gap: 14px;
+            margin: 0.5rem 0;
+        }
+
+        .pin-dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            background: transparent;
+            transition: all 0.2s ease;
+        }
+
+        .pin-dot.filled {
+            border-color: var(--accent-cyan);
+            background: var(--accent-cyan);
+            box-shadow: 0 0 12px var(--accent-cyan);
+        }
+
+        /* Grid del Teclado Numérico */
+        .pin-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            width: 100%;
+        }
+
+        .pin-key {
+            height: 58px;
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-glass);
+            color: var(--text-primary);
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.4rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+            outline: none;
+        }
+
+        .pin-key:hover {
+            background: rgba(0, 242, 254, 0.15);
+            border-color: var(--accent-cyan);
+            color: var(--accent-cyan);
+        }
+
+        .pin-key:active {
+            transform: scale(0.92);
+            background: rgba(0, 242, 254, 0.3);
+        }
+
+        .pin-key.confirm {
+            background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+            color: #000;
+            font-weight: 700;
+            border: none;
+        }
+
+        .pin-key.confirm:hover {
+            box-shadow: 0 0 20px rgba(0, 242, 254, 0.5);
+        }
+
+        .pin-close-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            cursor: pointer;
+            margin-top: 0.2rem;
+            transition: color 0.2s ease;
+        }
+
+        .pin-close-btn:hover {
+            color: var(--text-primary);
         }
 
         /* Footer */
@@ -371,6 +542,13 @@
             <div class="status-sub" id="status-sub">Sesión de voz continua inteligente con Luke</div>
         </div>
 
+        <!-- Action Bar: PIN Trigger -->
+        <div class="action-bar">
+            <button class="btn-pin-trigger" id="open-pin-btn">
+                <span>🔢 Ingresar PIN de Supervisor</span>
+            </button>
+        </div>
+
         <!-- Conversation Stream -->
         <div class="conversation-card">
             <div class="conversation-header">
@@ -381,6 +559,40 @@
             </div>
         </div>
     </main>
+
+    <!-- Modal Teclado Numérico PIN Pad -->
+    <div class="pin-modal-overlay" id="pin-modal">
+        <div class="pin-card">
+            <div class="pin-header">
+                <h3>PIN de Supervisor</h3>
+                <p>Ingresa tu clave de 4 dígitos para autorizar</p>
+            </div>
+            
+            <div class="pin-dots">
+                <div class="pin-dot" id="dot-0"></div>
+                <div class="pin-dot" id="dot-1"></div>
+                <div class="pin-dot" id="dot-2"></div>
+                <div class="pin-dot" id="dot-3"></div>
+            </div>
+
+            <div class="pin-grid">
+                <button class="pin-key" data-val="1">1</button>
+                <button class="pin-key" data-val="2">2</button>
+                <button class="pin-key" data-val="3">3</button>
+                <button class="pin-key" data-val="4">4</button>
+                <button class="pin-key" data-val="5">5</button>
+                <button class="pin-key" data-val="6">6</button>
+                <button class="pin-key" data-val="7">7</button>
+                <button class="pin-key" data-val="8">8</button>
+                <button class="pin-key" data-val="9">9</button>
+                <button class="pin-key" data-val="back">⌫</button>
+                <button class="pin-key" data-val="0">0</button>
+                <button class="pin-key confirm" data-val="ok">✓</button>
+            </div>
+
+            <button class="pin-close-btn" id="close-pin-btn">Cancelar</button>
+        </div>
+    </div>
 
     <!-- Footer -->
     <footer>
@@ -401,12 +613,20 @@
         const canvas = document.getElementById('orb-canvas');
         const ctx = canvas.getContext('2d');
 
+        // Modal Elements
+        const pinModal = document.getElementById('pin-modal');
+        const openPinBtn = document.getElementById('open-pin-btn');
+        const closePinBtn = document.getElementById('close-pin-btn');
+        const pinKeys = document.querySelectorAll('.pin-key');
+
+        let currentPin = '';
+
         // WebRTC State
         let peerConnection = null;
         let dataChannel = null;
         let localMediaStream = null;
         let isSessionActive = false;
-        let currentState = 'disconnected'; // disconnected, connecting, listening, thinking, speaking
+        let currentState = 'disconnected';
 
         // --- ELEVENLABS STYLE ANIMATED FLUID ORB ENGINE ---
         let animationFrameId = null;
@@ -416,24 +636,23 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             const cx = canvas.width / 2;
             const cy = canvas.height / 2;
-            const baseRadius = 110;
+            const baseRadius = 100;
 
             time += 0.025;
 
-            // Define state-based colors & intensity
             let color1, color2, color3, speed, amplitude;
             if (currentState === 'speaking') {
                 color1 = 'rgba(255, 0, 127, ';     // Magenta
                 color2 = 'rgba(121, 40, 202, ';   // Purple
                 color3 = 'rgba(0, 242, 254, ';     // Cyan
                 speed = 2.2;
-                amplitude = 22;
+                amplitude = 20;
             } else if (currentState === 'listening') {
                 color1 = 'rgba(0, 242, 254, ';     // Cyan
                 color2 = 'rgba(79, 172, 254, ';    // Electric Blue
                 color3 = 'rgba(0, 230, 118, ';     // Green Neon
                 speed = 1.6;
-                amplitude = 16;
+                amplitude = 15;
             } else if (currentState === 'thinking') {
                 color1 = 'rgba(255, 171, 0, ';     // Amber
                 color2 = 'rgba(255, 109, 0, ';     // Orange
@@ -447,7 +666,6 @@
                 speed = 1.0;
                 amplitude = 8;
             } else {
-                // Disconnected idle state
                 color1 = 'rgba(0, 242, 254, ';
                 color2 = 'rgba(121, 40, 202, ';
                 color3 = 'rgba(20, 30, 60, ';
@@ -455,17 +673,15 @@
                 amplitude = 6;
             }
 
-            // Layer 1: Glow aura
-            const auraGrad = ctx.createRadialGradient(cx, cy, baseRadius * 0.4, cx, cy, baseRadius * 1.8);
+            const auraGrad = ctx.createRadialGradient(cx, cy, baseRadius * 0.4, cx, cy, baseRadius * 1.7);
             auraGrad.addColorStop(0, color1 + '0.25)');
             auraGrad.addColorStop(0.5, color2 + '0.12)');
             auraGrad.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = auraGrad;
             ctx.beginPath();
-            ctx.arc(cx, cy, baseRadius * 1.8, 0, Math.PI * 2);
+            ctx.arc(cx, cy, baseRadius * 1.7, 0, Math.PI * 2);
             ctx.fill();
 
-            // Layer 2: Deforming Fluid Blobs (ElevenLabs Style)
             for (let layer = 0; layer < 3; layer++) {
                 ctx.save();
                 ctx.translate(cx, cy);
@@ -477,7 +693,7 @@
                     const angle = (i / points) * Math.PI * 2;
                     const wave1 = Math.sin(angle * 3 + time * speed + layer) * amplitude;
                     const wave2 = Math.cos(angle * 2 - time * speed * 0.8) * (amplitude * 0.6);
-                    const r = baseRadius + wave1 + wave2 - (layer * 12);
+                    const r = baseRadius + wave1 + wave2 - (layer * 10);
 
                     const x = Math.cos(angle) * r;
                     const y = Math.sin(angle) * r;
@@ -504,10 +720,9 @@
                 ctx.restore();
             }
 
-            // Layer 3: Inner Core Glass Highlight
             ctx.save();
             ctx.translate(cx, cy);
-            const coreGrad = ctx.createRadialGradient(-30, -30, 5, 0, 0, baseRadius * 0.8);
+            const coreGrad = ctx.createRadialGradient(-25, -25, 5, 0, 0, baseRadius * 0.8);
             coreGrad.addColorStop(0, 'rgba(255, 255, 255, 0.5)');
             coreGrad.addColorStop(0.4, 'rgba(255, 255, 255, 0.1)');
             coreGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
@@ -520,29 +735,95 @@
             animationFrameId = requestAnimationFrame(drawOrb);
         }
 
-        // Start render loop
         drawOrb();
+
+        // --- MANEJO DEL PIN PAD TÁCTIL ---
+        function updatePinDots() {
+            for (let i = 0; i < 4; i++) {
+                const dot = document.getElementById(`dot-${i}`);
+                if (i < currentPin.length) {
+                    dot.classList.add('filled');
+                } else {
+                    dot.classList.remove('filled');
+                }
+            }
+        }
+
+        function openPinModal() {
+            currentPin = '';
+            updatePinDots();
+            pinModal.classList.add('active');
+        }
+
+        function closePinModal() {
+            pinModal.classList.remove('active');
+        }
+
+        openPinBtn.addEventListener('click', openPinModal);
+        closePinBtn.addEventListener('click', closePinModal);
+
+        pinKeys.forEach(key => {
+            key.addEventListener('click', () => {
+                const val = key.getAttribute('data-val');
+
+                if (val === 'back') {
+                    currentPin = currentPin.slice(0, -1);
+                    updatePinDots();
+                } else if (val === 'ok') {
+                    submitPin();
+                } else if (currentPin.length < 4) {
+                    currentPin += val;
+                    updatePinDots();
+                    if (currentPin.length === 4) {
+                        setTimeout(submitPin, 200);
+                    }
+                }
+            });
+        });
+
+        function submitPin() {
+            if (!currentPin || currentPin.length === 0) return;
+
+            const pinSubmitted = currentPin;
+            closePinModal();
+
+            addBubble(`PIN Ingresado: ****`, 'user');
+
+            // Si la sesión WebRTC está activa, enviar al DataChannel
+            if (dataChannel && dataChannel.readyState === 'open') {
+                const event = {
+                    type: "conversation.item.create",
+                    item: {
+                        type: "message",
+                        role: "user",
+                        content: [
+                            {
+                                type: "input_text",
+                                text: `Ingresé mi PIN de autorización de supervisor: ${pinSubmitted}. Por favor verifica mis permisos.`
+                            }
+                        ]
+                    }
+                };
+                dataChannel.send(JSON.stringify(event));
+                dataChannel.send(JSON.stringify({ type: "response.create" }));
+                setUIState('thinking', 'Validando PIN de supervisor...');
+            } else {
+                addBubble(`Conecta la voz con la esfera antes de validar tu PIN.`, 'luke');
+            }
+        }
 
         // --- UI STATE MANAGEMENT & PARSER ---
         function parseTextToHTML(text) {
             if (!text) return '';
 
-            // Escapar HTML base para evitar inyección
             let html = text
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
                 .replace(/>/g, "&gt;");
 
-            // Convertir negritas Markdown **texto** o *texto*
             html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-
-            // Convertir links Markdown [Texto](url) -> <a href="url" target="_blank" class="chat-link">🔗 Texto</a>
             html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener" class="chat-link">🔗 $1</a>');
-
-            // Convertir URLs sueltas http(s):// no capturadas por el regex anterior
             html = html.replace(/(^|[^"])((https?:\/\/[^\s<]+))/g, '$1<a href="$3" target="_blank" rel="noopener" class="chat-link">🔗 Ver Enlace</a>');
-
-            // Convertir saltos de línea
             html = html.replace(/\n/g, '<br>');
 
             return html;
@@ -686,6 +967,12 @@
                 case 'response.audio_transcript.done':
                     if (event.transcript) {
                         addBubble(event.transcript, 'luke');
+                        
+                        // Si Luke solicita PIN en su respuesta hablada, abrir el teclado automáticamente
+                        const tLower = event.transcript.toLowerCase();
+                        if (tLower.includes('pin') || tLower.includes('clave') || tLower.includes('autoriz')) {
+                            setTimeout(openPinModal, 600);
+                        }
                     }
                     setUIState('listening');
                     break;
@@ -696,7 +983,6 @@
                     }
                     break;
 
-                // --- SOPORTE UNIVERSAL DE HERRAMIENTAS (ESTÁTICAS + DINÁMICAS GEMINI) ---
                 case 'response.function_call_arguments.done':
                     const toolName = event.name;
                     const callId = event.call_id;
@@ -708,14 +994,12 @@
                     if (toolName === 'buscar_spool') {
                         await executeBuscarSpool(callId, args.spool_id);
                     } else {
-                        // Reutilizar herramientas dinámicas de Gemini / Supabase
                         await executeDynamicTool(callId, toolName, args);
                     }
                     break;
             }
         }
 
-        // 1. Tool estática: buscar_spool
         async function executeBuscarSpool(callId, spoolId) {
             try {
                 const res = await fetch(`/api/bim/spool/${encodeURIComponent(spoolId)}`);
@@ -737,11 +1021,7 @@
                     } : null,
                     estado_actual: data.estado_actual || 'SIN REGISTRO',
                     estado_fecha: data.estado_fecha || null,
-                    cantidad_elementos_bim: data.elements ? data.elements.length : 0,
-                    elementos: data.elements ? data.elements.map(el => ({
-                        descripcion: el.descripcion,
-                        numero_linea: el.numero_linea
-                    })) : []
+                    cantidad_elementos_bim: data.elements ? data.elements.length : 0
                 };
 
                 sendFunctionOutput(callId, spoolSummary);
@@ -750,7 +1030,6 @@
             }
         }
 
-        // 2. Reutilizar herramientas dinámicas de Gemini creadas en Supabase (bot_tools_dinamicas)
         async function executeDynamicTool(callId, toolName, args) {
             try {
                 const res = await fetch('/api/realtime/execute-tool', {
