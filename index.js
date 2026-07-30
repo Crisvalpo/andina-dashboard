@@ -6,6 +6,7 @@ const { fetchAppSheet, fetchAppSheetCached, invalidarCache } = require('./lib/ap
 const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS, requerirSesion } = require('./lib/auth');
 const { getSupabase, asegurarBucketExistente } = require('./lib/supabase');
 const { cargarTools, ejecutarTool, registrarTool } = require('./lib/botTools');
+const { procesarCambioEstadoSpool } = require('./lib/pipelineRealtime');
 const app = express();
 const PORT = CONFIG.PORT;
 
@@ -1962,76 +1963,14 @@ app.post('/api/realtime/execute-tool', async (req, res) => {
     try {
         if (nombre_funcion === 'registrar_avance_spool') {
             const { spool_id, nuevo_estado, pin_supervisor, observacion } = args || {};
-            if (!spool_id || !nuevo_estado) {
-                return res.status(400).json({ error: 'Faltan spool_id o nuevo_estado.' });
-            }
-            if (!pin_supervisor) {
-                return res.json({
-                    success: false,
-                    requiere_pin: true,
-                    mensaje: 'Para registrar el cambio de estado se requiere el PIN de autorización de 4 dígitos del supervisor.'
-                });
-            }
-
-            // Validar PIN en Supabase (andina.bot_usuarios)
-            const supabase = getSupabase();
-            const { data: usuario, error: errUser } = await supabase
-                .from('bot_usuarios')
-                .select('*')
-                .eq('pin', String(pin_supervisor).trim())
-                .eq('activo', true)
-                .maybeSingle();
-
-            if (errUser || !usuario) {
-                return res.json({
-                    success: false,
-                    error: `PIN "${pin_supervisor}" no válido o usuario inactivo en el sistema.`
-                });
-            }
-
-            // Resolver spool (ej: "515" -> ID_SPOOL)
-            const resSpool = await resolverSpool(spool_id);
-            if (!resSpool.encontrado || !resSpool.spool) {
-                return res.json({
-                    success: false,
-                    error: `No se encontró el spool "${spool_id}" en el maestro del proyecto.`
-                });
-            }
-
-            // Registrar avance en AppSheet (LOG_Spool_MS)
-            const { resultado } = await registrarAvanceAppSheet({
-                spool: resSpool.spool,
-                status: String(nuevo_estado).trim().toUpperCase(),
-                usuario: usuario.nombre,
-                rol: usuario.rol,
-                observacion: observacion || `Registrado por voz Realtime (${usuario.nombre})`
+            const resPipeline = await procesarCambioEstadoSpool({
+                spoolId: spool_id,
+                nuevoEstado: nuevo_estado,
+                pinSupervisor: pin_supervisor,
+                observacion,
+                origen: 'realtime_voz'
             });
-
-            // Auditoría en Supabase (bot_registros)
-            await guardarRegistro({
-                telefono: usuario.telefono,
-                spool_tag: resSpool.spool.tagGestion,
-                id_spool: resSpool.spool.idSpool,
-                status: String(nuevo_estado).trim().toUpperCase(),
-                observacion: observacion || `Voz Luke Realtime (PIN ${pin_supervisor})`,
-                appsheet_ok: true,
-                metadata: { registrado_por: usuario.nombre, rol: usuario.rol }
-            });
-
-            // Invalidar caché local de AppSheet para refrescar visor 3D BIM
-            invalidarCache('LOG_Spool_MS');
-
-            console.log(`[Realtime Avance Spool] ✅ ${resSpool.spool.tagGestion} -> ${nuevo_estado} por ${usuario.nombre}`);
-
-            return res.json({
-                success: true,
-                spool_id: resSpool.spool.tagGestion,
-                id_spool: resSpool.spool.idSpool,
-                nuevo_estado: String(nuevo_estado).trim().toUpperCase(),
-                usuario: usuario.nombre,
-                rol: usuario.rol,
-                mensaje: `Spool ${resSpool.spool.tagGestion} registrado exitosamente como ${nuevo_estado} a nombre de ${usuario.nombre}.`
-            });
+            return res.json({ success: resPipeline.success, result: resPipeline });
         }
 
         if (nombre_funcion === 'crear_herramienta_dinamica') {
@@ -2077,6 +2016,25 @@ app.post('/api/realtime/log-message', async (req, res) => {
     } catch (e) {
         console.error('[Realtime Log Message Error]', e.message);
         res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint central del Pipeline para recibir cambios de estado/avance de spools de forma externa o mediante webhooks
+app.post('/api/pipeline/spool-update', async (req, res) => {
+    const { spoolId, nuevoEstado, pinSupervisor, usuarioInput, observacion, origen = 'api_pipeline' } = req.body || {};
+    try {
+        const resultado = await procesarCambioEstadoSpool({
+            spoolId,
+            nuevoEstado,
+            pinSupervisor,
+            usuarioInput,
+            observacion,
+            origen
+        });
+        res.json(resultado);
+    } catch (e) {
+        console.error('[Pipeline Endpoint Error]', e.message);
+        res.status(500).json({ success: false, error: e.message });
     }
 });
 
