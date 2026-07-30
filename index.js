@@ -1686,19 +1686,34 @@ app.get('/api/bot/usuarios', async (req, res) => {
     }
 });
 
+async function generarPinUnico() {
+    const supabase = getSupabase();
+    const { data } = await supabase.from('bot_usuarios').select('pin');
+    const usados = new Set((data || []).map(u => String(u.pin || '').trim()));
+    let pin = '';
+    do {
+        pin = String(Math.floor(1000 + Math.random() * 9000));
+    } while (usados.has(pin));
+    return pin;
+}
+
 app.post('/api/bot/usuarios', async (req, res) => {
     const { telefono, nombre, rol, pin } = req.body || {};
     const tel = String(telefono || '').replace(/[^0-9]/g, '');
     if (!tel || !nombre) return res.status(400).json({ success: false, error: 'Faltan telefono y nombre' });
     try {
         const payload = { telefono: tel, nombre, rol: rol || 'Terreno', activo: true };
-        if (pin) payload.pin = String(pin).trim();
+        if (pin && String(pin).trim().length === 4) {
+            payload.pin = String(pin).trim();
+        } else {
+            payload.pin = await generarPinUnico();
+        }
         const { error } = await getSupabase().from('bot_usuarios').upsert(
             payload,
             { onConflict: 'telefono' }
         );
         if (error) throw new Error(error.message);
-        res.json({ success: true });
+        res.json({ success: true, pin: payload.pin });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
