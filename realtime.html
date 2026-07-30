@@ -1018,10 +1018,39 @@
                         await executeObtenerIsometrico(callId, args.iso_id || args.spool_id);
                     } else if (toolName === 'obtener_pid') {
                         await executeObtenerPid(callId, args.query || args.spool_id);
+                    } else if (toolName === 'registrar_avance_spool') {
+                        await executeRegistrarAvanceSpool(callId, args);
                     } else {
                         await executeDynamicTool(callId, toolName, args);
                     }
                     break;
+            }
+        }
+
+        async function executeRegistrarAvanceSpool(callId, args) {
+            try {
+                const res = await fetch('/api/realtime/execute-tool', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ nombre_funcion: 'registrar_avance_spool', args })
+                });
+
+                const data = await res.json();
+                const resultObj = data.result || data;
+
+                if (resultObj.requiere_pin || (resultObj.error && resultObj.error.toLowerCase().includes('pin'))) {
+                    addBubble(`🔒 **Se requiere PIN de Supervisor** para cambiar el estado del spool **${args.spool_id || ''}** a **${args.nuevo_estado || ''}**.`, 'luke');
+                    setTimeout(openPinModal, 400);
+                } else if (resultObj.success) {
+                    addBubble(`✅ **Avance Registrado Exitosamente**\n• **Spool:** ${resultObj.spool_id}\n• **Nuevo Estado:** ${resultObj.nuevo_estado}\n• **Supervisor:** ${resultObj.usuario} (${resultObj.rol})`, 'luke');
+                } else if (resultObj.error) {
+                    addBubble(`⚠️ **Error:** ${resultObj.error}`, 'luke');
+                }
+
+                sendFunctionOutput(callId, resultObj);
+            } catch (err) {
+                addBubble(`⚠️ Error registrando avance: ${err.message}`, 'luke');
+                sendFunctionOutput(callId, { error: err.message });
             }
         }
 

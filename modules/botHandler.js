@@ -134,12 +134,13 @@ export async function botCargarUsuarios() {
         if (!d.success) throw new Error(d.error || 'Error');
 
         if (!d.usuarios.length) {
-            body.innerHTML = '<tr><td colspan="5" style="text-align:center;opacity:0.6;padding:20px;">Sin usuarios aún. Agrega el primero arriba.</td></tr>';
+            body.innerHTML = '<tr><td colspan="6" style="text-align:center;opacity:0.6;padding:20px;">Sin usuarios aún. Agrega el primero arriba.</td></tr>';
             return;
         }
 
         body.innerHTML = d.usuarios.map(u => {
             const tel = u.telefono;
+            const pinVal = u.pin || '1234';
             const rolesOpts = ['Terreno','Supervisor','Admin','OT','QAQC'].map(r =>
                 `<option value="${r}" ${(u.rol||'Terreno')===r?'selected':''}>${r}</option>`
             ).join('');
@@ -148,6 +149,7 @@ export async function botCargarUsuarios() {
                 <td>+${tel}</td>
                 <td class="ucell-nombre-${tel}">${u.nombre || '—'}</td>
                 <td class="ucell-rol-${tel}">${u.rol || 'Terreno'}</td>
+                <td class="ucell-pin-${tel}"><code style="background:rgba(0,242,254,0.1);color:#00f2fe;padding:2px 8px;border-radius:6px;font-weight:700;">🔑 ${pinVal}</code></td>
                 <td>
                     <span class="status-pill ${u.activo ? 'pill-green' : 'pill-red'}">
                         ${u.activo ? 'Activo' : 'Pendiente'}
@@ -159,13 +161,13 @@ export async function botCargarUsuarios() {
                         ${u.activo ? 'Desactivar' : 'Autorizar'}
                     </button>
                     <button class="refresh-btn" style="padding:4px 10px;font-size:0.75rem;background:rgba(99,102,241,0.2);border-color:rgba(99,102,241,0.5)"
-                        onclick="botEditarUsuario('${tel}')" title="Editar nombre / rol">
+                        onclick="botEditarUsuario('${tel}')" title="Editar nombre / rol / PIN">
                         ✏️ Editar
                     </button>
                 </td>
             </tr>
             <tr id="urow-edit-${tel}" style="display:none;background:rgba(99,102,241,0.07)">
-                <td colspan="5" style="padding:10px 14px">
+                <td colspan="6" style="padding:10px 14px">
                     <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
                         <input id="uedit-nombre-${tel}" type="text" placeholder="Nombre y apellido"
                             value="${(u.nombre||'').replace(/"/g,'&quot;')}"
@@ -174,6 +176,9 @@ export async function botCargarUsuarios() {
                             style="background:rgba(15,23,42,0.8);border:1px solid rgba(99,102,241,0.4);border-radius:8px;padding:7px 10px;color:#f1f5f9;font-family:inherit;font-size:0.85rem">
                             ${rolesOpts}
                         </select>
+                        <input id="uedit-pin-${tel}" type="text" placeholder="PIN"
+                            value="${pinVal}"
+                            style="width:90px;background:rgba(15,23,42,0.8);border:1px solid rgba(0,242,254,0.4);border-radius:8px;padding:7px 10px;color:#00f2fe;font-weight:bold;font-family:inherit;font-size:0.85rem">
                         <button class="refresh-btn" style="padding:5px 14px;font-size:0.8rem;background:rgba(16,185,129,0.2);border-color:rgba(16,185,129,0.5);color:#6ee7b7"
                             onclick="botGuardarEdicion('${tel}')">
                             ✓ Guardar
@@ -187,22 +192,19 @@ export async function botCargarUsuarios() {
             </tr>`;
         }).join('');
     } catch (e) {
-        body.innerHTML = `<tr><td colspan="5" style="text-align:center;color:#ef4444;padding:20px;">Error: ${e.message}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="6" style="text-align:center;color:#ef4444;padding:20px;">Error: ${e.message}</td></tr>`;
     }
 }
 
 export function botEditarUsuario(tel) {
-    // Obtener valores actuales directamente de las celdas
     const nombreCelda = document.querySelector(`.ucell-nombre-${tel}`);
     const nombreVal = nombreCelda ? (nombreCelda.textContent || '').trim().replace(/^—$/, '') : '';
     
-    // Asignar al input de edicion por si el usuario lo cambio antes
     const inp = document.getElementById('uedit-nombre-' + tel);
     if (inp) {
         inp.value = nombreVal;
     }
 
-    // Mostrar fila de edicion
     const editRow = document.getElementById('urow-edit-' + tel);
     if (editRow) editRow.style.display = '';
     if (inp) { inp.focus(); inp.select(); }
@@ -216,16 +218,17 @@ export function botCancelarEdicion(tel) {
 export async function botGuardarEdicion(tel) {
     const nombre = (document.getElementById('uedit-nombre-' + tel)?.value || '').trim();
     const rol    = document.getElementById('uedit-rol-' + tel)?.value || 'Terreno';
+    const pin    = (document.getElementById('uedit-pin-' + tel)?.value || '').trim();
     if (!nombre) { alert('El nombre no puede estar vacío.'); return; }
     try {
         const r = await fetch('/api/bot/usuarios/' + tel, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
-            body: JSON.stringify({ nombre, rol })
+            body: JSON.stringify({ nombre, rol, pin })
         });
         const d = await r.json();
         if (!d.success) throw new Error(d.error || 'Error');
-        botCargarUsuarios(); // recarga la tabla completa
+        botCargarUsuarios();
     } catch (e) {
         alert('Error guardando: ' + e.message);
     }
@@ -248,6 +251,7 @@ export async function botAgregarUsuario() {
     const telefono = document.getElementById('bot-user-telefono').value.trim();
     const nombre = document.getElementById('bot-user-nombre').value.trim();
     const rol = document.getElementById('bot-user-rol').value;
+    const pin = (document.getElementById('bot-user-pin')?.value || '').trim();
 
     if (!telefono || !nombre) {
         alert('Completa teléfono y nombre.');
@@ -258,7 +262,7 @@ export async function botAgregarUsuario() {
         const r = await fetch('/api/bot/usuarios', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders('bot') },
-            body: JSON.stringify({ telefono, nombre, rol })
+            body: JSON.stringify({ telefono, nombre, rol, pin: pin || '1234' })
         });
         const d = await r.json();
         if (!d.success) throw new Error(d.error || 'Error');

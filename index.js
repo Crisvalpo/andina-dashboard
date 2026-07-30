@@ -1687,12 +1687,14 @@ app.get('/api/bot/usuarios', async (req, res) => {
 });
 
 app.post('/api/bot/usuarios', async (req, res) => {
-    const { telefono, nombre, rol } = req.body || {};
+    const { telefono, nombre, rol, pin } = req.body || {};
     const tel = String(telefono || '').replace(/[^0-9]/g, '');
     if (!tel || !nombre) return res.status(400).json({ success: false, error: 'Faltan telefono y nombre' });
     try {
+        const payload = { telefono: tel, nombre, rol: rol || 'Terreno', activo: true };
+        if (pin) payload.pin = String(pin).trim();
         const { error } = await getSupabase().from('bot_usuarios').upsert(
-            { telefono: tel, nombre, rol: rol || 'Terreno', activo: true },
+            payload,
             { onConflict: 'telefono' }
         );
         if (error) throw new Error(error.message);
@@ -1702,28 +1704,22 @@ app.post('/api/bot/usuarios', async (req, res) => {
     }
 });
 
-// Catálogo de herramientas dinámicas (el bot se las auto-escribe; aquí solo se observan/borran)
-app.get('/api/bot/tools', async (req, res) => {
+app.post('/api/bot/validate-pin', async (req, res) => {
+    const { pin } = req.body || {};
+    if (!pin) return res.status(400).json({ success: false, error: 'PIN es requerido.' });
     try {
-        const { data, error } = await getSupabase()
-            .from('bot_tools_dinamicas')
-            .select('nombre_funcion, descripcion, usos, creada_por, created_at')
-            .order('created_at', { ascending: false });
-        if (error) throw new Error(error.message);
-        res.json({ success: true, tools: data || [] });
-    } catch (e) {
-        res.status(500).json({ success: false, error: e.message });
-    }
-});
+        const { data: usuario, error } = await getSupabase()
+            .from('bot_usuarios')
+            .select('*')
+            .eq('pin', String(pin).trim())
+            .eq('activo', true)
+            .maybeSingle();
 
-app.delete('/api/bot/tools/:nombre', async (req, res) => {
-    try {
-        const { error } = await getSupabase()
-            .from('bot_tools_dinamicas')
-            .delete()
-            .eq('nombre_funcion', req.params.nombre);
         if (error) throw new Error(error.message);
-        res.json({ success: true });
+        if (!usuario) {
+            return res.json({ success: true, valid: false, mensaje: 'PIN no válido o usuario inactivo.' });
+        }
+        res.json({ success: true, valid: true, usuario: { nombre: usuario.nombre, rol: usuario.rol, telefono: usuario.telefono } });
     } catch (e) {
         res.status(500).json({ success: false, error: e.message });
     }
@@ -1735,6 +1731,7 @@ app.patch('/api/bot/usuarios/:telefono', async (req, res) => {
     if (req.body.activo !== undefined) cambios.activo = Boolean(req.body.activo);
     if (req.body.nombre) cambios.nombre = req.body.nombre;
     if (req.body.rol) cambios.rol = req.body.rol;
+    if (req.body.pin !== undefined) cambios.pin = String(req.body.pin).trim();
     try {
         const { error } = await getSupabase().from('bot_usuarios').update(cambios).eq('telefono', tel);
         if (error) throw new Error(error.message);
@@ -1817,6 +1814,33 @@ app.post('/api/realtime/session', async (req, res) => {
                 },
                 required: ['query']
             }
+        },
+        {
+            type: 'function',
+            name: 'registrar_avance_spool',
+            description: 'Registra un cambio de estado o avance para un spool en AppSheet (LOG_Spool_MS) y Supabase. REQUIERE EL PIN DE AUTORIZACIÓN DE 4 DÍGITOS DEL SUPERVISOR.',
+            parameters: {
+                type: 'object',
+                properties: {
+                    spool_id: {
+                        type: 'string',
+                        description: 'Número o TAG de gestión del spool a modificar (ejemplo: "515" o "245").'
+                    },
+                    nuevo_estado: {
+                        type: 'string',
+                        description: 'Nuevo estado del spool (ej: "MONTADO", "POR MONTAR", "POSICIONADO", "EN FABRICACIÓN", "QAQC").'
+                    },
+                    pin_supervisor: {
+                        type: 'string',
+                        description: 'PIN de autorización de 4 dígitos del supervisor.'
+                    },
+                    observacion: {
+                        type: 'string',
+                        description: 'Observaciones de terreno opcionales.'
+                    }
+                },
+                required: ['spool_id', 'nuevo_estado']
+            }
         }
     ];
 
@@ -1863,15 +1887,14 @@ FORMATO DE ENLACES A PLANOS Y DOCUMENTOS:
   2. En el mensaje hablado por voz, sé natural ("Te dejo el enlace al isométrico en la pantalla").
   3. NUNCA omitas la URL en formato markdown [Texto](URL) en el texto de respuesta, para que el sistema genere el botón cliqueable para el trabajador.
 
+REGISTRO Y CAMBIO DE ESTADO DE SPOOLS:
+- Cuando el usuario te pida cambiar o registrar el avance/estado de un spool (ej: "marca el spool 515 como Montado", "cambia el spool 245 a Posicionado"):
+  1. Si el usuario NO te ha dado su PIN de 4 dígitos en el mensaje, solicítalo amablemente: "Para registrar el cambio de estado del spool [SPOOL] a [ESTADO], necesito tu PIN de supervisor de 4 dígitos." (El teclado táctil se abrirá en la pantalla).
+  2. Si el usuario indica su PIN o ingresa el PIN (ej: "mi PIN es 1234"), ejecuta INMEDIATAMENTE la herramienta 'registrar_avance_spool' enviando 'spool_id', 'nuevo_estado' y 'pin_supervisor'.
+  3. Cuando la herramienta confirme el registro exitoso, confirma por voz y pantalla de forma concisa y segura.
+
 REGLAS DE SEGURIDAD Y ACCIONES DESTRUCTIVAS:
-- NUNCA ejecutes, confirmes ni solicites automáticamente acciones destructivas o irreversibles.
-- Se consideran destructivas: eliminar registros, borrar archivos, eliminar spools o elementos del modelo, modificar datos críticos de avance, cambiar estados de ejecución, cerrar o aprobar procesos, enviar información externa o cualquier acción con consecuencias irreversibles.
-- Cuando una herramienta o intención permita realizar una acción destructiva o de modificación:
-  1. Explica brevemente qué acción se va a realizar.
-  2. Indica claramente cuál será la consecuencia.
-  3. Solicita confirmación explícita del usuario antes de ejecutarla.
-  4. Si no existe confirmación explícita del usuario, NO ejecutes la herramienta.
-  5. Una consulta, pregunta o instrucción ambigua NUNCA debe interpretarse como autorización para una acción destructiva.
+- NUNCA ejecutes, confirmes ni solicites automáticamente acciones destructivas o irreversibles sin autorización por PIN.
 - Las consultas de lectura, búsqueda y visualización pueden ejecutarse normalmente.
 
 USO DE HERRAMIENTAS Y DATOS:
@@ -1922,6 +1945,80 @@ app.post('/api/realtime/execute-tool', async (req, res) => {
     }
 
     try {
+        if (nombre_funcion === 'registrar_avance_spool') {
+            const { spool_id, nuevo_estado, pin_supervisor, observacion } = args || {};
+            if (!spool_id || !nuevo_estado) {
+                return res.status(400).json({ error: 'Faltan spool_id o nuevo_estado.' });
+            }
+            if (!pin_supervisor) {
+                return res.json({
+                    success: false,
+                    requiere_pin: true,
+                    mensaje: 'Para registrar el cambio de estado se requiere el PIN de autorización de 4 dígitos del supervisor.'
+                });
+            }
+
+            // Validar PIN en Supabase (andina.bot_usuarios)
+            const supabase = getSupabase();
+            const { data: usuario, error: errUser } = await supabase
+                .from('bot_usuarios')
+                .select('*')
+                .eq('pin', String(pin_supervisor).trim())
+                .eq('activo', true)
+                .maybeSingle();
+
+            if (errUser || !usuario) {
+                return res.json({
+                    success: false,
+                    error: `PIN "${pin_supervisor}" no válido o usuario inactivo en el sistema.`
+                });
+            }
+
+            // Resolver spool (ej: "515" -> ID_SPOOL)
+            const resSpool = await resolverSpool(spool_id);
+            if (!resSpool.encontrado || !resSpool.spool) {
+                return res.json({
+                    success: false,
+                    error: `No se encontró el spool "${spool_id}" en el maestro del proyecto.`
+                });
+            }
+
+            // Registrar avance en AppSheet (LOG_Spool_MS)
+            const { resultado } = await registrarAvanceAppSheet({
+                spool: resSpool.spool,
+                status: String(nuevo_estado).trim().toUpperCase(),
+                usuario: usuario.nombre,
+                rol: usuario.rol,
+                observacion: observacion || `Registrado por voz Realtime (${usuario.nombre})`
+            });
+
+            // Auditoría en Supabase (bot_registros)
+            await guardarRegistro({
+                telefono: usuario.telefono,
+                spool_tag: resSpool.spool.tagGestion,
+                id_spool: resSpool.spool.idSpool,
+                status: String(nuevo_estado).trim().toUpperCase(),
+                observacion: observacion || `Voz Luke Realtime (PIN ${pin_supervisor})`,
+                appsheet_ok: true,
+                metadata: { registrado_por: usuario.nombre, rol: usuario.rol }
+            });
+
+            // Invalidar caché local de AppSheet para refrescar visor 3D BIM
+            invalidarCache('LOG_Spool_MS');
+
+            console.log(`[Realtime Avance Spool] ✅ ${resSpool.spool.tagGestion} -> ${nuevo_estado} por ${usuario.nombre}`);
+
+            return res.json({
+                success: true,
+                spool_id: resSpool.spool.tagGestion,
+                id_spool: resSpool.spool.idSpool,
+                nuevo_estado: String(nuevo_estado).trim().toUpperCase(),
+                usuario: usuario.nombre,
+                rol: usuario.rol,
+                mensaje: `Spool ${resSpool.spool.tagGestion} registrado exitosamente como ${nuevo_estado} a nombre de ${usuario.nombre}.`
+            });
+        }
+
         if (nombre_funcion === 'crear_herramienta_dinamica') {
             console.log('[Realtime Meta-Tool] Registrando nueva herramienta persistente en Supabase:', args?.nombre_funcion);
             const resReg = await registrarTool(args || {}, 'Luke Realtime Voz');
