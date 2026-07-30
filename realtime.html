@@ -808,6 +808,17 @@
             bubble.innerHTML = parseTextToHTML(text);
             chatStream.appendChild(bubble);
             chatStream.scrollTop = chatStream.scrollHeight;
+
+            // Persistir de forma asíncrona en Supabase (bot_mensajes)
+            fetch('/api/realtime/log-message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    telefono: 'realtime_web',
+                    emisor: sender === 'luke' ? 'bot' : 'usuario',
+                    mensaje: text
+                })
+            }).catch(() => {});
         }
 
         function setUIState(state, subText = '') {

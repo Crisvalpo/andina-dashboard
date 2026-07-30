@@ -1944,6 +1944,30 @@ app.post('/api/realtime/execute-tool', async (req, res) => {
     }
 });
 
+// Endpoint para guardar persistentemente transcripciones de voz de Luke Realtime en Supabase (bot_mensajes)
+app.post('/api/realtime/log-message', async (req, res) => {
+    const { telefono = 'realtime_web', emisor, mensaje, metadata = {} } = req.body || {};
+    if (!mensaje || !emisor) {
+        return res.status(400).json({ error: 'Falta emisor o mensaje.' });
+    }
+
+    try {
+        const supabase = getSupabase();
+        const { error } = await supabase.from('bot_mensajes').insert([{
+            telefono,
+            emisor,
+            mensaje,
+            tipo: 'realtime_voz',
+            metadata
+        }]);
+        if (error) throw new Error(error.message);
+        res.json({ success: true });
+    } catch (e) {
+        console.error('[Realtime Log Message Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // SPA fallback (Dashboard principal / Error 404 handler)
 app.get('{*path}', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
