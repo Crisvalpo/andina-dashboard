@@ -27,13 +27,21 @@ export const BIM_STATUS_COLORS = {
     // Válvulas / soportes: PENDIENTE = sin registro de montaje
     'PENDIENTE':       [0.55, 0.55, 0.55, 0.4], // Gris
 
-    // REG_MontajeValvulas_MS escribe el estado en femenino ("Posicionada",
-    // "Montada"). Se declaran aquí con el MISMO color que su equivalente en
-    // masculino en vez de normalizar el texto: así el visor pinta igual dos
-    // formas del mismo estado, pero la ficha sigue mostrando lo que escribió
-    // terreno, que es la autoridad.
     'MONTADA':         [0.06, 0.75, 0.35, 1],
     'POSICIONADA':     [0.95, 0.45, 0.10, 1]
+};
+
+export const BIM_SUBSISTEMA_COLORS = {
+    '03350-02-01': [1.0, 0.0, 1.0, 1],    // #FF00FF - Agua de Proceso
+    '03350-02-02': [0.0, 1.0, 0.0, 1],    // #00FF00 - Agua de Sello
+    '03350-02-03': [1.0, 1.0, 0.0, 1],    // #FFFF00 - Concentrado Cu-Mo Espesador
+    '03350-02-04': [0.0, 0.98, 0.98, 1],  // #00FAFA - Agua Recuperada
+    '03350-02-05': [1.0, 0.0, 0.0, 1],    // #FF0000 - Colectivo Cu-Mo Tie In 001
+    '03350-02-06': [0.44, 0.19, 0.63, 1],  // #7030A0 - Colas Primarias Limpieza
+    '03350-02-07': [0.49, 0.21, 0.05, 1],  // #7E350E - Aire Instrumentación
+    '03350-02-08': [0.39, 0.10, 0.36, 1],  // #641A5B - Contención de derrames
+    '03350-02-09': [1.0, 0.75, 0.0, 1],   // #FFC000 - Red de Incendio
+    'SIN SUBSISTEMA': [0.50, 0.50, 0.50, 1]
 };
 
 export function bimHexARgb(hex) {
@@ -56,11 +64,16 @@ export function bimColorAuto(st) {
     return [f(0), f(8), f(4), 1];
 }
 
-/** Color efectivo de un estado: override guardado > paleta base > auto. */
+/** Color efectivo de un estado: override guardado > paleta base > subsistemas > auto. */
 export function bimColorDeEstado(st) {
-    const key = String(st || '').toUpperCase();
+    const key = String(st || '').toUpperCase().trim();
     if (bimState.coloresEstados && bimState.coloresEstados[key]) return bimHexARgb(bimState.coloresEstados[key]);
     if (BIM_STATUS_COLORS[key]) return BIM_STATUS_COLORS[key];
+    if (BIM_SUBSISTEMA_COLORS[key]) return BIM_SUBSISTEMA_COLORS[key];
+    // Buscar coincidencia parcial si key incluye código de subsistema
+    for (const subCode of Object.keys(BIM_SUBSISTEMA_COLORS)) {
+        if (key.includes(subCode)) return BIM_SUBSISTEMA_COLORS[subCode];
+    }
     return bimColorAuto(key);
 }
 
@@ -71,6 +84,7 @@ export async function bimCargarColoresEstados() {
 
 if (typeof window !== 'undefined') {
     window.BIM_STATUS_COLORS      = BIM_STATUS_COLORS;
+    window.BIM_SUBSISTEMA_COLORS  = BIM_SUBSISTEMA_COLORS;
     window.bimHexARgb             = bimHexARgb;
     window.bimRgbAHex             = bimRgbAHex;
     window.bimColorAuto           = bimColorAuto;

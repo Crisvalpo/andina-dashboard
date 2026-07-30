@@ -1130,8 +1130,96 @@ function bimBuildEditRow(existingRow, colName, valor) {
     return out;
 }
 
+// Helper para extraer la información de subsistemas desde LIST_Juntas_MS_ y LIST_Bim_MS
+async function obtenerSubSistemasData() {
+    const [bimRows, juntasRows] = await Promise.all([
+        fetchAppSheet('LIST_Bim_MS'),
+        fetchAppSheet('LIST_Juntas_MS_')
+    ]);
+
+    const getSubsystemCode = (r) => String(r['SUB SISTEMA'] || r['SUB_SISTEMA'] || r['SUBSISTEMA'] || r['SUB SISTEMA '] || '').trim();
+    const getSystemDesc    = (r) => String(r['SISTEMA'] || r['DESCRIPCION_SISTEMA'] || r['SISTEMA '] || '').trim();
+    const getSpool         = (r) => String(r['SPOOL'] || r['ID_SPOOL'] || r['TAG GESTION'] || r['TAG_GESTION'] || r['N° SPOOL'] || r['SPOOL '] || '').trim();
+    const getLinea         = (r) => String(r['LINEA'] || r['ID_LINEA'] || r['N_LINEA'] || r['LINE_NUMBER'] || r['Line Number'] || '').trim();
+
+    // Normalizador de líneas para conciliar comillas ", guiones bajos _ y sufijos de hoja (-HC_HOJA-1, -HC, -N, -R1, etc.)
+    const cleanLineKey = (str) => {
+        if (!str) return '';
+        let s = String(str).trim();
+        s = s.replace(/"/g, '_');
+        s = s.replace(/-(HC_HOJA|HOJA|HC|N|R\d+|REV\d+).*$/i, '');
+        return s.toLowerCase().trim();
+    };
+
+    // Detecta spools genéricos/placeholders (ej. SPXX, N/A) que no deben asociarse como tag global
+    const isGenericSpool = (sp) => {
+        if (!sp) return true;
+        const s = String(sp).trim().toUpperCase();
+        return s === '' || s === 'SPXX' || s === 'SP-XX' || s === 'N/A' || s === 'NONE' || s === '0' || s === '-';
+    };
+
+    // Mapa de spool/línea -> subLabel
+    const spoolSubMap = {};
+    const subIndex = {};
+    const statuses = {};
+    const mapeo = {};
+
+    (juntasRows || []).forEach(r => {
+        const code = getSubsystemCode(r);
+        if (!code) return;
+        const desc = getSystemDesc(r);
+        const label = desc ? `${code} - ${desc}` : code;
+
+        subIndex[code.toLowerCase()] = { code, desc, label, _label: label };
+
+        // Asegurar que todo subsistema de la tabla aparezca en los filtros (incluso si no tuviera GUIDs)
+        if (!statuses[label]) {
+            statuses[label] = [];
+        }
+
+        const spool = getSpool(r);
+        const linea = getLinea(r);
+        if (spool && !isGenericSpool(spool)) spoolSubMap[spool.toLowerCase()] = label;
+        if (linea) {
+            spoolSubMap[linea.toLowerCase()] = label;
+            const cleanL = cleanLineKey(linea);
+            if (cleanL) spoolSubMap[cleanL] = label;
+        }
+    });
+
+    (bimRows || []).forEach(row => {
+        const guid = String(row['Elemento GUID'] || '').trim();
+        if (!guid) return;
+
+        const tagG = String(row['SPOOL LUKEAPP'] || '').trim();
+        const lineNo = String(row['Line Number'] || '').trim();
+
+        let label = 'SIN SUBSISTEMA';
+
+        if (tagG && !isGenericSpool(tagG) && spoolSubMap[tagG.toLowerCase()]) {
+            label = spoolSubMap[tagG.toLowerCase()];
+        } else if (lineNo) {
+            label = spoolSubMap[lineNo.toLowerCase()] || spoolSubMap[cleanLineKey(lineNo)] || 'SIN SUBSISTEMA';
+        }
+
+        mapeo[guid.toLowerCase()] = label;
+        (statuses[label] = statuses[label] || []).push(guid);
+    });
+
+    return { statuses, mapeo, subIndex };
+}
+
 // GET /api/bim/:capa/mapeo → { [guidLower]: idItem }
 app.get('/api/bim/:capa/mapeo', async (req, res) => {
+    if (req.params.capa === 'subsistema') {
+        try {
+            const data = await obtenerSubSistemasData();
+            return res.json(data.mapeo);
+        } catch (e) {
+            console.error('[BIM subsistema mapeo]', e.message);
+            return res.status(500).json({ error: e.message });
+        }
+    }
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
     try {
@@ -1151,6 +1239,15 @@ app.get('/api/bim/:capa/mapeo', async (req, res) => {
 
 // GET /api/bim/:capa/index → { [idLower]: { id, ...campos maestros } }
 app.get('/api/bim/:capa/index', async (req, res) => {
+    if (req.params.capa === 'subsistema') {
+        try {
+            const data = await obtenerSubSistemasData();
+            return res.json(data.subIndex);
+        } catch (e) {
+            console.error('[BIM subsistema index]', e.message);
+            return res.status(500).json({ error: e.message });
+        }
+    }
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
     try {
@@ -1169,6 +1266,17 @@ app.get('/api/bim/:capa/index', async (req, res) => {
 
 // GET /api/bim/:capa/item/:id → metadata del ítem + GUIDs vinculados + estado de montaje
 app.get('/api/bim/:capa/item/:id', async (req, res) => {
+    if (req.params.capa === 'subsistema') {
+        const id = decodeURIComponent(req.params.id).trim();
+        try {
+            const data = await obtenerSubSistemasData();
+            const guids = data.statuses[id] || data.statuses[id.toUpperCase()] || [];
+            return res.json({ id, label: id, guids, montado: true, status: 'ACTIVO' });
+        } catch (e) {
+            console.error('[BIM subsistema item]', e.message);
+            return res.status(500).json({ error: e.message });
+        }
+    }
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
     const id = decodeURIComponent(req.params.id).trim();
@@ -1189,9 +1297,6 @@ app.get('/api/bim/:capa/item/:id', async (req, res) => {
                 tag:  String(r['TAG'] || '').trim()
             }));
 
-        // Estado de montaje por la MISMA regla que el filtro por estado: último
-        // registro por fecha. Antes se tomaba montajes[0], que es orden arbitrario:
-        // con dos reportes de la misma válvula podía ganar el viejo.
         const entrada = estadosMontajeDeCapa(capa, montajeRows)[id.toLowerCase()];
         const montado = !!entrada;
         const statusMontaje = entrada ? entrada.status : 'PENDIENTE';
@@ -1213,6 +1318,15 @@ app.get('/api/bim/:capa/item/:id', async (req, res) => {
 
 // GET /api/bim/:capa/statuses → { Montado:[guids], Pendiente:[guids] } para colorear
 app.get('/api/bim/:capa/statuses', async (req, res) => {
+    if (req.params.capa === 'subsistema') {
+        try {
+            const data = await obtenerSubSistemasData();
+            return res.json(data.statuses);
+        } catch (e) {
+            console.error('[BIM subsistema statuses]', e.message);
+            return res.status(500).json({ error: e.message });
+        }
+    }
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
     try {
@@ -1221,11 +1335,6 @@ app.get('/api/bim/:capa/statuses', async (req, res) => {
             fetchAppSheet(capa.montajeTable).catch(() => [])
         ]);
 
-        // Antes solo se miraba si EXISTÍA fila de montaje y se repartía en dos
-        // cajones fijos. Eso contaba una válvula "Posicionada" como MONTADO, que
-        // son etapas distintas: el avance salía inflado. Ahora manda el estado
-        // real de la capa; los soportes siguen siendo binarios porque su tabla
-        // no tiene columna de estado.
         const estados = estadosMontajeDeCapa(capa, montajeRows);
 
         const result = { 'PENDIENTE': [] };

@@ -2552,30 +2552,45 @@ body.sidebar-collapsed #bim-section {
     background: #ffffff;
 }
 
-/* ===== BIM: selector de capa (Spools / Válvulas / Soportes) ===== */
+/* ===== BIM: selector de capa (Spools / Válvulas / Soportes / Sub-sistemas) ===== */
 .bim-capa-toggle {
     display: flex;
     gap: 4px;
     margin-bottom: 12px;
-    background: rgba(15, 23, 42, 0.5);
+    background: rgba(15, 23, 42, 0.6);
     border-radius: 10px;
     padding: 4px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scroll-behavior: smooth;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
 }
+
+.bim-capa-toggle::-webkit-scrollbar {
+    display: none;
+}
+
 .bim-capa-btn {
-    flex: 1;
+    flex: 1 1 0px;
+    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 5px;
-    padding: 8px 6px;
+    gap: 4px;
+    padding: 8px 4px;
     border: none;
     border-radius: 7px;
     background: transparent;
     color: rgba(255, 255, 255, 0.55);
     font-family: inherit;
-    font-size: 0.78rem;
+    font-size: 0.74rem;
     font-weight: 600;
     cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     transition: all 0.18s;
 }
 .bim-capa-btn:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, 0.06); }
@@ -2586,11 +2601,7 @@ body.sidebar-collapsed #bim-section {
 }
 .bim-capa-btn i { font-size: 0.9rem; }
 
-/* ===== BIM: identidad de color por capa =====
-   Las tres secciones compartían el mismo indigo, así que al cambiar de capa no
-   cambiaba nada salvo el botón activo: era fácil creerse en Spools estando en
-   Válvulas. Cada capa tiene ahora su color y toda la barra lateral lo refleja.
-   Añadir una capa nueva (uniones) es declarar aquí su par de variables. */
+/* ===== BIM: identidad de color por capa ===== */
 .bim-sidebar {
     --capa-color: #6366f1;                      /* Spools — indigo (el de siempre) */
     --capa-rgb: 99, 102, 241;
@@ -2602,6 +2613,7 @@ body.sidebar-collapsed #bim-section {
 }
 .bim-sidebar.capa-valvula { --capa-color: #06b6d4; --capa-rgb: 6, 182, 212; }   /* cian */
 .bim-sidebar.capa-soporte { --capa-color: #f59e0b; --capa-rgb: 245, 158, 11; }  /* ámbar */
+.bim-sidebar.capa-subsistema { --capa-color: #8b5cf6; --capa-rgb: 139, 92, 246; } /* violeta */
 
 /* El panel de vinculación es donde más dolía la confusión: se marca con el
    color de la capa a la que se está vinculando. */

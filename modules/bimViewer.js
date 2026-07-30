@@ -43,6 +43,10 @@ export const BIM_CAPA_UI = {
     soporte: {
         label: 'Soporte', buscar: 'Buscar Soporte', placeholder: 'ID/ITEM Soporte (ej: 148)',
         vincularLabel: 'ITEM Soporte (ej: 148):', vincularPlaceholder: 'ID/ITEM Soporte (ej: 148)'
+    },
+    subsistema: {
+        label: 'Sub-sistema', buscar: 'Buscar Sub-sistema', placeholder: 'Código o Nombre (ej: 03350-02-06)',
+        vincularLabel: 'Código Sub-sistema:', vincularPlaceholder: 'Ej: 03350-02-06'
     }
 };
 
@@ -55,7 +59,10 @@ export async function bimSetCapa(capa) {
     // UI: botones activos
     document.querySelectorAll('.bim-capa-btn').forEach(b => b.classList.remove('active'));
     const btn = document.getElementById(`bim-capa-${capa}`);
-    if (btn) btn.classList.add('active');
+    if (btn) {
+        btn.classList.add('active');
+        try { btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' }); } catch (e) {}
+    }
 
     // UI: color de la capa en toda la barra lateral. El CSS lee la clase y
     // redefine --capa-color, así que el tinte, el borde y el panel de
@@ -883,7 +890,9 @@ export const BIM_ORDEN_FLUJO = ['EN FABRICACIÓN', 'QAQC', 'EN PINT/REVEST.', 'R
 
 /** Unidad de la capa activa (para etiquetas de conteo). */
 export function bimUnidadCapa() {
-    return bimState.capa === 'spool' ? 'spools' : (bimState.capa === 'valvula' ? 'válvulas' : 'soportes');
+    if (bimState.capa === 'spool' || bimState.capa === 'subsistema') return 'spools';
+    if (bimState.capa === 'valvula') return 'válvulas';
+    return 'soportes';
 }
 
 /**
@@ -927,13 +936,12 @@ export function bimRenderStatusChips() {
 
     const unidad = bimUnidadCapa();
 
-    cont.innerHTML = nombres.map(st => {
+    const chipDataList = nombres.map(st => {
         const guids = statuses[st] || [];
         const sel   = bimState.filtroEstados.has(st);
         const hex   = bimRgbAHex(bimColorDeEstado(st));
         const esc   = st.replace(/'/g, "\\'");
 
-        // Número a mostrar: total real (sección Spools) si está disponible; si no, GUIDs del modelo
         let nTotal, nSinAsociar;
         if (bimState.capa === 'spool' && bimState.estadoConteos && bimState.estadoConteos[st]) {
             nTotal      = bimState.estadoConteos[st].total;
@@ -943,9 +951,22 @@ export function bimRenderStatusChips() {
             nSinAsociar = 0;
         }
 
+        return { st, guids, sel, hex, esc, nTotal, nSinAsociar };
+    });
+
+    // Si todos los badges calculados valen 1 o 0, u omitirlos para no saturar la vista
+    const todosSonUno = chipDataList.length > 0 && chipDataList.every(d => d.nTotal <= 1);
+
+    cont.innerHTML = chipDataList.map(d => {
+        const { st, sel, hex, esc, nTotal, nSinAsociar } = d;
+
         const badgeHtml = nSinAsociar > 0
             ? `<span class="bim-chip-sin-asociar" title="${nSinAsociar} sin modelo 3D">-${nSinAsociar}</span>`
             : '';
+
+        const countBadgeHtml = (todosSonUno || nTotal === 0)
+            ? ''
+            : `<span class="bim-chip-n">${nTotal}</span>`;
 
         const tieneClave = !!authObtener('bim');
         const colorElHtml = tieneClave
@@ -955,7 +976,7 @@ export function bimRenderStatusChips() {
         return `<div class="bim-chip ${sel ? 'sel' : ''}" onclick="bimToggleEstado('${esc}')" title="${nTotal} ${unidad} (${nSinAsociar > 0 ? nSinAsociar + ' sin geometría 3D' : 'todos con modelo'})">
             ${colorElHtml}
             <span class="bim-chip-nombre">${st}</span>
-            <span class="bim-chip-n">${nTotal}</span>
+            ${countBadgeHtml}
             ${badgeHtml}
         </div>`;
     }).join('');
@@ -1042,12 +1063,16 @@ export async function bimAplicarFiltroEstados() {
                 `<span style="display:inline-flex;align-items:center;gap:5px;margin:2px 8px 2px 0;font-size:0.78rem;">
                     <span style="width:10px;height:10px;border-radius:3px;background:${bimRgbAHex(bimColorDeEstado(st))}"></span>
                     ${st}</span>`).join('');
+            const liveFooter = bimState.capa === 'subsistema'
+                ? ''
+                : '<p style="font-size:0.72rem;opacity:0.7;padding:0 2px;"><i class="fas fa-satellite-dish"></i> EN VIVO: los nuevos reportes se suman solos.</p>';
+            const headerLabel = bimState.capa === 'subsistema' ? 'Sub-sistema(s)' : 'estado(s)';
             bimSetMeta(`
                 <div class="bim-meta-header" style="background: rgba(99,102,241,0.15); border-color: rgba(99,102,241,0.3);">
-                    <i class="fas fa-filter"></i><span>Filtro activo: ${seleccion.length} estado(s)</span>
+                    <i class="fas fa-filter"></i><span>Filtro activo: ${seleccion.length} ${headerLabel}</span>
                 </div>
                 <div style="padding:8px 2px; display:flex; flex-wrap:wrap; gap:4px;">${resumen}</div>
-                <p style="font-size:0.72rem;opacity:0.7;padding:0 2px;"><i class="fas fa-satellite-dish"></i> EN VIVO: los nuevos reportes se suman solos.</p>`);
+                ${liveFooter}`);
             bimLiveStart(seleccion, statuses);
         };
 
@@ -1191,6 +1216,7 @@ export const BIM_LIVE_INTERVALO_MS = 10000; // 10s (el backend consulta AppSheet
 /** Arranca el seguimiento EN VIVO de uno o varios estados. */
 export function bimLiveStart(estados, statuses) {
     bimLiveStop();
+    if (bimState.capa === 'subsistema') return;
     bimState.liveEstados = Array.isArray(estados) ? [...estados] : [estados];
     bimState.liveSets = {};
     bimState.liveEstados.forEach(st => {
@@ -1390,6 +1416,11 @@ export async function bimLiveTickLegacy() {
 
 /** Chip flotante "EN VIVO · ..." sobre el visor (multi-estado). */
 export function bimLiveChipUpdate() {
+    if (bimState.capa === 'subsistema') {
+        const existingChip = document.getElementById('bim-live-chip');
+        if (existingChip) existingChip.remove();
+        return;
+    }
     const wrapper = document.querySelector('.bim-viewer-wrapper');
     if (!wrapper || !bimState.liveEstados || !bimState.liveEstados.length) return;
     let chip = document.getElementById('bim-live-chip');
@@ -1410,7 +1441,7 @@ export function bimLiveChipUpdate() {
             else sinVinculo++;
         });
     });
-    const unidad = bimState.capa === 'spool' ? 'spools' : (bimState.capa === 'valvula' ? 'válvulas' : 'soportes');
+    const unidad = bimUnidadCapa();
     const total = tags.size || 0;
     const etiqueta = bimState.liveEstados.length === 1
         ? bimState.liveEstados[0]
