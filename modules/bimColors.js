@@ -33,6 +33,7 @@ export const BIM_STATUS_COLORS = {
 
 export const BIM_SUBSISTEMA_COLORS = {
     '03350-02-01': [1.0, 0.0, 1.0, 1],    // #FF00FF - Agua de Proceso
+    '02/01/3350':  [1.0, 0.0, 1.0, 1],    // #FF00FF - Agua de Proceso (código AppSheet)
     '03350-02-02': [0.0, 1.0, 0.0, 1],    // #00FF00 - Agua de Sello
     '03350-02-03': [1.0, 1.0, 0.0, 1],    // #FFFF00 - Concentrado Cu-Mo Espesador
     '03350-02-04': [0.0, 0.98, 0.98, 1],  // #00FAFA - Agua Recuperada
