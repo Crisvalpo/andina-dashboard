@@ -35,6 +35,7 @@ const CONFIG = {
     APS_CLIENT_ID: process.env.APS_CLIENT_ID || '',
     APS_CLIENT_SECRET: process.env.APS_CLIENT_SECRET || '',
     APS_MODEL_URN: process.env.APS_MODEL_URN || '',
+    APS_MODEL_AGUA_PROCESO_URN: process.env.APS_MODEL_AGUA_PROCESO_URN || 'dXJuOmFkc2sud2lwcHJvZDpmcy5maWxlOnZmLkYtMlJ5bHRvUzJ5VjMxT2ZoamxXTkE_dmVyc2lvbj03',
 
     // --- OpenAI Realtime (Luke Voice Agent) ---
     OPENAI_API_KEY: process.env.OPENAI_API_KEY || '',

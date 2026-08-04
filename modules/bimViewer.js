@@ -152,7 +152,17 @@ export async function initBimViewer() {
         if (!resp.ok) throw new Error(`Error ${resp.status} obteniendo token APS`);
         const data = await resp.json();
         bimState.token    = data.access_token;
-        bimState.modelUrn = data.model_urn;
+        if (data.models && data.models.length > 0) {
+            bimState.availableModels = data.models;
+            const targetModel = data.models.find(m => m.id === bimState.selectedModelId) || data.models[0];
+            bimState.selectedModelId = targetModel.id;
+            bimState.modelUrn = targetModel.urn;
+
+            const sel = document.getElementById('bim-model-select');
+            if (sel) sel.value = targetModel.id;
+        } else {
+            bimState.modelUrn = data.model_urn;
+        }
 
         // 2. Verificar que el URN esté configurado
         if (!bimState.modelUrn || bimState.modelUrn === 'TU_URN_DEL_MODELO_EN_BASE64_AQUI') {
@@ -255,11 +265,6 @@ export function bimStartViewer() {
                         }).catch(err => console.error('[BIM] Error precargando datos iniciales:', err));
 
                         // Pre-cargar el índice TAG -> { id_spool, tag_gestion } para mostrar el ID largo
-                        fetch('/api/bim/spool-index')
-                            .then(r => r.json())
-                            .then(data => { bimState.spoolIndex = data; })
-                            .catch(err => console.error('[BIM] Error precargando índice de spools:', err));
-
                         // Herramienta "Dividir tramo" en la toolbar APS + divisiones guardadas
                         bimDividirInit();
 
@@ -280,7 +285,7 @@ export function bimStartViewer() {
                                 // Obtener propiedades de todos los elementos seleccionados en un único bloque
                                 viewer.model.getBulkProperties(
                                     dbIdArray,
-                                    { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'Layer', 'PnPGuid', 'PnPGUID'] },
+                                    { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'Layer', 'PnPGuid', 'PnPGUID', 'Tag', 'TAG', 'Line Number', 'LineNumber', 'Item Code', 'Spool', 'SPOOL', 'CWP'] },
                                     (results) => {
                                         const selectedList = [];
                                         const uniqueLayers = new Set();
@@ -289,18 +294,35 @@ export function bimStartViewer() {
                                             let guid = pResult.externalId || '';
                                             let layer = '';
                                             let sourceFile = '';
+                                            let tag = '';
+                                            let lineNo = '';
+                                            let spool = '';
+                                            let cwp = '';
                                             
                                             if (pResult.properties) {
                                                 pResult.properties.forEach(prop => {
                                                     const propName = String(prop.displayName || prop.attributeName || '').toLowerCase();
+                                                    const val = String(prop.displayValue || '').trim();
                                                     if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(propName)) {
-                                                        guid = String(prop.displayValue || '').trim();
+                                                        guid = val;
                                                     }
                                                     if (propName === 'layer') {
-                                                        layer = String(prop.displayValue || '').trim();
+                                                        layer = val;
                                                     }
                                                     if (propName === 'source file') {
-                                                        sourceFile = String(prop.displayValue || '').trim();
+                                                        sourceFile = val;
+                                                    }
+                                                    if (['tag', 'item tag'].includes(propName)) {
+                                                        tag = val;
+                                                    }
+                                                    if (['line number', 'linenumber', 'line'].includes(propName)) {
+                                                        lineNo = val;
+                                                    }
+                                                    if (['spool', 'spool lukeapp', 'tag gestion'].includes(propName)) {
+                                                        spool = val;
+                                                    }
+                                                    if (propName === 'cwp') {
+                                                        cwp = val;
                                                     }
                                                 });
                                             }
@@ -311,7 +333,11 @@ export function bimStartViewer() {
                                                     guid: guid,
                                                     layer: layer,
                                                     sourceFile: sourceFile,
-                                                    name: pResult.name || 'ACPPPIPE'
+                                                    name: pResult.name || 'ACPPPIPE',
+                                                    tag: tag,
+                                                    lineNo: lineNo,
+                                                    spool: spool,
+                                                    cwp: cwp
                                                 });
                                                 if (layer) uniqueLayers.add(layer);
                                             }
@@ -320,10 +346,10 @@ export function bimStartViewer() {
                                         if (selectedList.length > 0) {
                                             bimState.selectedElements = selectedList;
 
-                                             // Capa válvulas/soportes: flujo simple (1 elemento = 1 ítem, sin auto-grupo)
+                                             // Capa válvulas/soportes/subsistemas: flujo simple (1 elemento = 1 ítem, sin auto-grupo)
                                             if (bimState.capa !== 'spool') {
                                                 bimRenderCapaSelection(bimState.capa, selectedList, uniqueLayers);
-                                                if (panel) panel.style.display = authObtener('bim') ? 'flex' : 'none';
+                                                if (panel) panel.style.display = 'flex';
                                                 return;
                                             }
 
@@ -476,6 +502,55 @@ export function bimStartViewer() {
             );
         });
     });
+}
+
+/** Cambia el modelo 3D cargado en el visor de Autodesk */
+export async function bimCambiarModelo(modelKey) {
+    if (!bimState.viewer) return;
+    const models = bimState.availableModels || [];
+    const modelObj = models.find(m => m.id === modelKey) || { id: modelKey, urn: bimState.modelUrn, label: modelKey };
+    if (!modelObj.urn) return;
+
+    bimSetLoader(`Cargando modelo ${modelObj.label || modelKey}...`);
+    bimState.modelUrn = modelObj.urn;
+    bimState.selectedModelId = modelKey;
+
+    const urn = modelObj.urn.startsWith('urn:')
+        ? btoa(modelObj.urn).replace(/=/g, '')
+        : modelObj.urn;
+
+    if (bimState.viewer.model) {
+        bimState.viewer.unloadModel(bimState.viewer.model);
+    }
+
+    Autodesk.Viewing.Document.load(
+        `urn:${urn}`,
+        (doc) => {
+            const viewables = doc.getRoot().getDefaultGeometry();
+            bimState.viewer.loadDocumentNode(doc, viewables).then(() => {
+                bimState.viewer.setGhosting(true);
+                const loader = document.getElementById('bim-loader');
+                if (loader) loader.style.display = 'none';
+
+                // Re-inicializar herramientas de división y aislamiento
+                bimDividirInit();
+                bimIsoColorInit();
+
+                // Refrescar capa activa y filtros por estado
+                if (bimState.filtroEstados && bimState.filtroEstados.size > 0) {
+                    bimAplicarFiltroEstados();
+                } else {
+                    bimSetCapa(bimState.capa || 'spool');
+                }
+
+                console.log(`[BIM] Modelo ${modelObj.label || modelKey} cargado y reconfigurado con éxito.`);
+            });
+        },
+        (errCode, errMsg) => {
+            console.error('[BIM] Error cargando modelo:', errCode, errMsg);
+            bimSetLoader(`❌ Error cargando modelo: ${errMsg}`, true);
+        }
+    );
 }
 
 /** Busca un spool desde la caja de búsqueda manual */
@@ -1064,7 +1139,18 @@ export async function bimAplicarFiltroEstados() {
                     <span style="width:10px;height:10px;border-radius:3px;background:${bimRgbAHex(bimColorDeEstado(st))}"></span>
                     ${st}</span>`).join('');
             const liveFooter = bimState.capa === 'subsistema'
-                ? ''
+                ? `<div style="padding:6px 2px;">
+                     <button onclick="bimSubsistemaVerPorEstado()" style="
+                        display:inline-flex;align-items:center;gap:6px;
+                        padding:7px 14px;font-size:0.78rem;font-weight:600;
+                        border:1px solid rgba(16,185,129,0.5);
+                        background:linear-gradient(135deg,rgba(16,185,129,0.2),rgba(5,150,105,0.15));
+                        color:#6ee7b7;border-radius:8px;cursor:pointer;
+                        transition:all 0.2s ease;
+                     " onmouseover="this.style.background='rgba(16,185,129,0.35)'" onmouseout="this.style.background='linear-gradient(135deg,rgba(16,185,129,0.2),rgba(5,150,105,0.15))'">
+                        <i class="fas fa-palette"></i> Ver por Estado de Spool
+                     </button>
+                   </div>`
                 : '<p style="font-size:0.72rem;opacity:0.7;padding:0 2px;"><i class="fas fa-satellite-dish"></i> EN VIVO: los nuevos reportes se suman solos.</p>';
             const headerLabel = bimState.capa === 'subsistema' ? 'Sub-sistema(s)' : 'estado(s)';
             bimSetMeta(`
@@ -1089,6 +1175,114 @@ export async function bimAplicarFiltroEstados() {
         });
     } catch (err) {
         console.error('[BIM Filtro Estados]', err);
+        bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error: ${err.message}</p></div>`);
+    }
+}
+
+/**
+ * Aísla los elementos de un subsistema seleccionado y los colorea según
+ * el estado de fabricación de sus spools (EN FABRICACIÓN, QAQC, MONTADO, etc.)
+ * Se activa con el botón "Ver por Estado" que aparece al filtrar un subsistema.
+ */
+export async function bimSubsistemaVerPorEstado() {
+    if (!bimState.initialized) return;
+    const seleccion = [...bimState.filtroEstados];
+    if (!seleccion.length) return;
+
+    // Soporta un solo subsistema o el primero seleccionado
+    const subsistemaId = seleccion[0];
+    bimSetMetaCargando(`Coloreando por estado: ${subsistemaId}...`);
+
+    try {
+        const resp = await fetch(`/api/bim/subsistema/${encodeURIComponent(subsistemaId)}/por-estado`);
+        if (!resp.ok) throw new Error(`Error ${resp.status}`);
+        const data = await resp.json();
+
+        if (!data.statuses || !Object.keys(data.statuses).length) {
+            bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-info-circle"></i><p>No se encontraron estados de spool para <strong>${subsistemaId}</strong></p></div>`);
+            return;
+        }
+
+        const viewer = bimState.viewer;
+        viewer.clearThemingColors(viewer.model);
+
+        const estados = Object.keys(data.statuses);
+        let acumulados = [];
+        let pendientes = estados.length;
+
+        const finalizar = () => {
+            bimState.dbIds = [...new Set(acumulados)].filter(id => !divState.ocultos.includes(id));
+            if (bimState.dbIds.length) {
+                viewer.isolate(bimState.dbIds);
+                viewer.fitToView(bimState.dbIds);
+            } else {
+                viewer.isolate([]);
+            }
+            bimDivReocultarOriginales();
+
+            const actionsEl = document.getElementById('bim-actions');
+            if (actionsEl) actionsEl.style.display = 'flex';
+            if (window.innerWidth <= 1024) bimCloseSidebar();
+
+            // Resumen visual con leyenda de colores en SPOOLS
+            const resumenHtml = estados.map(st => {
+                const guids = data.statuses[st] || [];
+                const hex = bimRgbAHex(bimColorDeEstado(st));
+                const nSpools = (data.spoolCounts && data.spoolCounts[st] !== undefined)
+                    ? data.spoolCounts[st]
+                    : bimContarSpools(guids);
+                return `<div style="display:flex;align-items:center;gap:6px;padding:3px 0;font-size:0.78rem;">
+                    <span style="width:12px;height:12px;border-radius:3px;background:${hex};flex-shrink:0;"></span>
+                    <span style="flex:1;">${st}</span>
+                    <span style="opacity:0.85;font-size:0.75rem;font-weight:600;">${nSpools} ${nSpools === 1 ? 'spool' : 'spools'}</span>
+                </div>`;
+            }).join('');
+
+            const btnVolverHtml = `<button onclick="bimAplicarFiltroEstados()" style="margin-top:8px;padding:5px 12px;font-size:0.75rem;border:1px solid rgba(139,92,246,0.4);background:rgba(139,92,246,0.15);color:#c4b5fd;border-radius:6px;cursor:pointer;">
+                <i class="fas fa-arrow-left"></i> Volver al filtro de subsistema
+            </button>`;
+
+            // Filtrar y colorear trozos divididos que pertenecen a este subsistema
+            const statusDe = bimStatusPorGuid();
+            const subMapeo = bimState.capaMapeo['subsistema'] || {};
+            for (const [key, mesh] of Object.entries(divState.trozoMeshes || {})) {
+                const parentGuid = String(mesh?.userData?.guid || '').toLowerCase();
+                const keyLower = key.toLowerCase();
+                const subLabel = subMapeo[keyLower] || subMapeo[parentGuid] || '';
+                if (subLabel.toLowerCase() === subsistemaId.toLowerCase()) {
+                    mesh.visible = true;
+                    const st = statusDe[keyLower] || statusDe[parentGuid] || 'SIN ESTADO';
+                    bimTrozoPintarPorEstado(mesh, st);
+                } else {
+                    mesh.visible = false;
+                }
+            }
+            if (bimState.viewer?.impl) bimState.viewer.impl.invalidate(false, false, true);
+
+            bimSetMeta(`
+                <div class="bim-meta-header" style="background: rgba(16,185,129,0.15); border-color: rgba(16,185,129,0.3);">
+                    <i class="fas fa-palette"></i><span>${subsistemaId} — por Estado</span>
+                </div>
+                <div style="padding:8px 4px;">${resumenHtml}</div>
+                <div style="padding:4px; font-size:0.72rem; opacity:0.6;">
+                    <i class="fas fa-cubes"></i> ${data.total} elementos 3D totales
+                </div>
+                ${btnVolverHtml}`);
+        };
+
+        estados.forEach(st => {
+            const gs = (data.statuses[st] || []).filter(g => !g.includes('#p'));
+            if (!gs.length) { if (--pendientes === 0) finalizar(); return; }
+            bimGuidsToDbIds(gs, (ids) => {
+                acumulados = acumulados.concat(ids);
+                const [r, g, b, a] = bimColorDeEstado(st);
+                const col = new THREE.Vector4(r, g, b, a);
+                ids.forEach(id => viewer.setThemingColor(id, col, viewer.model, true));
+                if (--pendientes === 0) finalizar();
+            });
+        });
+    } catch (err) {
+        console.error('[BIM Subsistema por Estado]', err);
         bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error: ${err.message}</p></div>`);
     }
 }
@@ -2569,10 +2763,20 @@ export function bimStatusPorGuid() {
  */
 export function bimDivFiltrarTrozos(seleccionSet) {
     const statusDe = bimStatusPorGuid();
+    const subMapeo = bimState.capaMapeo['subsistema'] || {};
+
     for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
-        const st = statusDe[key] || 'SIN ESTADO';
+        const parentGuid = String(mesh?.userData?.guid || '').toLowerCase();
+        const keyLower = key.toLowerCase();
+        const st = statusDe[keyLower] || statusDe[parentGuid] || 'SIN ESTADO';
+
         if (seleccionSet) {
-            mesh.visible = seleccionSet.has(st);
+            if (bimState.capa === 'subsistema') {
+                const subLabel = subMapeo[keyLower] || subMapeo[parentGuid] || 'SIN SUBSISTEMA';
+                mesh.visible = seleccionSet.has(subLabel);
+            } else {
+                mesh.visible = seleccionSet.has(st);
+            }
             if (mesh.visible) bimTrozoPintarPorEstado(mesh, st);
         } else {
             mesh.visible = true;
@@ -3186,12 +3390,12 @@ export function bimSetLoader(msg, isError = false) {
 }
 
 /**
- * Pinta el panel de vinculación para capas válvula/soporte.
+ * Pinta el panel de vinculación para capas válvula/soporte/subsistema.
  * A diferencia de spools, aquí 1 elemento = 1 ítem (sin auto-grupo).
  */
 export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
     bimResetUnlinkMenu();
-    const ui = BIM_CAPA_UI[capa];
+    const ui = BIM_CAPA_UI[capa] || BIM_CAPA_UI['spool'];
     const mapeo = bimState.capaMapeo[capa] || {};
     const index = bimState.capaIndex[capa] || {};
 
@@ -3203,15 +3407,83 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
 
     // Título del panel
     const linkTitle = document.querySelector('#bim-link-panel h4');
-    if (linkTitle) linkTitle.innerHTML = `<i class="fas fa-link"></i> Vincular ${ui.label} (${selectedList.length} selec.)`;
+    if (linkTitle) linkTitle.innerHTML = `<i class="fas fa-link"></i> ${capa === 'subsistema' ? 'Detalle Sub-sistema' : 'Vincular ' + ui.label} (${selectedList.length} selec.)`;
 
-    // IDs ya vinculados en la selección
-    const idsSel = [...new Set(selectedList.map(el => mapeo[el.guid.toLowerCase()]).filter(Boolean))];
     const statusContainer = document.getElementById('bim-link-status-container');
     const infoEl = document.getElementById('bim-link-spool-info');
     const inputEl = document.getElementById('bim-link-spool');
+    const fieldContainer = document.querySelector('#bim-link-panel .bim-link-field');
 
-    // La etiqueta y el placeholder del campo los fija bimSetCapa (una sola fuente)
+    // Manejo específico para capa subsistemas
+    if (capa === 'subsistema') {
+        if (fieldContainer) fieldContainer.style.display = 'none';
+        const btnSave = document.getElementById('bim-link-btn');
+        if (btnSave) btnSave.style.display = 'none';
+
+        if (selectedList.length === 1) {
+            const elObj = selectedList[0];
+            fetch(`/api/bim/elemento/${encodeURIComponent(elObj.guid)}`)
+                .then(r => r.json())
+                .then(info => {
+                    if (info && info.guid) {
+                        if (!info.tagLinea || info.tagLinea === 'N/A') info.tagLinea = elObj.tag || elObj.lineNo || info.tag;
+                        if (!info.spool || info.spool === 'SIN SPOOL') info.spool = elObj.spool || info.spool;
+
+                        if (statusContainer) statusContainer.style.display = 'flex';
+                        if (infoEl) {
+                            const hex = bimRgbAHex(bimColorDeEstado(String(info.status).toUpperCase()));
+                            infoEl.innerHTML = `
+                                <div style="font-size:0.85rem;font-weight:700;color:#c4b5fd;margin-bottom:3px;display:flex;align-items:center;gap:6px;">
+                                    <i class="fas fa-tag"></i> <span>TAG: ${info.tagLinea || info.tag}</span>
+                                </div>
+                                <div style="font-size:0.78rem;color:#e2e8f0;display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+                                    <span>Spool: <strong>${info.spool}</strong></span>
+                                    <span class="status-pill" style="font-size:0.68rem;padding:2px 7px;background:${hex};color:#fff;font-weight:600;">${info.status}</span>
+                                </div>
+                                <div style="font-size:0.72rem;color:#a78bfa;margin-top:2px;">
+                                    <i class="fas fa-sitemap"></i> ${info.subsistema}
+                                </div>`;
+                        }
+                        bimRenderElementoMeta(info);
+                    }
+                })
+                .catch(err => console.error('[BIM Elemento Info Error]', err));
+        } else {
+            const guids = selectedList.map(x => x.guid);
+            fetch('/api/bim/elementos-info', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ guids })
+            })
+            .then(r => r.json())
+            .then(res => {
+                const elems = Object.values(res.elements || {});
+                const tags = [...new Set(elems.map(e => e.tagLinea || e.tag).filter(Boolean))];
+                const spools = [...new Set(elems.map(e => e.spool).filter(Boolean))];
+                const subs = [...new Set(elems.map(e => e.subsistema).filter(Boolean))];
+
+                if (statusContainer) statusContainer.style.display = 'flex';
+                if (infoEl) {
+                    infoEl.innerHTML = `
+                        <div style="font-size:0.85rem;font-weight:700;color:#c4b5fd;margin-bottom:2px;">
+                            ${selectedList.length} Elementos Seleccionados
+                        </div>
+                        <div style="font-size:0.75rem;opacity:0.9;">TAGs: ${tags.join(', ') || 'N/A'}</div>
+                        <div style="font-size:0.72rem;opacity:0.75;">Spools: ${spools.join(', ') || 'N/A'}</div>`;
+                }
+                bimRenderMultiElementoMeta(selectedList.length, tags, spools, subs, elems);
+            })
+            .catch(err => console.error('[BIM Multi Elemento Info Error]', err));
+        }
+        return;
+    }
+
+    if (fieldContainer) fieldContainer.style.display = 'block';
+    const btnSave = document.getElementById('bim-link-btn');
+    if (btnSave) btnSave.style.display = 'block';
+
+    // IDs ya vinculados en la selección
+    const idsSel = [...new Set(selectedList.map(el => mapeo[el.guid.toLowerCase()]).filter(Boolean))];
 
     if (idsSel.length > 0) {
         if (statusContainer) statusContainer.style.display = 'flex';
@@ -3251,8 +3523,87 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
     if (btn) { btn.innerHTML = `<i class="fas fa-save"></i> Guardar ${selectedList.length} elem.`; btn.disabled = false; btn.style.opacity = '1'; }
 }
 
+/** Renderiza la tarjeta consolidada con el TAG del elemento, Spool, Sub-sistema y metadatos. */
+export function bimRenderElementoMeta(data) {
+    if (!data) return;
+    const estado = String(data.status || 'SIN ESTADO').toUpperCase();
+    const hexColor = (typeof bimRgbAHex === 'function' && typeof bimColorDeEstado === 'function')
+        ? bimRgbAHex(bimColorDeEstado(estado))
+        : '#8b5cf6';
+    
+    const tagVal = (data.tagLinea && data.tagLinea !== 'N/A') ? data.tagLinea : data.tag;
+
+    const fields = [
+        { label: 'TAG Elemento / Línea', value: tagVal, icon: 'fa-tag', highlight: true },
+        { label: 'Spool (TAG Gestión)', value: data.spool, icon: 'fa-industry' },
+        { label: 'Estado del Spool', value: estado, icon: 'fa-circle-dot', estado: true },
+        { label: 'Sub-sistema', value: data.subsistema, icon: 'fa-sitemap' },
+        { label: 'CWP', value: data.cwp, icon: 'fa-map-marker-alt' },
+        { label: 'Descripción', value: data.descripcion, icon: 'fa-info-circle' },
+        { label: 'Diámetro / Tamaño', value: data.size, icon: 'fa-ruler' },
+        { label: 'GUID 3D', value: data.guid, icon: 'fa-barcode' }
+    ].filter(f => f.value && f.value !== 'N/A');
+
+    const renderCard = f => {
+        const dot = f.estado
+            ? `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;background:${hexColor};"></span>`
+            : '';
+        const highlightStyle = f.highlight
+            ? 'background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.4); border-left: 4px solid #8b5cf6;'
+            : '';
+        const valueStyle = f.highlight
+            ? 'color: #c4b5fd; font-weight: 700; font-size: 0.92rem;'
+            : '';
+
+        return `
+        <div class="bim-meta-card" style="${highlightStyle}">
+            <span class="bim-meta-icon-sm" style="${f.highlight ? 'color:#a78bfa;' : ''}"><i class="fas ${f.icon}"></i></span>
+            <div>
+                <span class="bim-meta-label">${f.label}</span>
+                <span class="bim-meta-value" style="${valueStyle}">${dot}${f.value}</span>
+            </div>
+        </div>`;
+    };
+
+    const mainCards = fields.map(renderCard).join('');
+
+    bimSetMeta(`
+        <div class="bim-meta-header" style="background: rgba(139,92,246,0.2); border-color: rgba(139,92,246,0.4);">
+            <i class="fas fa-tag" style="color: #a78bfa;"></i>
+            <span style="font-weight:700;">${tagVal}</span>
+            <span class="bim-badge" style="background:#8b5cf6;">TAG</span>
+        </div>
+        <div class="bim-meta-cards">${mainCards}</div>`);
+}
+
+/** Renderiza la tarjeta resumen para múltiple selección de elementos 3D. */
+export function bimRenderMultiElementoMeta(count, tags, spools, subs, elems) {
+    const renderList = (arr) => arr.length ? arr.map(x => `<span class="status-pill" style="font-size:0.7rem;background:rgba(255,255,255,0.08);">${x}</span>`).join(' ') : '<span style="opacity:0.5;">N/A</span>';
+    
+    bimSetMeta(`
+        <div class="bim-meta-header" style="background: rgba(139,92,246,0.2); border-color: rgba(139,92,246,0.4);">
+            <i class="fas fa-layer-group" style="color: #a78bfa;"></i>
+            <span>${count} Elementos Seleccionados</span>
+        </div>
+        <div style="padding:10px 4px; display:flex; flex-direction:column; gap:8px; font-size:0.8rem;">
+            <div>
+                <span style="display:block;font-size:0.72rem;opacity:0.6;margin-bottom:2px;">TAGs de Línea (${tags.length})</span>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;">${renderList(tags)}</div>
+            </div>
+            <div>
+                <span style="display:block;font-size:0.72rem;opacity:0.6;margin-bottom:2px;">Spools (${spools.length})</span>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;">${renderList(spools)}</div>
+            </div>
+            <div>
+                <span style="display:block;font-size:0.72rem;opacity:0.6;margin-bottom:2px;">Sub-sistemas (${subs.length})</span>
+                <div style="display:flex;flex-wrap:wrap;gap:4px;">${renderList(subs)}</div>
+            </div>
+        </div>`);
+}
+
 /** Renderiza la ficha (metadata + estado montaje) de una válvula/soporte. */
 export async function bimRenderCapaMeta(capa, id) {
+    if (capa === 'subsistema') return;
     const index = bimState.capaIndex[capa] || {};
     const row = index[id.toLowerCase()];
     const label = row?._label || id;
@@ -3868,6 +4219,7 @@ export async function bimSaveLink() {
 // desde onclick; bim-ifc-export.js (script clásico) usa divState,
 // bimStatusPorGuid y bimSetMeta.
 if (typeof window !== 'undefined') {
+    window.bimCambiarModelo         = bimCambiarModelo;
     window.bimCloseScanner          = bimCloseScanner;
     window.bimCloseSidebar          = bimCloseSidebar;
     window.bimDivMostrarModelo      = bimDivMostrarModelo;
@@ -3889,6 +4241,8 @@ if (typeof window !== 'undefined') {
     window.bimSetMeta               = bimSetMeta;
     window.bimStatusPorGuid         = bimStatusPorGuid;
     window.bimToggleEstado          = bimToggleEstado;
+    window.bimSubsistemaVerPorEstado = bimSubsistemaVerPorEstado;
+    window.bimAplicarFiltroEstados  = bimAplicarFiltroEstados;
     window.bimToggleElementsList    = bimToggleElementsList;
     window.bimToggleMetaExtra       = bimToggleMetaExtra;
     window.bimToggleSidebar         = bimToggleSidebar;
@@ -3897,5 +4251,7 @@ if (typeof window !== 'undefined') {
     window.bimTrozoEditarDivision   = bimTrozoEditarDivision;
     window.bimTrozoEliminarDivision = bimTrozoEliminarDivision;
     window.bimTrozoVincular         = bimTrozoVincular;
+    window.bimRenderElementoMeta    = bimRenderElementoMeta;
+    window.bimRenderMultiElementoMeta = bimRenderMultiElementoMeta;
     window.divState                 = divState;
 }

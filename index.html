@@ -812,6 +812,17 @@
             <!-- capa-spool: color inicial de la sección; bimSetCapa lo reemplaza -->
             <aside class="bim-sidebar glass capa-spool">
 
+                <!-- Selector de Modelo 3D Autodesk -->
+                <div class="bim-model-select-wrapper" style="padding: 10px 14px 4px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+                    <label class="bim-search-label" for="bim-model-select" style="margin-bottom: 4px; font-size: 0.75rem; color: var(--text-dim);">
+                        <i class="fas fa-cube"></i> Modelo 3D Autodesk
+                    </label>
+                    <select id="bim-model-select" class="bim-search-input" style="width: 100%; cursor: pointer; font-size: 0.8rem; padding: 6px 10px;" onchange="bimCambiarModelo(this.value)">
+                        <option value="general" selected>VCAD ANDINA 11-01 (General Piping)</option>
+                        <option value="agua_proceso">VCAD ANDINA 11-02.nwd (Agua de Proceso / Subsistemas)</option>
+                    </select>
+                </div>
+
                 <!-- Selector de capa: Spools / Válvulas / Soportes / Sub-sistemas -->
                 <div class="bim-capa-toggle">
                     <button class="bim-capa-btn active" id="bim-capa-spool" onclick="bimSetCapa('spool')">

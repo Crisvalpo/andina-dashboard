@@ -13,6 +13,8 @@ export const bimState = {
     dbIds:         [],     // dbIds correspondientes en el viewer
     token:         null,
     modelUrn:      null,
+    selectedModelId: 'agua_proceso',
+    availableModels: [],
     statusesCache: null,   // Caché de { status: [guids] }
     selectedElement: null, // Elemento 3D clickeado actualmente
     selectedElements: [],  // Múltiples elementos 3D clickeados
