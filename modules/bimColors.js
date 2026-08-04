@@ -32,16 +32,26 @@ export const BIM_STATUS_COLORS = {
 };
 
 export const BIM_SUBSISTEMA_COLORS = {
-    '03350-02-01': [1.0, 0.0, 1.0, 1],    // #FF00FF - Agua de Proceso
-    '02/01/3350':  [1.0, 0.0, 1.0, 1],    // #FF00FF - Agua de Proceso (código AppSheet)
-    '03350-02-02': [0.0, 1.0, 0.0, 1],    // #00FF00 - Agua de Sello
-    '03350-02-03': [1.0, 1.0, 0.0, 1],    // #FFFF00 - Concentrado Cu-Mo Espesador
-    '03350-02-04': [0.0, 0.98, 0.98, 1],  // #00FAFA - Agua Recuperada
-    '03350-02-05': [1.0, 0.0, 0.0, 1],    // #FF0000 - Colectivo Cu-Mo Tie In 001
-    '03350-02-06': [0.44, 0.19, 0.63, 1],  // #7030A0 - Colas Primarias Limpieza
-    '03350-02-07': [0.49, 0.21, 0.05, 1],  // #7E350E - Aire Instrumentación
-    '03350-02-08': [0.39, 0.10, 0.36, 1],  // #641A5B - Contención de derrames
-    '03350-02-09': [1.0, 0.75, 0.0, 1],   // #FFC000 - Red de Incendio
+    '03350-02-01': [1.0, 0.0, 1.0, 1],                  // #FF00FF - Agua de Proceso
+    '03350-02-01 - Agua de Proceso': [1.0, 0.0, 1.0, 1], // #FF00FF - Agua de Proceso
+    '02/01/3350':  [1.0, 0.0, 1.0, 1],                  // #FF00FF - Agua de Proceso
+    '02/01/3350 - AGUA DE PROCESO': [1.0, 0.0, 1.0, 1],  // #FF00FF - Agua de Proceso
+    '03350-02-02': [0.0, 1.0, 0.0, 1],                  // #00FF00 - Agua de Sello
+    '03350-02-02 - Agua de Sello': [0.0, 1.0, 0.0, 1],   // #00FF00 - Agua de Sello
+    '03350-02-03': [1.0, 1.0, 0.0, 1],                  // #FFFF00 - Concentrado Cu-Mo Espesador
+    '03350-02-03 - Concentrado Cu-Mo Espesador': [1.0, 1.0, 0.0, 1],
+    '03350-02-04': [0.0, 0.98, 0.98, 1],                // #00FAFA - Agua Recuperada
+    '03350-02-04 - Agua Recuperada': [0.0, 0.98, 0.98, 1],
+    '03350-02-05': [1.0, 0.0, 0.0, 1],                  // #FF0000 - Colectivo Cu-Mo Tie In 001
+    '03350-02-05 - Colectivo Cu-Mo Tie In 001': [1.0, 0.0, 0.0, 1],
+    '03350-02-06': [0.44, 0.19, 0.63, 1],                // #7030A0 - Colas Primarias Limpieza
+    '03350-02-06 - Colas Primarias Limpieza': [0.44, 0.19, 0.63, 1],
+    '03350-02-07': [0.49, 0.21, 0.05, 1],                // #7E350E - Aire Instrumentación
+    '03350-02-07 - Aire Instrumentación': [0.49, 0.21, 0.05, 1],
+    '03350-02-08': [0.39, 0.10, 0.36, 1],                // #641A5B - Contención de derrames
+    '03350-02-08 - Contención de derrames': [0.39, 0.10, 0.36, 1],
+    '03350-02-09': [1.0, 0.75, 0.0, 1],                 // #FFC000 - Red de Incendio
+    '03350-02-09 - Red de Incendio': [1.0, 0.75, 0.0, 1],
     'SIN SUBSISTEMA': [0.50, 0.50, 0.50, 1]
 };
 

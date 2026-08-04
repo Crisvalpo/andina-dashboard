@@ -1146,6 +1146,63 @@ const TABLAS_SUBSISTEMAS = [
     'AIRE INSTRUMENTACIÓN'
 ];
 
+const CANONICAL_SUBSYSTEM_LABELS = {
+    '02/01/3350': '03350-02-01 - Agua de Proceso',
+    '02-01-3350': '03350-02-01 - Agua de Proceso',
+    '03350-02-01': '03350-02-01 - Agua de Proceso',
+
+    '02/02/3350': '03350-02-02 - Agua de Sello',
+    '02-02-3350': '03350-02-02 - Agua de Sello',
+    '03350-02-02': '03350-02-02 - Agua de Sello',
+
+    '02/03/3350': '03350-02-03 - Concentrado Cu-Mo Espesador',
+    '02-03-3350': '03350-02-03 - Concentrado Cu-Mo Espesador',
+    '03350-02-03': '03350-02-03 - Concentrado Cu-Mo Espesador',
+
+    '02/04/3350': '03350-02-04 - Agua Recuperada',
+    '02-04-3350': '03350-02-04 - Agua Recuperada',
+    '03350-02-04': '03350-02-04 - Agua Recuperada',
+
+    '02/05/3350': '03350-02-05 - Colectivo Cu-Mo Tie In 001',
+    '02-05-3350': '03350-02-05 - Colectivo Cu-Mo Tie In 001',
+    '03350-02-05': '03350-02-05 - Colectivo Cu-Mo Tie In 001',
+
+    '02/06/3350': '03350-02-06 - Colas Primarias Limpieza',
+    '02-06-3350': '03350-02-06 - Colas Primarias Limpieza',
+    '03350-02-06': '03350-02-06 - Colas Primarias Limpieza',
+
+    '02/07/3350': '03350-02-07 - Aire Instrumentación',
+    '02-07-3350': '03350-02-07 - Aire Instrumentación',
+    '03350-02-07': '03350-02-07 - Aire Instrumentación',
+
+    '02/08/3350': '03350-02-08 - Contención de derrames',
+    '02-08-3350': '03350-02-08 - Contención de derrames',
+    '03350-02-08': '03350-02-08 - Contención de derrames',
+
+    '02/09/3350': '03350-02-09 - Red de Incendio',
+    '02-09-3350': '03350-02-09 - Red de Incendio',
+    '03350-02-09': '03350-02-09 - Red de Incendio'
+};
+
+function resolverCanonicalLabel(code, desc) {
+    if (!code && !desc) return '';
+    const cleanCode = String(code || '').trim();
+    if (CANONICAL_SUBSYSTEM_LABELS[cleanCode]) return CANONICAL_SUBSYSTEM_LABELS[cleanCode];
+
+    const descLower = String(desc || '').toLowerCase();
+    if (descLower.includes('agua de proceso')) return '03350-02-01 - Agua de Proceso';
+    if (descLower.includes('agua de sello')) return '03350-02-02 - Agua de Sello';
+    if (descLower.includes('espesador')) return '03350-02-03 - Concentrado Cu-Mo Espesador';
+    if (descLower.includes('agua recuperada')) return '03350-02-04 - Agua Recuperada';
+    if (descLower.includes('colectivo cu-mo')) return '03350-02-05 - Colectivo Cu-Mo Tie In 001';
+    if (descLower.includes('colas primarias')) return '03350-02-06 - Colas Primarias Limpieza';
+    if (descLower.includes('aire instrumentaci')) return '03350-02-07 - Aire Instrumentación';
+    if (descLower.includes('derrames')) return '03350-02-08 - Contención de derrames';
+    if (descLower.includes('incendio')) return '03350-02-09 - Red de Incendio';
+
+    return desc ? `${cleanCode} - ${desc}` : cleanCode;
+}
+
 // Helper para extraer la información de subsistemas desde LIST_Juntas_MS_, las tablas de subsistemas y LIST_Bim_MS
 async function obtenerSubSistemasData() {
     const [bimRows, juntasRows, ...subsystemTablesRows] = await Promise.all([
@@ -1183,25 +1240,28 @@ async function obtenerSubSistemasData() {
     const statuses = {};
     const mapeo = {};
 
-    const registrarSubsystemIndex = (code, desc, label) => {
-        if (!code) return;
-        const cLower = code.toLowerCase();
-        const item = { code, desc, label, _label: label };
-        subIndex[cLower] = item;
-        // Aliasing para formatos como 03350-02-01 vs 02/01/3350
+    const registrarSubsystemIndex = (code, desc) => {
+        const label = resolverCanonicalLabel(code, desc);
+        if (!label) return '';
+        const item = { code: code || label, desc: desc || label, label, _label: label };
+        if (code) subIndex[code.toLowerCase()] = item;
+        subIndex[label.toLowerCase()] = item;
+        // Aliases comunes entre 03350-02-01 y 02/01/3350
         if (code === '02/01/3350' || code === '02-01-3350') subIndex['03350-02-01'] = item;
-        if (code === '03350-02-01') subIndex['02/01/3350'] = item;
+        if (code === '03350-02-01') {
+            subIndex['02/01/3350'] = item;
+            subIndex['02-01-3350'] = item;
+        }
         if (!statuses[label]) statuses[label] = [];
+        return label;
     };
 
     const procesarFilasSubsistema = (filas) => {
         (filas || []).forEach(r => {
             const code = getSubsystemCode(r);
-            if (!code) return;
             const desc = getSystemDesc(r);
-            const label = desc ? `${code} - ${desc}` : code;
-
-            registrarSubsystemIndex(code, desc, label);
+            const label = registrarSubsystemIndex(code, desc);
+            if (!label) return;
 
             // Mapeo directo si la tabla incluye la columna GUID del elemento 3D
             const directGuid = String(r['GUID'] || r['Elemento GUID'] || r['GUID_ELEMENTO'] || r['GUID ELEMENTO'] || '').trim();
@@ -1237,9 +1297,8 @@ async function obtenerSubSistemasData() {
             (global._aguaMapeoCache || []).forEach(x => {
                 const code = String(x.codigo_subsistema || '').trim();
                 const desc = String(x.nombre_subsistema || '').trim();
-                if (!code) return;
-                const label = desc ? `${code} - ${desc}` : code;
-                registrarSubsystemIndex(code, desc, label);
+                const label = registrarSubsystemIndex(code, desc);
+                if (!label) return;
 
                 const guid = String(x.guid || '').trim();
                 if (guid) {
