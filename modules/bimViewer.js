@@ -3506,7 +3506,6 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
     }
 
     if (fieldContainer) fieldContainer.style.display = 'block';
-    const btnSave = document.getElementById('bim-link-btn');
     if (btnSave) btnSave.style.display = 'block';
 
     // IDs ya vinculados en la selección
