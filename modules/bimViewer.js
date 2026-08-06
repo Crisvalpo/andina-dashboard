@@ -1894,11 +1894,9 @@ export function bimTrozoBajoRayo(ev) {
 
 export function bimTrozoPointerUp(ev) {
     if (divState.activo || !divState._downSel) return;
-    // Los trozos son SOLO de spool: la herramienta corta cañería, y ni válvulas
-    // ni soportes se dividen. Fuera de esa capa el clic se deja pasar al visor,
-    // porque el panel del trozo asigna a la columna SPOOL LUKEAPP y en otra capa
-    // estaría escribiendo en un sitio distinto del que anuncia la interfaz.
-    if (bimState.capa !== 'spool') { divState._downSel = null; return; }
+    // Los trozos se pueden vincular en capa spool o subsistema.
+    // En válvulas/soportes no tiene sentido → dejar pasar el clic al visor.
+    if (bimState.capa !== 'spool' && bimState.capa !== 'subsistema') { divState._downSel = null; return; }
     const dx = Math.abs(ev.clientX - divState._downSel.x);
     const dy = Math.abs(ev.clientY - divState._downSel.y);
     divState._downSel = null;
@@ -1941,41 +1939,50 @@ export function bimTrozoSeleccionar(mesh) {
     bimTrozoRenderPanel(mesh);
 }
 
-/** Panel del trozo: spool asignado, estado y asignación/desvinculación. */
+/** Panel del trozo: spool/subsistema asignado, estado y asignación/desvinculación. */
 export function bimTrozoRenderPanel(mesh) {
     const { guid, idx, a, b, key } = mesh.userData;
     const pct = Math.round((b - a) * 100);
+    const esSub = bimState.capa === 'subsistema';
     const tagAsignado = bimState.mapeoSpools ? bimState.mapeoSpools[key] : null;
+    const subAsignado = (bimState.capaMapeo['subsistema'] || {})[key] || null;
     const info = tagAsignado && bimState.spoolIndex ? bimState.spoolIndex[String(tagAsignado).toLowerCase()] : null;
 
     // Estado actual (desde el caché de estados, que ya incluye los trozos)
     let status = null;
     if (bimState.statusesCache) {
         for (const [st, guids] of Object.entries(bimState.statusesCache)) {
-            if (guids.some(g => g.toLowerCase() === key)) { status = st; break; }
+            if (Array.isArray(guids) && guids.some(g => String(g).toLowerCase() === key)) { status = st; break; }
         }
     }
+
+    // Determinar qué vínculo mostrar según la capa activa
+    const vinculoActivo = esSub ? subAsignado : tagAsignado;
+    const vinculoLabel = esSub ? 'Sub-sistema' : 'Spool';
+    const vinculoColor = esSub ? '#c4b5fd' : '#6ee7b7';
+    const vinculoBg = esSub ? 'rgba(139,92,246,0.08)' : 'rgba(16,185,129,0.08)';
+    const vinculoBorder = esSub ? 'rgba(139,92,246,0.25)' : 'rgba(16,185,129,0.25)';
 
     bimSetMeta(`
         <div class="bim-meta-header" style="background:rgba(96,165,250,0.15);border-color:rgba(96,165,250,0.35);">
             <i class="fas fa-puzzle-piece"></i><span>Trozo ${idx + 1}</span>
             <span class="bim-badge">${pct}% del tramo</span>
         </div>
-        ${tagAsignado ? `
-        <div style="padding:10px;border-radius:8px;background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.25);margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;font-size:0.85rem;"><span style="opacity:0.7;">Spool:</span><strong style="color:#6ee7b7;">${tagAsignado}</strong></div>
-            ${info ? `<div style="font-family:monospace;font-size:0.68rem;opacity:0.7;word-break:break-all;margin-top:3px;">${info.id_spool}</div>` : ''}
+        ${vinculoActivo ? `
+        <div style="padding:10px;border-radius:8px;background:${vinculoBg};border:1px solid ${vinculoBorder};margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:0.85rem;"><span style="opacity:0.7;">${vinculoLabel}:</span><strong style="color:${vinculoColor};">${vinculoActivo}</strong></div>
+            ${!esSub && info ? `<div style="font-family:monospace;font-size:0.68rem;opacity:0.7;word-break:break-all;margin-top:3px;">${info.id_spool}</div>` : ''}
             ${status ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-top:4px;"><span style="opacity:0.7;">Estado:</span><strong>${status}</strong></div>` : ''}
         </div>
         <button class="bim-scan-btn" onclick="bimTrozoDesvincular('${key}')" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;justify-content:center;width:100%;margin-bottom:8px;">
-            <i class="fas fa-unlink"></i> Desvincular de ${tagAsignado}</button>`
-        : `<p style="font-size:0.8rem;opacity:0.7;margin-bottom:10px;">Este trozo aún no tiene spool asignado.</p>`}
+            <i class="fas fa-unlink"></i> Desvincular de ${vinculoActivo}</button>`
+        : `<p style="font-size:0.8rem;opacity:0.7;margin-bottom:10px;">Este trozo aún no tiene ${vinculoLabel.toLowerCase()} asignado.</p>`}
         <div class="bim-link-field" style="margin-bottom:8px;">
-            <label style="font-size:0.75rem;opacity:0.8;">TAG del spool para este trozo:</label>
-            <input type="text" id="trozo-spool-input" class="bim-search-input" placeholder="Ej: 511" value="" style="width:100%;margin-top:4px;">
+            <label style="font-size:0.75rem;opacity:0.8;">${esSub ? 'Sub-sistema para este trozo:' : 'TAG del spool para este trozo:'}</label>
+            <input type="text" id="trozo-spool-input" class="bim-search-input" placeholder="${esSub ? 'Ej: 03350-02-06' : 'Ej: 511'}" value="${vinculoActivo || ''}" style="width:100%;margin-top:4px;"${esSub ? ' list="subsistema-list"' : ''}>
         </div>
         <button id="trozo-vincular-btn" class="bim-scan-btn" onclick="bimTrozoVincular('${key}')" style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:var(--primary-light);justify-content:center;width:100%;">
-            <i class="fas fa-link"></i> Vincular trozo al spool</button>
+            <i class="fas fa-link"></i> Vincular trozo a ${vinculoLabel.toLowerCase()}</button>
         <div style="display:flex;gap:6px;margin-top:10px;">
             <button class="bim-scan-btn" onclick="bimTrozoEditarDivision('${key}')" style="flex:1;justify-content:center;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.3);color:#fcd34d;">
                 <i class="fas fa-scissors"></i> Editar división</button>
@@ -2053,64 +2060,84 @@ export async function bimTrozoEliminarDivision(key) {
 }
 
 export async function bimTrozoVincular(key) {
-    console.log('[Trozo] Vincular solicitado:', key);
-    // Escribe en SPOOL LUKEAPP a propósito: un trozo solo puede ser de un spool.
-    // La guarda es defensa en profundidad — bimTrozoPointerUp ya impide llegar
-    // aquí desde otra capa, pero esta función también es global en window.
-    if (bimState.capa !== 'spool') {
-        alert('Los trozos solo se asignan a spools. Cambia a la capa Spools para vincularlo.');
+    const esSub = bimState.capa === 'subsistema';
+    const labelCapa = esSub ? 'sub-sistema' : 'spool';
+    console.log(`[Trozo] Vincular ${labelCapa} solicitado:`, key);
+
+    // Solo se permite vincular trozos en capa spool o subsistema
+    if (bimState.capa !== 'spool' && bimState.capa !== 'subsistema') {
+        alert('Los trozos solo se asignan a spools o sub-sistemas.');
         return;
     }
     const mesh = divState.trozoMeshes[key];
     const input = document.getElementById('trozo-spool-input');
     const tag = input ? input.value.trim() : '';
     if (!mesh) { alert('No encontré el trozo en memoria. Recarga la página e intenta de nuevo.'); return; }
-    if (!tag) { alert('Ingresa el TAG del spool.'); if (input) input.focus(); return; }
+    if (!tag) { alert(`Ingresa el ${esSub ? 'código del sub-sistema' : 'TAG del spool'}.`); if (input) input.focus(); return; }
 
-    // Feedback visible en el botón (para detectar dónde se detiene el flujo)
+    // Feedback visible en el botón
     const btn = document.getElementById('trozo-vincular-btn');
     const setBtn = (html, dis) => { if (btn) { btn.innerHTML = html; btn.disabled = dis; } };
     setBtn('<i class="fas fa-key"></i> Validando clave…', true);
 
     const desbloqueado = await authAsegurar('bim');
-    if (!desbloqueado) { setBtn('<i class="fas fa-link"></i> Vincular trozo al spool', false); return; }
+    if (!desbloqueado) { setBtn(`<i class="fas fa-link"></i> Vincular trozo a ${labelCapa}`, false); return; }
     setBtn('<i class="fas fa-spinner fa-spin"></i> Vinculando…', true);
 
     try {
-        const resp = await fetch('/api/bim/vincular', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
-            body: JSON.stringify({ spool: tag, elements: [{ guid: key, cwp: '', line_number: '', tag: '', autocad_size: '' }] })
-        });
-        if (resp.status === 401) { authOlvidar('bim'); setBtn('<i class="fas fa-link"></i> Vincular trozo al spool', false); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
+        let resp;
+        if (esSub) {
+            // Sub-sistema: POST /api/bim/subsistema/vincular
+            resp = await fetch('/api/bim/subsistema/vincular', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+                body: JSON.stringify({ item: tag, elements: [{ guid: key, cwp: '', line_number: '', tag: '', autocad_size: '' }] })
+            });
+        } else {
+            // Spool: POST /api/bim/vincular
+            resp = await fetch('/api/bim/vincular', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+                body: JSON.stringify({ spool: tag, elements: [{ guid: key, cwp: '', line_number: '', tag: '', autocad_size: '' }] })
+            });
+        }
+        if (resp.status === 401) { authOlvidar('bim'); setBtn(`<i class="fas fa-link"></i> Vincular trozo a ${labelCapa}`, false); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
         const d = await resp.json();
         if (!d.success && !d.count) throw new Error(d.error || `HTTP ${resp.status}`);
-        console.log('[Trozo] Vinculado OK:', key, '→', tag, d);
-        if (bimState.mapeoSpools) bimState.mapeoSpools[key] = tag;
+        console.log(`[Trozo] Vinculado OK (${labelCapa}):`, key, '→', tag, d);
 
-        // Estado del spool desde su ficha (AppSheet tiene consistencia eventual:
-        // el Find inmediato aún no ve la fila hija) → caché local actualizado.
-        let estadoSpool = null;
-        try {
-            const dSpool = await (await fetch(`/api/bim/spool/${encodeURIComponent(tag)}`)).json();
-            estadoSpool = dSpool.estado_actual || null;
-        } catch (e) { /* sin ficha, sin estado */ }
-        const st = String(estadoSpool || 'SIN ESTADO').toUpperCase();
-        if (bimState.statusesCache) {
-            for (const arr of Object.values(bimState.statusesCache)) {
-                const i = arr.findIndex(g => g.toLowerCase() === key);
-                if (i !== -1) arr.splice(i, 1);
-            }
-            (bimState.statusesCache[st] = bimState.statusesCache[st] || []).push(key);
+        if (esSub) {
+            // Actualizar mapeo local de subsistemas
+            if (!bimState.capaMapeo['subsistema']) bimState.capaMapeo['subsistema'] = {};
+            bimState.capaMapeo['subsistema'][key] = tag;
+        } else {
+            if (bimState.mapeoSpools) bimState.mapeoSpools[key] = tag;
         }
 
-        // Color/visibilidad: mismo comportamiento que el original
-        // (sin filtro conserva su color; con filtro se tiñe u oculta según estado)
+        if (!esSub) {
+            // Estado del spool desde su ficha
+            let estadoSpool = null;
+            try {
+                const dSpool = await (await fetch(`/api/bim/spool/${encodeURIComponent(tag)}`)).json();
+                estadoSpool = dSpool.estado_actual || null;
+            } catch (e) { /* sin ficha, sin estado */ }
+            const st = String(estadoSpool || 'SIN ESTADO').toUpperCase();
+            if (bimState.statusesCache) {
+                for (const arr of Object.values(bimState.statusesCache)) {
+                    if (!Array.isArray(arr)) continue;
+                    const i = arr.findIndex(g => String(g).toLowerCase() === key);
+                    if (i !== -1) arr.splice(i, 1);
+                }
+                (bimState.statusesCache[st] = bimState.statusesCache[st] || []).push(key);
+            }
+        }
+
+        // Color/visibilidad
         bimDivColorearTrozos();
         bimTrozoRenderPanel(mesh);
     } catch (e) {
-        console.error('[Trozo] Error al vincular:', e);
-        setBtn('<i class="fas fa-link"></i> Vincular trozo al spool', false);
+        console.error(`[Trozo] Error al vincular (${labelCapa}):`, e);
+        setBtn(`<i class="fas fa-link"></i> Vincular trozo a ${labelCapa}`, false);
         alert('No se pudo vincular el trozo: ' + e.message);
     }
 }
@@ -2118,24 +2145,41 @@ export async function bimTrozoVincular(key) {
 export async function bimTrozoDesvincular(key) {
     const mesh = divState.trozoMeshes[key];
     if (!mesh) return;
+    const esSub = bimState.capa === 'subsistema';
     const desbloqueado = await authAsegurar('bim');
     if (!desbloqueado) return;
     try {
-        const resp = await fetch('/api/bim/desvincular', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
-            body: JSON.stringify({ elements: [{ guid: key }] })
-        });
+        let resp;
+        if (esSub) {
+            // Desvincular sub-sistema: usa el endpoint genérico de capa
+            resp = await fetch('/api/bim/subsistema/desvincular', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+                body: JSON.stringify({ elements: [{ guid: key }] })
+            });
+        } else {
+            resp = await fetch('/api/bim/desvincular', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+                body: JSON.stringify({ elements: [{ guid: key }] })
+            });
+        }
         if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
-        if (bimState.mapeoSpools) delete bimState.mapeoSpools[key];
-        // Sacarlo del caché de estados; el color/visibilidad lo maneja el filtro
+
+        if (esSub) {
+            if (bimState.capaMapeo['subsistema']) delete bimState.capaMapeo['subsistema'][key];
+        } else {
+            if (bimState.mapeoSpools) delete bimState.mapeoSpools[key];
+        }
+        // Sacarlo del caché de estados
         if (bimState.statusesCache) {
             for (const arr of Object.values(bimState.statusesCache)) {
-                const i = arr.findIndex(g => g.toLowerCase() === key);
+                if (!Array.isArray(arr)) continue;
+                const i = arr.findIndex(g => String(g).toLowerCase() === key);
                 if (i !== -1) arr.splice(i, 1);
             }
         }
-        bimDivColorearTrozos(); // sin filtro → look original; con filtro → SIN ESTADO
+        bimDivColorearTrozos();
         bimTrozoRenderPanel(mesh);
     } catch (e) {
         alert('No se pudo desvincular: ' + e.message);
