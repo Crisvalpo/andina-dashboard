@@ -2771,7 +2771,8 @@ export function bimStatusPorGuid() {
     const m = {};
     if (bimState.statusesCache) {
         for (const [st, gs] of Object.entries(bimState.statusesCache)) {
-            gs.forEach(g => { m[g.toLowerCase()] = st; });
+            if (!Array.isArray(gs)) continue;
+            gs.forEach(g => { m[String(g).toLowerCase()] = st; });
         }
     }
     return m;
