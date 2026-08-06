@@ -482,14 +482,17 @@ export function bimStartViewer() {
                                             }
                                             // ---------------------------------------------
                                             
+                                            const fieldContainer = document.querySelector('#bim-link-panel .bim-link-field');
+                                            if (fieldContainer) fieldContainer.style.display = 'block';
                                             const btn = document.getElementById('bim-link-btn');
                                             if (btn) {
+                                                btn.style.display = 'block';
                                                 btn.innerHTML = `<i class="fas fa-save"></i> Guardar ${selectedList.length} elem.`;
                                                 btn.disabled = false;
                                                 btn.style.opacity = '1';
                                             }
 
-                                            if (panel) panel.style.display = authObtener('bim') ? 'flex' : 'none';
+                                            if (panel) panel.style.display = 'flex';
                                             
                                             // Abrir la barra lateral si está colapsada en móvil para que el usuario la vea
                                             const sidebar = document.querySelector('.bim-sidebar');
