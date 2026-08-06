@@ -64,7 +64,7 @@ app.get('/api/data/:tableName', async (req, res) => {
 // Precalentamiento: al arrancar el server se cargan las tablas del dashboard
 // para que la primera visita ya encuentre caché caliente.
 const TABLAS_WARMUP = [
-    'LIST_Lineas_MS_', 'LIST_Isos_MS_', 'LIST_Spools_MS_', 'LIST_Juntas_MS_',
+    'LIST_Bim_MS', 'LIST_Lineas_MS_', 'LIST_Isos_MS_', 'LIST_Spools_MS_', 'LIST_Juntas_MS_',
     'REG_EjecucionJuntas_MS', 'LOG_Spool_MS', 'LOG_SDI_MS', 'REL_SDIIso_MS',
     'REG_InspeccionVisual_MS', 'REG_DimensionalSpool_MS',
     'CAT_TipoUnion_MS', 'CAT_FluidoServicio_MS', 'CAT_Personal_MS',
@@ -824,7 +824,7 @@ app.get('/api/iso/proxy-pdf', async (req, res) => {
 // GET /api/bim/mapeo → Obtiene el mapa de GUID -> SPOOL LUKEAPP de todos los elementos mapeados en AppSheet
 app.get('/api/bim/mapeo', async (req, res) => {
     try {
-        const rawBim = await fetchAppSheet('LIST_Bim_MS');
+        const rawBim = await fetchAppSheetCached('LIST_Bim_MS');
         const mapeo = {};
         rawBim.forEach(row => {
             const guid = String(row['Elemento GUID'] || row['Elemento\nGUID'] || '').trim();
@@ -844,7 +844,7 @@ app.get('/api/bim/mapeo', async (req, res) => {
 // Permite mostrar el ID_SPOOL largo y el TAG GESTIÓN a partir del SPOOL LUKEAPP (tag corto).
 app.get('/api/bim/spool-index', async (req, res) => {
     try {
-        const spools = await fetchAppSheet('LIST_Spools_MS_');
+        const spools = await fetchAppSheetCached('LIST_Spools_MS_');
         const index = {};
         spools.forEach(s => {
             const tag     = String(s['TAG GESTION'] || '').trim();
@@ -1560,7 +1560,7 @@ app.get('/api/bim/:capa/mapeo', async (req, res) => {
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
     try {
-        const rows = await fetchAppSheet('LIST_Bim_MS');
+        const rows = await fetchAppSheetCached('LIST_Bim_MS');
         const mapeo = {};
         rows.forEach(row => {
             const guid = String(row['Elemento GUID'] || '').trim();
@@ -1588,7 +1588,7 @@ app.get('/api/bim/:capa/index', async (req, res) => {
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
     try {
-        const rows = await fetchAppSheet(capa.listTable);
+        const rows = await fetchAppSheetCached(capa.listTable);
         const index = {};
         rows.forEach(r => {
             const id = String(r[capa.listKey] || '').trim();
@@ -1857,8 +1857,8 @@ app.get('/api/bim/:capa/statuses', async (req, res) => {
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
     try {
         const [bimRows, montajeRows] = await Promise.all([
-            fetchAppSheet('LIST_Bim_MS'),
-            fetchAppSheet(capa.montajeTable).catch(() => [])
+            fetchAppSheetCached('LIST_Bim_MS'),
+            fetchAppSheetCached(capa.montajeTable).catch(() => [])
         ]);
 
         const estados = estadosMontajeDeCapa(capa, montajeRows);
