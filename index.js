@@ -1891,11 +1891,18 @@ app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => 
     }
 
     try {
-        // Validar que el ítem exista en la lista maestra
-        const listRows = await fetchAppSheet(capa.listTable);
-        const existeItem = listRows.some(r => String(r[capa.listKey] || '').trim().toLowerCase() === itemId.toLowerCase());
-        if (!existeItem) {
-            return res.status(404).json({ error: `${req.params.capa} "${itemId}" no existe en ${capa.listTable}.` });
+        // Validación informativa: si la capa tiene tabla maestra, verificar que el ítem exista.
+        // No es bloqueante: la vinculación se guarda directamente en LIST_Bim_MS.
+        if (capa.listTable) {
+            try {
+                const listRows = await fetchAppSheet(capa.listTable);
+                const existeItem = listRows.some(r => String(r[capa.listKey] || '').trim().toLowerCase() === itemId.toLowerCase());
+                if (!existeItem) {
+                    console.warn(`[BIM ${req.params.capa} vincular] Ítem "${itemId}" no encontrado en ${capa.listTable}, se vinculará igual en LIST_Bim_MS.`);
+                }
+            } catch (listErr) {
+                console.warn(`[BIM ${req.params.capa} vincular] No se pudo validar contra ${capa.listTable}:`, listErr.message);
+            }
         }
 
         const currentBimRows = await fetchAppSheet('LIST_Bim_MS');

@@ -593,12 +593,12 @@ export function bimResolveCapaId(capa, typed) {
     const keyCol = capa === 'valvula' ? 'ID_VALVULA' : (capa === 'soporte' ? 'ID_Soporte' : 'code');
     const t = String(typed || '').trim().toLowerCase();
     if (!t) return typed;
-    if (index[t]) return index[t]._label || index[t].label || index[t][keyCol] || typed;
+    if (index[t]) return index[t][keyCol] || index[t]._label || index[t].label || typed;
     let hit = Object.values(index).find(r => (r._label || r.label || '').toLowerCase() === t);
-    if (hit) return hit._label || hit.label || hit[keyCol];
+    if (hit) return hit[keyCol] || hit._label || hit.label;
     if (capa === 'soporte') {
         hit = Object.values(index).find(r => String(r.ITEM || '').toLowerCase() === t);
-        if (hit) return hit.ID_Soporte;
+        if (hit) return hit.ID_Soporte || hit[keyCol];
     } else if (capa === 'valvula') {
         hit = Object.values(index).find(r => String(r[keyCol] || '').toLowerCase() === t.split('_')[0]);
         if (hit) return hit[keyCol];
