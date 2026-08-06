@@ -1270,7 +1270,7 @@ export async function bimSubsistemaVerPorEstado() {
                 const parentGuid = String(mesh?.userData?.guid || '').toLowerCase();
                 const keyLower = key.toLowerCase();
                 const subLabel = subMapeo[keyLower] || subMapeo[parentGuid] || '';
-                if (subLabel.toLowerCase() === subsistemaId.toLowerCase()) {
+                if (bimSubCoincide(subLabel, subsistemaId)) {
                     mesh.visible = true;
                     const st = statusDe[keyLower] || statusDe[parentGuid] || 'SIN ESTADO';
                     bimTrozoPintarPorEstado(mesh, st);
@@ -2086,12 +2086,13 @@ export async function bimTrozoVincular(key) {
 
     try {
         let resp;
+        const targetItem = esSub ? bimResolveCapaId('subsistema', tag) : tag;
         if (esSub) {
             // Sub-sistema: POST /api/bim/subsistema/vincular
             resp = await fetch('/api/bim/subsistema/vincular', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
-                body: JSON.stringify({ item: tag, elements: [{ guid: key, cwp: '', line_number: '', tag: '', autocad_size: '' }] })
+                body: JSON.stringify({ item: targetItem, elements: [{ guid: key, cwp: '', line_number: '', tag: '', autocad_size: '' }] })
             });
         } else {
             // Spool: POST /api/bim/vincular
@@ -2104,12 +2105,12 @@ export async function bimTrozoVincular(key) {
         if (resp.status === 401) { authOlvidar('bim'); setBtn(`<i class="fas fa-link"></i> Vincular trozo a ${labelCapa}`, false); alert('🔒 Clave BIM incorrecta o expirada.'); return; }
         const d = await resp.json();
         if (!d.success && !d.count) throw new Error(d.error || `HTTP ${resp.status}`);
-        console.log(`[Trozo] Vinculado OK (${labelCapa}):`, key, '→', tag, d);
+        console.log(`[Trozo] Vinculado OK (${labelCapa}):`, key, '→', targetItem, d);
 
         if (esSub) {
             // Actualizar mapeo local de subsistemas
             if (!bimState.capaMapeo['subsistema']) bimState.capaMapeo['subsistema'] = {};
-            bimState.capaMapeo['subsistema'][key] = tag;
+            bimState.capaMapeo['subsistema'][key] = targetItem;
         } else {
             if (bimState.mapeoSpools) bimState.mapeoSpools[key] = tag;
         }
@@ -2823,6 +2824,22 @@ export function bimStatusPorGuid() {
 }
 
 /**
+ * Compara si dos etiquetas de sub-sistema coinciden (código corto, etiqueta canónica o prefijo).
+ */
+export function bimSubCoincide(subLabel, target) {
+    if (!subLabel || !target) return false;
+    const a = String(subLabel).trim().toLowerCase();
+    const b = String(target).trim().toLowerCase();
+    if (a === b) return true;
+    const aResolved = String(bimResolveCapaId('subsistema', subLabel) || '').trim().toLowerCase();
+    const bResolved = String(bimResolveCapaId('subsistema', target) || '').trim().toLowerCase();
+    if (aResolved === bResolved) return true;
+    if (aResolved === b || bResolved === a) return true;
+    if (a.startsWith(b + ' ') || a.startsWith(b + ' -') || b.startsWith(a + ' ') || b.startsWith(a + ' -')) return true;
+    return false;
+}
+
+/**
  * Apariencia de los trozos por ESTADO de su spool:
  * - sin filtro → GRIS si no tiene estado; color del estado si lo tiene.
  * - con filtro → visible solo si su estado está seleccionado, con su color.
@@ -2839,7 +2856,7 @@ export function bimDivFiltrarTrozos(seleccionSet) {
         if (seleccionSet) {
             if (bimState.capa === 'subsistema') {
                 const subLabel = subMapeo[keyLower] || subMapeo[parentGuid] || 'SIN SUBSISTEMA';
-                mesh.visible = seleccionSet.has(subLabel);
+                mesh.visible = Array.from(seleccionSet).some(sel => bimSubCoincide(subLabel, sel));
             } else {
                 mesh.visible = seleccionSet.has(st);
             }
