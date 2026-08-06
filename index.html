@@ -813,8 +813,8 @@
             <aside class="bim-sidebar glass capa-spool">
 
                 <!-- Selector de Modelo 3D Autodesk -->
-                <div class="bim-model-select-wrapper" style="padding: 10px 14px 4px 14px; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
-                    <label class="bim-search-label" for="bim-model-select" style="margin-bottom: 4px; font-size: 0.75rem; color: var(--text-dim);">
+                <div class="bim-model-select-wrapper" style="padding: 0 0 10px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 4px;">
+                    <label class="bim-search-label" for="bim-model-select" style="margin-bottom: 6px; font-size: 0.75rem; color: var(--text-dim);">
                         <i class="fas fa-cube"></i> Modelo 3D Autodesk
                     </label>
                     <select id="bim-model-select" class="bim-search-input" style="width: 100%; cursor: pointer; font-size: 0.8rem; padding: 6px 10px;" onchange="bimCambiarModelo(this.value)">
@@ -900,7 +900,8 @@
                     <div class="bim-link-field">
                         <label for="bim-link-spool">Código Spool (LUKEAPP):</label>
                         <div class="bim-search-row">
-                            <input type="text" id="bim-link-spool" class="bim-search-input" placeholder="Ej: 217" />
+                            <input type="text" id="bim-link-spool" class="bim-search-input" list="bim-link-datalist" placeholder="Ej: 217" />
+                            <datalist id="bim-link-datalist"></datalist>
                         </div>
                     </div>
                     <button class="bim-scan-btn" onclick="bimSaveLink()" id="bim-link-btn" style="background:rgba(99,102,241,0.15); border-color:rgba(99,102,241,0.3); color:var(--primary-light);">

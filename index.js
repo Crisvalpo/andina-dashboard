@@ -1076,6 +1076,16 @@ const BIM_CAPAS = {
         montajeKey:  'ID_Soporte',
         montajeStatusCol: null,        // sin estado: la presencia de fila = montado
         montajeFechaCol:  'Fecha',     // ojo, con mayúscula (en válvulas es 'fecha')
+    },
+    subsistema: {
+        col:         'SUB SISTEMA LUKEAPP',
+        listTable:   null,
+        listKey:     'code',
+        labelCols:   ['label'],
+        montajeTable: null,
+        montajeKey:  null,
+        montajeStatusCol: null,
+        montajeFechaCol:  null,
     }
 };
 
@@ -1122,7 +1132,7 @@ function estadosMontajeDeCapa(capa, montajeRows) {
     return out;
 }
 
-const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP',
+const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP', 'SUB SISTEMA LUKEAPP',
     'CWP', 'Line Number', 'TAG', 'AutoCad Size'];
 
 function bimBuildEditRow(existingRow, colName, valor) {
@@ -1331,6 +1341,16 @@ async function obtenerSubSistemasData() {
         if (!guid) return;
 
         const gLower = guid.toLowerCase();
+
+        // 1. Mapeo directo guardado en LIST_Bim_MS (máxima prioridad)
+        const directSub = String(row['SUB SISTEMA LUKEAPP'] || row['SUBSISTEMA LUKEAPP'] || row['SUB SISTEMA'] || row['SUBSISTEMA'] || '').trim();
+        if (directSub) {
+            const label = resolverCanonicalLabel(directSub) || directSub;
+            mapeo[gLower] = label;
+            (statuses[label] = statuses[label] || []).push(guid);
+            return;
+        }
+
         // Si ya tenía mapeo directo desde archivo o tabla de subsistema, mantenerlo
         if (mapeo[gLower] && mapeo[gLower] !== 'SIN SUBSISTEMA') return;
 

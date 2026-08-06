@@ -88,6 +88,8 @@ export async function bimSetCapa(capa) {
     if (vInp) { vInp.placeholder = BIM_CAPA_UI[capa].vincularPlaceholder; vInp.value = ''; }
     const vTit = document.querySelector('#bim-link-panel h4');
     if (vTit) vTit.innerHTML = `<i class="fas fa-link"></i> Vincular ${BIM_CAPA_UI[capa].label}`;
+    const unlinkBtn = document.getElementById('bim-unlink-btn');
+    if (unlinkBtn) unlinkBtn.innerHTML = `<i class="fas fa-unlink"></i> Desvincular de ${BIM_CAPA_UI[capa].label}`;
 
     // Limpiar selección/panel y colores
     if (bimState.viewer) { bimState.viewer.clearThemingColors(bimState.viewer.model); bimState.viewer.select([]); }
@@ -107,9 +109,25 @@ export async function bimSetCapa(capa) {
             ]);
             bimState.capaMapeo[capa] = mapeo || {};
             bimState.capaIndex[capa] = index || {};
+            bimPopulateDatalist(capa);
         } catch (e) {
             console.error(`[BIM] Error cargando capa ${capa}:`, e);
         }
+    } else {
+        bimPopulateDatalist(capa);
+    }
+}
+
+/** Puebla el elemento datalist con opciones para la vinculación. */
+export function bimPopulateDatalist(capa) {
+    const dl = document.getElementById('bim-link-datalist');
+    if (!dl) return;
+    if (capa === 'subsistema') {
+        const index = bimState.capaIndex['subsistema'] || {};
+        const items = [...new Set(Object.values(index).map(r => r._label || r.label || r.code).filter(Boolean))];
+        dl.innerHTML = items.map(val => `<option value="${val}">`).join('');
+    } else {
+        dl.innerHTML = '';
     }
 }
 
@@ -569,20 +587,20 @@ export function bimSearchSpool() {
  */
 export function bimResolveCapaId(capa, typed) {
     const index = bimState.capaIndex[capa] || {};
-    const keyCol = capa === 'valvula' ? 'ID_VALVULA' : 'ID_Soporte';
+    const keyCol = capa === 'valvula' ? 'ID_VALVULA' : (capa === 'soporte' ? 'ID_Soporte' : 'code');
     const t = String(typed || '').trim().toLowerCase();
     if (!t) return typed;
-    if (index[t]) return index[t][keyCol];                                  // llave exacta
-    let hit = Object.values(index).find(r => (r._label || '').toLowerCase() === t); // etiqueta completa
-    if (hit) return hit[keyCol];
-    if (capa === 'soporte') {                                                // ITEM amigable (148)
+    if (index[t]) return index[t]._label || index[t].label || index[t][keyCol] || typed;
+    let hit = Object.values(index).find(r => (r._label || r.label || '').toLowerCase() === t);
+    if (hit) return hit._label || hit.label || hit[keyCol];
+    if (capa === 'soporte') {
         hit = Object.values(index).find(r => String(r.ITEM || '').toLowerCase() === t);
         if (hit) return hit.ID_Soporte;
-    } else {                                                                 // prefijo antes del "_"
+    } else if (capa === 'valvula') {
         hit = Object.values(index).find(r => String(r[keyCol] || '').toLowerCase() === t.split('_')[0]);
         if (hit) return hit[keyCol];
     }
-    return typed; // fallback: enviar tal cual
+    return typed;
 }
 
 /** Busca una válvula/soporte por ID/ITEM/etiqueta y resalta sus elementos vinculados en el modelo. */
@@ -3407,18 +3425,22 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
 
     // Título del panel
     const linkTitle = document.querySelector('#bim-link-panel h4');
-    if (linkTitle) linkTitle.innerHTML = `<i class="fas fa-link"></i> ${capa === 'subsistema' ? 'Detalle Sub-sistema' : 'Vincular ' + ui.label} (${selectedList.length} selec.)`;
+    if (linkTitle) linkTitle.innerHTML = `<i class="fas fa-link"></i> Vincular ${ui.label} (${selectedList.length} selec.)`;
 
     const statusContainer = document.getElementById('bim-link-status-container');
     const infoEl = document.getElementById('bim-link-spool-info');
     const inputEl = document.getElementById('bim-link-spool');
     const fieldContainer = document.querySelector('#bim-link-panel .bim-link-field');
+    const btnSave = document.getElementById('bim-link-btn');
+    const unlinkBtn = document.getElementById('bim-unlink-btn');
+
+    if (fieldContainer) fieldContainer.style.display = 'block';
+    if (btnSave) btnSave.style.display = 'block';
+    if (unlinkBtn) unlinkBtn.innerHTML = `<i class="fas fa-unlink"></i> Desvincular de ${ui.label}`;
 
     // Manejo específico para capa subsistemas
     if (capa === 'subsistema') {
-        if (fieldContainer) fieldContainer.style.display = 'none';
-        const btnSave = document.getElementById('bim-link-btn');
-        if (btnSave) btnSave.style.display = 'none';
+        bimPopulateDatalist('subsistema');
 
         if (selectedList.length === 1) {
             const elObj = selectedList[0];
@@ -3429,21 +3451,16 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
                         if (!info.tagLinea || info.tagLinea === 'N/A') info.tagLinea = elObj.tag || elObj.lineNo || info.tag;
                         if (!info.spool || info.spool === 'SIN SPOOL') info.spool = elObj.spool || info.spool;
 
-                        if (statusContainer) statusContainer.style.display = 'flex';
-                        if (infoEl) {
-                            const hex = bimRgbAHex(bimColorDeEstado(String(info.status).toUpperCase()));
+                        const tieneSub = info.subsistema && info.subsistema !== 'SIN SUBSISTEMA';
+                        if (statusContainer) statusContainer.style.display = tieneSub ? 'flex' : 'none';
+                        if (infoEl && tieneSub) {
                             infoEl.innerHTML = `
-                                <div style="font-size:0.85rem;font-weight:700;color:#c4b5fd;margin-bottom:3px;display:flex;align-items:center;gap:6px;">
-                                    <i class="fas fa-tag"></i> <span>TAG: ${info.tagLinea || info.tag}</span>
-                                </div>
-                                <div style="font-size:0.78rem;color:#e2e8f0;display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                                    <span>Spool: <strong>${info.spool}</strong></span>
-                                    <span class="status-pill" style="font-size:0.68rem;padding:2px 7px;background:${hex};color:#fff;font-weight:600;">${info.status}</span>
-                                </div>
-                                <div style="font-size:0.72rem;color:#a78bfa;margin-top:2px;">
-                                    <i class="fas fa-sitemap"></i> ${info.subsistema}
+                                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;">
+                                    <span style="opacity:0.75;">Sub-sistema actual:</span>
+                                    <span style="font-weight:700;color:#c4b5fd;text-align:right;word-break:break-all;">${info.subsistema}</span>
                                 </div>`;
                         }
+                        if (inputEl) inputEl.value = tieneSub ? info.subsistema : '';
                         bimRenderElementoMeta(info);
                     }
                 })
@@ -3462,18 +3479,25 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
                 const spools = [...new Set(elems.map(e => e.spool).filter(Boolean))];
                 const subs = [...new Set(elems.map(e => e.subsistema).filter(Boolean))];
 
-                if (statusContainer) statusContainer.style.display = 'flex';
-                if (infoEl) {
+                const tieneSub = subs.length > 0;
+                if (statusContainer) statusContainer.style.display = tieneSub ? 'flex' : 'none';
+                if (infoEl && tieneSub) {
                     infoEl.innerHTML = `
                         <div style="font-size:0.85rem;font-weight:700;color:#c4b5fd;margin-bottom:2px;">
-                            ${selectedList.length} Elementos Seleccionados
+                            Sub-sistema(s) actual(es):
                         </div>
-                        <div style="font-size:0.75rem;opacity:0.9;">TAGs: ${tags.join(', ') || 'N/A'}</div>
-                        <div style="font-size:0.72rem;opacity:0.75;">Spools: ${spools.join(', ') || 'N/A'}</div>`;
+                        <div style="font-size:0.78rem;color:#e2e8f0;">${subs.join(', ')}</div>`;
                 }
+                if (inputEl) inputEl.value = subs.length === 1 ? subs[0] : '';
                 bimRenderMultiElementoMeta(selectedList.length, tags, spools, subs, elems);
             })
             .catch(err => console.error('[BIM Multi Elemento Info Error]', err));
+        }
+
+        if (btnSave) {
+            btnSave.innerHTML = `<i class="fas fa-save"></i> Guardar ${selectedList.length} elem.`;
+            btnSave.disabled = false;
+            btnSave.style.opacity = '1';
         }
         return;
     }

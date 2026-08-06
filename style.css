@@ -2554,52 +2554,50 @@ body.sidebar-collapsed #bim-section {
 
 /* ===== BIM: selector de capa (Spools / Válvulas / Soportes / Sub-sistemas) ===== */
 .bim-capa-toggle {
-    display: flex;
-    gap: 4px;
-    margin-bottom: 12px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+    margin-bottom: 8px;
     background: rgba(15, 23, 42, 0.6);
     border-radius: 10px;
-    padding: 4px;
-    overflow-x: auto;
-    flex-wrap: nowrap;
-    scroll-behavior: smooth;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    -webkit-overflow-scrolling: touch;
-}
-
-.bim-capa-toggle::-webkit-scrollbar {
-    display: none;
+    padding: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .bim-capa-btn {
-    flex: 1 1 0px;
-    min-width: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    padding: 8px 4px;
-    border: none;
+    gap: 6px;
+    padding: 8px 6px;
+    border: 1px solid transparent;
     border-radius: 7px;
-    background: transparent;
-    color: rgba(255, 255, 255, 0.55);
+    background: rgba(255, 255, 255, 0.04);
+    color: rgba(255, 255, 255, 0.65);
     font-family: inherit;
-    font-size: 0.74rem;
+    font-size: 0.78rem;
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: all 0.18s;
+    transition: all 0.18s ease;
 }
-.bim-capa-btn:hover:not(:disabled) { color: #fff; background: rgba(255, 255, 255, 0.06); }
+.bim-capa-btn:hover:not(:disabled) {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+}
 .bim-capa-btn.active {
     background: linear-gradient(135deg, var(--capa-color), rgba(var(--capa-rgb), 0.72));
     color: #fff;
+    border-color: var(--capa-color);
     box-shadow: 0 2px 8px rgba(var(--capa-rgb), 0.4);
 }
-.bim-capa-btn i { font-size: 0.9rem; }
+.bim-capa-btn i {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
 
 /* ===== BIM: identidad de color por capa ===== */
 .bim-sidebar {
