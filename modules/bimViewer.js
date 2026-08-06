@@ -118,13 +118,30 @@ export async function bimSetCapa(capa) {
     }
 }
 
+const CANONICAL_SUBSISTEMAS_LIST = [
+    '03350-02-01 - Agua de Proceso',
+    '03350-02-02 - Agua de Sello',
+    '03350-02-03 - Concentrado Cu-Mo Espesador',
+    '03350-02-04 - Agua Recuperada',
+    '03350-02-05 - Colectivo Cu-Mo Tie In 001',
+    '03350-02-06 - Colas Primarias Limpieza',
+    '03350-02-07 - Aire Instrumentación',
+    '03350-02-08 - Contención de derrames',
+    '03350-02-09 - Red de Incendio'
+];
+
 /** Puebla el elemento datalist con opciones para la vinculación. */
 export function bimPopulateDatalist(capa) {
     const dl = document.getElementById('bim-link-datalist');
     if (!dl) return;
     if (capa === 'subsistema') {
         const index = bimState.capaIndex['subsistema'] || {};
-        const items = [...new Set(Object.values(index).map(r => r._label || r.label || r.code).filter(Boolean))];
+        const fromIndex = Object.values(index).map(r => r._label || r.label || r.code).filter(Boolean);
+        const items = [...new Set([...CANONICAL_SUBSISTEMAS_LIST, ...fromIndex])];
+        dl.innerHTML = items.map(val => `<option value="${val}">`).join('');
+    } else if (capa === 'valvula' || capa === 'soporte') {
+        const index = bimState.capaIndex[capa] || {};
+        const items = [...new Set(Object.values(index).map(r => r._label || r.label || r.ID_VALVULA || r.ID_Soporte).filter(Boolean))];
         dl.innerHTML = items.map(val => `<option value="${val}">`).join('');
     } else {
         dl.innerHTML = '';
@@ -1963,6 +1980,8 @@ export function bimTrozoRenderPanel(mesh) {
     const vinculoBg = esSub ? 'rgba(139,92,246,0.08)' : 'rgba(16,185,129,0.08)';
     const vinculoBorder = esSub ? 'rgba(139,92,246,0.25)' : 'rgba(16,185,129,0.25)';
 
+    if (esSub) bimPopulateDatalist('subsistema');
+
     bimSetMeta(`
         <div class="bim-meta-header" style="background:rgba(96,165,250,0.15);border-color:rgba(96,165,250,0.35);">
             <i class="fas fa-puzzle-piece"></i><span>Trozo ${idx + 1}</span>
@@ -1979,7 +1998,7 @@ export function bimTrozoRenderPanel(mesh) {
         : `<p style="font-size:0.8rem;opacity:0.7;margin-bottom:10px;">Este trozo aún no tiene ${vinculoLabel.toLowerCase()} asignado.</p>`}
         <div class="bim-link-field" style="margin-bottom:8px;">
             <label style="font-size:0.75rem;opacity:0.8;">${esSub ? 'Sub-sistema para este trozo:' : 'TAG del spool para este trozo:'}</label>
-            <input type="text" id="trozo-spool-input" class="bim-search-input" placeholder="${esSub ? 'Ej: 03350-02-06' : 'Ej: 511'}" value="${vinculoActivo || ''}" style="width:100%;margin-top:4px;"${esSub ? ' list="subsistema-list"' : ''}>
+            <input type="text" id="trozo-spool-input" class="bim-search-input" placeholder="${esSub ? 'Ej: 03350-02-06' : 'Ej: 511'}" value="${vinculoActivo || ''}" style="width:100%;margin-top:4px;"${esSub ? ' list="bim-link-datalist"' : ''}>
         </div>
         <button id="trozo-vincular-btn" class="bim-scan-btn" onclick="bimTrozoVincular('${key}')" style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:var(--primary-light);justify-content:center;width:100%;">
             <i class="fas fa-link"></i> Vincular trozo a ${vinculoLabel.toLowerCase()}</button>
