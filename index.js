@@ -68,7 +68,9 @@ const TABLAS_WARMUP = [
     'REG_EjecucionJuntas_MS', 'LOG_Spool_MS', 'LOG_SDI_MS', 'REL_SDIIso_MS',
     'REG_InspeccionVisual_MS', 'REG_DimensionalSpool_MS',
     'CAT_TipoUnion_MS', 'CAT_FluidoServicio_MS', 'CAT_Personal_MS',
-    'REL_PIDLineas_MS', 'LIST_PID_MS'
+    'REL_PIDLineas_MS', 'LIST_PID_MS',
+    'AGUA DE PROCESO', 'AGUA DE SELLO', 'CU-MO A CAJÓN', 'AGUA RECUPERADA',
+    'CU-MO DESDE TIE-IN 001', 'COLAS PRIMARIAS', 'AIRE INSTRUMENTACIÓN'
 ];
 async function precalentarCache() {
     console.log(`[Warmup] Precargando ${TABLAS_WARMUP.length} tablas del dashboard...`);
@@ -77,6 +79,8 @@ async function precalentarCache() {
     const t0 = Date.now();
     await Promise.allSettled(TABLAS_WARMUP.map(t => refrescarTabla(t)));
     console.log(`[Warmup] Caché caliente en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    // Precargar cálculo de subsistemas en segundo plano
+    obtenerSubSistemasData(true).catch(e => console.error('[Warmup Subsistemas]', e.message));
 }
 
 // API Proxy para datos de la Guía
@@ -1156,6 +1160,29 @@ const TABLAS_SUBSISTEMAS = [
     'AIRE INSTRUMENTACIÓN'
 ];
 
+const FIXED_SUBSYSTEMS_LIST = [
+    { code: '03350-02-01', desc: 'Agua de Proceso', label: '03350-02-01 - Agua de Proceso' },
+    { code: '03350-02-02', desc: 'Agua de Sello', label: '03350-02-02 - Agua de Sello' },
+    { code: '03350-02-03', desc: 'Concentrado Cu-Mo Espesador', label: '03350-02-03 - Concentrado Cu-Mo Espesador' },
+    { code: '03350-02-04', desc: 'Agua Recuperada', label: '03350-02-04 - Agua Recuperada' },
+    { code: '03350-02-05', desc: 'Colectivo Cu-Mo Tie In 001', label: '03350-02-05 - Colectivo Cu-Mo Tie In 001' },
+    { code: '03350-02-06', desc: 'Colas Primarias Limpieza', label: '03350-02-06 - Colas Primarias Limpieza' },
+    { code: '03350-02-07', desc: 'Aire Instrumentación', label: '03350-02-07 - Aire Instrumentación' },
+    { code: '03350-02-08', desc: 'Contención de derrames', label: '03350-02-08 - Contención de derrames' },
+    { code: '03350-02-09', desc: 'Red de Incendio', label: '03350-02-09 - Red de Incendio' }
+];
+
+const FIXED_SUBSYSTEMS_INDEX = {};
+FIXED_SUBSYSTEMS_LIST.forEach(item => {
+    const entry = { code: item.code, desc: item.desc, label: item.label, _label: item.label };
+    FIXED_SUBSYSTEMS_INDEX[item.code.toLowerCase()] = entry;
+    FIXED_SUBSYSTEMS_INDEX[item.label.toLowerCase()] = entry;
+    if (item.code === '03350-02-01') {
+        FIXED_SUBSYSTEMS_INDEX['02/01/3350'] = entry;
+        FIXED_SUBSYSTEMS_INDEX['02-01-3350'] = entry;
+    }
+});
+
 const CANONICAL_SUBSYSTEM_LABELS = {
     '02/01/3350': '03350-02-01 - Agua de Proceso',
     '02-01-3350': '03350-02-01 - Agua de Proceso',
@@ -1213,163 +1240,180 @@ function resolverCanonicalLabel(code, desc) {
     return desc ? `${cleanCode} - ${desc}` : cleanCode;
 }
 
+let _subsistemasDataCache = null;
+let _subsistemasDataCacheTimestamp = 0;
+const SUBSISTEMAS_CACHE_TTL = 60 * 1000; // 60 segundos
+let _subsistemasCalculandoPromise = null;
+
 // Helper para extraer la información de subsistemas desde LIST_Juntas_MS_, las tablas de subsistemas y LIST_Bim_MS
-async function obtenerSubSistemasData() {
-    const [bimRows, juntasRows, ...subsystemTablesRows] = await Promise.all([
-        fetchAppSheet('LIST_Bim_MS').catch(() => []),
-        fetchAppSheet('LIST_Juntas_MS_').catch(() => []),
-        ...TABLAS_SUBSISTEMAS.map(t => fetchAppSheet(t).catch(() => []))
-    ]);
-
-    const getSubsystemCode = (r) => String(r['SUB SISTEMA'] || r['SUB_SISTEMA'] || r['SUBSISTEMA'] || r['SUB SISTEMA '] || '').trim();
-    const getSystemDesc    = (r) => String(r['SISTEMA'] || r['DESCRIPCION_SISTEMA'] || r['SISTEMA '] || '').trim();
-    const getSpool         = (r) => String(r['SPOOL'] || r['ID_SPOOL'] || r['TAG GESTION'] || r['TAG_GESTION'] || r['N° SPOOL'] || r['SPOOL '] || '').trim();
-    const getLinea         = (r) => String(r['LINEA'] || r['ID_LINEA'] || r['N_LINEA'] || r['LINE_NUMBER'] || r['Line Number'] || '').trim();
-
-    // Normalizador de líneas para conciliar comillas ", guiones bajos _ y sufijos de hoja (-HC_HOJA-1, _HOJA-1_SPXX, -HC, -N, -R1, etc.)
-    const cleanLineKey = (str) => {
-        if (!str) return '';
-        let s = String(str).trim().toLowerCase();
-        s = s.replace(/"-?/g, '_');
-        s = s.replace(/_-_/g, '_');
-        s = s.replace(/_-/g, '_');
-        s = s.replace(/[-_](hc_hoja|hoja|spxx|sp\d+|hc|n|r\d+|rev\d+).*$/i, '');
-        return s.trim();
-    };
-
-    // Detecta spools genéricos/placeholders (ej. SPXX, N/A) que no deben asociarse como tag global
-    const isGenericSpool = (sp) => {
-        if (!sp) return true;
-        const s = String(sp).trim().toUpperCase();
-        return s === '' || s === 'SPXX' || s === 'SP-XX' || s === 'N/A' || s === 'NONE' || s === '0' || s === '-';
-    };
-
-    // Mapa de spool/línea -> subLabel
-    const spoolSubMap = {};
-    const subIndex = {};
-    const statuses = {};
-    const mapeo = {};
-
-    const registrarSubsystemIndex = (code, desc) => {
-        const label = resolverCanonicalLabel(code, desc);
-        if (!label) return '';
-        const item = { code: code || label, desc: desc || label, label, _label: label };
-        if (code) subIndex[code.toLowerCase()] = item;
-        subIndex[label.toLowerCase()] = item;
-        // Aliases comunes entre 03350-02-01 y 02/01/3350
-        if (code === '02/01/3350' || code === '02-01-3350') subIndex['03350-02-01'] = item;
-        if (code === '03350-02-01') {
-            subIndex['02/01/3350'] = item;
-            subIndex['02-01-3350'] = item;
-        }
-        if (!statuses[label]) statuses[label] = [];
-        return label;
-    };
-
-    const procesarFilasSubsistema = (filas) => {
-        (filas || []).forEach(r => {
-            const code = getSubsystemCode(r);
-            const desc = getSystemDesc(r);
-            const label = registrarSubsystemIndex(code, desc);
-            if (!label) return;
-
-            // Mapeo directo si la tabla incluye la columna GUID del elemento 3D
-            const directGuid = String(r['GUID'] || r['Elemento GUID'] || r['GUID_ELEMENTO'] || r['GUID ELEMENTO'] || '').trim();
-            if (directGuid) {
-                const gLower = directGuid.toLowerCase();
-                mapeo[gLower] = label;
-                if (!statuses[label].includes(directGuid)) {
-                    statuses[label].push(directGuid);
-                }
-            }
-
-            const spool = getSpool(r);
-            const linea = getLinea(r);
-            if (spool && !isGenericSpool(spool)) spoolSubMap[spool.toLowerCase()] = label;
-            if (linea) {
-                spoolSubMap[linea.toLowerCase()] = label;
-                const cleanL = cleanLineKey(linea);
-                if (cleanL) spoolSubMap[cleanL] = label;
-            }
-        });
-    };
-
-    procesarFilasSubsistema(juntasRows);
-    subsystemTablesRows.forEach(rows => procesarFilasSubsistema(rows));
-
-    // Cargar también mapeo directo desde mapeo_agua_de_proceso_guid_spool.json si existe en disco
-    const aguaPath = path.join(__dirname, 'mapeo_agua_de_proceso_guid_spool.json');
-    if (fs.existsSync(aguaPath)) {
-        try {
-            if (!global._aguaMapeoCache) {
-                global._aguaMapeoCache = JSON.parse(fs.readFileSync(aguaPath, 'utf8'));
-            }
-            (global._aguaMapeoCache || []).forEach(x => {
-                const code = String(x.codigo_subsistema || '').trim();
-                const desc = String(x.nombre_subsistema || '').trim();
-                const label = registrarSubsystemIndex(code, desc);
-                if (!label) return;
-
-                const guid = String(x.guid || '').trim();
-                if (guid) {
-                    const gLower = guid.toLowerCase();
-                    mapeo[gLower] = label;
-                    if (!statuses[label].includes(guid)) {
-                        statuses[label].push(guid);
-                    }
-                }
-
-                const line = String(x.tag_linea || '').trim();
-                if (line) {
-                    spoolSubMap[line.toLowerCase()] = label;
-                    const cleanL = cleanLineKey(line);
-                    if (cleanL) spoolSubMap[cleanL] = label;
-                }
-
-                const tagG = String(x.tag_gestion_lukeapp || '').trim();
-                if (tagG && !isGenericSpool(tagG)) {
-                    spoolSubMap[tagG.toLowerCase()] = label;
-                }
-            });
-        } catch (e) {
-            console.warn('[BIM Subsistemas] Error leyendo mapeo_agua_de_proceso_guid_spool.json:', e.message);
-        }
+async function obtenerSubSistemasData(forceRefresh = false) {
+    const now = Date.now();
+    if (!forceRefresh && _subsistemasDataCache && (now - _subsistemasDataCacheTimestamp < SUBSISTEMAS_CACHE_TTL)) {
+        return _subsistemasDataCache;
+    }
+    if (_subsistemasCalculandoPromise) {
+        return _subsistemasCalculandoPromise;
     }
 
-    (bimRows || []).forEach(row => {
-        const guid = String(row['Elemento GUID'] || '').trim();
-        if (!guid) return;
+    _subsistemasCalculandoPromise = (async () => {
+        try {
+            const [bimRows, juntasRows, ...subsystemTablesRows] = await Promise.all([
+                fetchAppSheetCached('LIST_Bim_MS').catch(() => []),
+                fetchAppSheetCached('LIST_Juntas_MS_').catch(() => []),
+                ...TABLAS_SUBSISTEMAS.map(t => fetchAppSheetCached(t).catch(() => []))
+            ]);
 
-        const gLower = guid.toLowerCase();
+            const getSubsystemCode = (r) => String(r['SUB SISTEMA'] || r['SUB_SISTEMA'] || r['SUBSISTEMA'] || r['SUB SISTEMA '] || '').trim();
+            const getSystemDesc    = (r) => String(r['SISTEMA'] || r['DESCRIPCION_SISTEMA'] || r['SISTEMA '] || '').trim();
+            const getSpool         = (r) => String(r['SPOOL'] || r['ID_SPOOL'] || r['TAG GESTION'] || r['TAG_GESTION'] || r['N° SPOOL'] || r['SPOOL '] || '').trim();
+            const getLinea         = (r) => String(r['LINEA'] || r['ID_LINEA'] || r['N_LINEA'] || r['LINE_NUMBER'] || r['Line Number'] || '').trim();
 
-        // 1. Mapeo directo guardado en LIST_Bim_MS (máxima prioridad)
-        const directSub = String(row['SUB SISTEMA LUKEAPP'] || row['SUBSISTEMA LUKEAPP'] || row['SUB SISTEMA'] || row['SUBSISTEMA'] || '').trim();
-        if (directSub) {
-            const label = resolverCanonicalLabel(directSub) || directSub;
-            mapeo[gLower] = label;
-            (statuses[label] = statuses[label] || []).push(guid);
-            return;
+            const cleanLineKey = (str) => {
+                if (!str) return '';
+                let s = String(str).trim().toLowerCase();
+                s = s.replace(/"-?/g, '_');
+                s = s.replace(/_-_/g, '_');
+                s = s.replace(/_-/g, '_');
+                s = s.replace(/[-_](hc_hoja|hoja|spxx|sp\d+|hc|n|r\d+|rev\d+).*$/i, '');
+                return s.trim();
+            };
+
+            const isGenericSpool = (sp) => {
+                if (!sp) return true;
+                const s = String(sp).trim().toUpperCase();
+                return s === '' || s === 'SPXX' || s === 'SP-XX' || s === 'N/A' || s === 'NONE' || s === '0' || s === '-';
+            };
+
+            const spoolSubMap = {};
+            const subIndex = { ...FIXED_SUBSYSTEMS_INDEX };
+            const statuses = {};
+            FIXED_SUBSYSTEMS_LIST.forEach(s => { statuses[s.label] = []; });
+            const mapeo = {};
+
+            const registrarSubsystemIndex = (code, desc) => {
+                const label = resolverCanonicalLabel(code, desc);
+                if (!label) return '';
+                const item = { code: code || label, desc: desc || label, label, _label: label };
+                if (code) subIndex[code.toLowerCase()] = item;
+                subIndex[label.toLowerCase()] = item;
+                if (code === '02/01/3350' || code === '02-01-3350') subIndex['03350-02-01'] = item;
+                if (code === '03350-02-01') {
+                    subIndex['02/01/3350'] = item;
+                    subIndex['02-01-3350'] = item;
+                }
+                if (!statuses[label]) statuses[label] = [];
+                return label;
+            };
+
+            const procesarFilasSubsistema = (filas) => {
+                (filas || []).forEach(r => {
+                    const code = getSubsystemCode(r);
+                    const desc = getSystemDesc(r);
+                    const label = registrarSubsystemIndex(code, desc);
+                    if (!label) return;
+
+                    const directGuid = String(r['GUID'] || r['Elemento GUID'] || r['GUID_ELEMENTO'] || r['GUID ELEMENTO'] || '').trim();
+                    if (directGuid) {
+                        const gLower = directGuid.toLowerCase();
+                        mapeo[gLower] = label;
+                        if (!statuses[label].includes(directGuid)) {
+                            statuses[label].push(directGuid);
+                        }
+                    }
+
+                    const spool = getSpool(r);
+                    const linea = getLinea(r);
+                    if (spool && !isGenericSpool(spool)) spoolSubMap[spool.toLowerCase()] = label;
+                    if (linea) {
+                        spoolSubMap[linea.toLowerCase()] = label;
+                        const cleanL = cleanLineKey(linea);
+                        if (cleanL) spoolSubMap[cleanL] = label;
+                    }
+                });
+            };
+
+            procesarFilasSubsistema(juntasRows);
+            subsystemTablesRows.forEach(rows => procesarFilasSubsistema(rows));
+
+            const aguaPath = path.join(__dirname, 'mapeo_agua_de_proceso_guid_spool.json');
+            if (fs.existsSync(aguaPath)) {
+                try {
+                    if (!global._aguaMapeoCache) {
+                        global._aguaMapeoCache = JSON.parse(fs.readFileSync(aguaPath, 'utf8'));
+                    }
+                    (global._aguaMapeoCache || []).forEach(x => {
+                        const code = String(x.codigo_subsistema || '').trim();
+                        const desc = String(x.nombre_subsistema || '').trim();
+                        const label = registrarSubsystemIndex(code, desc);
+                        if (!label) return;
+
+                        const guid = String(x.guid || '').trim();
+                        if (guid) {
+                            const gLower = guid.toLowerCase();
+                            mapeo[gLower] = label;
+                            if (!statuses[label].includes(guid)) {
+                                statuses[label].push(guid);
+                            }
+                        }
+
+                        const line = String(x.tag_linea || '').trim();
+                        if (line) {
+                            spoolSubMap[line.toLowerCase()] = label;
+                            const cleanL = cleanLineKey(line);
+                            if (cleanL) spoolSubMap[cleanL] = label;
+                        }
+
+                        const tagG = String(x.tag_gestion_lukeapp || '').trim();
+                        if (tagG && !isGenericSpool(tagG)) {
+                            spoolSubMap[tagG.toLowerCase()] = label;
+                        }
+                    });
+                } catch (e) {
+                    console.warn('[BIM Subsistemas] Error leyendo mapeo_agua_de_proceso_guid_spool.json:', e.message);
+                }
+            }
+
+            (bimRows || []).forEach(row => {
+                const guid = String(row['Elemento GUID'] || '').trim();
+                if (!guid) return;
+
+                const gLower = guid.toLowerCase();
+
+                const directSub = String(row['SUB SISTEMA LUKEAPP'] || row['SUBSISTEMA LUKEAPP'] || row['SUB SISTEMA'] || row['SUBSISTEMA'] || '').trim();
+                if (directSub) {
+                    const label = resolverCanonicalLabel(directSub) || directSub;
+                    mapeo[gLower] = label;
+                    (statuses[label] = statuses[label] || []).push(guid);
+                    return;
+                }
+
+                if (mapeo[gLower] && mapeo[gLower] !== 'SIN SUBSISTEMA') return;
+
+                const tagG = String(row['SPOOL LUKEAPP'] || '').trim();
+                const lineNo = String(row['Line Number'] || '').trim();
+
+                let label = 'SIN SUBSISTEMA';
+
+                if (tagG && !isGenericSpool(tagG) && spoolSubMap[tagG.toLowerCase()]) {
+                    label = spoolSubMap[tagG.toLowerCase()];
+                } else if (lineNo) {
+                    label = spoolSubMap[lineNo.toLowerCase()] || spoolSubMap[cleanLineKey(lineNo)] || 'SIN SUBSISTEMA';
+                }
+
+                mapeo[gLower] = label;
+                (statuses[label] = statuses[label] || []).push(guid);
+            });
+
+            const result = { statuses, mapeo, subIndex };
+            _subsistemasDataCache = result;
+            _subsistemasDataCacheTimestamp = Date.now();
+            return result;
+        } finally {
+            _subsistemasCalculandoPromise = null;
         }
+    })();
 
-        // Si ya tenía mapeo directo desde archivo o tabla de subsistema, mantenerlo
-        if (mapeo[gLower] && mapeo[gLower] !== 'SIN SUBSISTEMA') return;
-
-        const tagG = String(row['SPOOL LUKEAPP'] || '').trim();
-        const lineNo = String(row['Line Number'] || '').trim();
-
-        let label = 'SIN SUBSISTEMA';
-
-        if (tagG && !isGenericSpool(tagG) && spoolSubMap[tagG.toLowerCase()]) {
-            label = spoolSubMap[tagG.toLowerCase()];
-        } else if (lineNo) {
-            label = spoolSubMap[lineNo.toLowerCase()] || spoolSubMap[cleanLineKey(lineNo)] || 'SIN SUBSISTEMA';
-        }
-
-        mapeo[gLower] = label;
-        (statuses[label] = statuses[label] || []).push(guid);
-    });
-
-    return { statuses, mapeo, subIndex };
+    return _subsistemasCalculandoPromise;
 }
 
 // GET /api/bim/tabla-mapeo-agua → Tabla consolidada de GUID vs Tag de Gestión extraída de AGUA DE PROCESO y LIST_Bim_MS
@@ -1577,13 +1621,7 @@ app.get('/api/bim/:capa/mapeo', async (req, res) => {
 // GET /api/bim/:capa/index → { [idLower]: { id, ...campos maestros } }
 app.get('/api/bim/:capa/index', async (req, res) => {
     if (req.params.capa === 'subsistema') {
-        try {
-            const data = await obtenerSubSistemasData();
-            return res.json(data.subIndex);
-        } catch (e) {
-            console.error('[BIM subsistema index]', e.message);
-            return res.status(500).json({ error: e.message });
-        }
+        return res.json(FIXED_SUBSYSTEMS_INDEX);
     }
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
@@ -1765,17 +1803,15 @@ function meEstadosActualesDeLog(logs) {
 app.get('/api/bim/subsistema/:id/por-estado', async (req, res) => {
     const subsistemaId = decodeURIComponent(req.params.id).trim();
     try {
-        const [rawBim, spools, logs, juntasRows, ...subsystemTablesRows] = await Promise.all([
+        const [rawBim, spools, logs] = await Promise.all([
             fetchAppSheetCached('LIST_Bim_MS'),
             fetchAppSheetCached('LIST_Spools_MS_'),
-            fetchAppSheetCached('LOG_Spool_MS'),
-            fetchAppSheet('LIST_Juntas_MS_').catch(() => []),
-            ...TABLAS_SUBSISTEMAS.map(t => fetchAppSheet(t).catch(() => []))
+            fetchAppSheetCached('LOG_Spool_MS')
         ]);
 
         // 1. Resolver el subsistema de cada GUID (reutiliza lógica de obtenerSubSistemasData)
         const subData = await obtenerSubSistemasData();
-        const guidsDelSubsistema = subData.statuses[subsistemaId] || [];
+        const guidsDelSubsistema = subData.statuses[subsistemaId] || subData.statuses[subsistemaId.toUpperCase()] || [];
         if (!guidsDelSubsistema.length) {
             return res.json({ subsistema: subsistemaId, total: 0, statuses: {} });
         }
