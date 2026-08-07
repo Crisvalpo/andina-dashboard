@@ -578,8 +578,13 @@ export async function bimCambiarModelo(modelKey) {
                 bimDividirInit();
                 bimIsoColorInit();
 
-                // Refrescar capa activa y filtros por estado
-                if (bimState.filtroEstados && bimState.filtroEstados.size > 0) {
+                // Refrescar capa activa, búsquedas pendientes o filtros por estado
+                if (bimState.pendingSearch) {
+                    const { capa, termino } = bimState.pendingSearch;
+                    bimState.pendingSearch = null;
+                    bimSetCapa(capa);
+                    bimLoadCapaItem(capa, termino);
+                } else if (bimState.filtroEstados && bimState.filtroEstados.size > 0) {
                     bimAplicarFiltroEstados();
                 } else {
                     bimSetCapa(bimState.capa || 'spool');
@@ -627,13 +632,21 @@ export function bimResolveCapaId(capa, typed) {
     return typed;
 }
 
-/** Busca una válvula/soporte por ID/ITEM/etiqueta y resalta sus elementos vinculados en el modelo. */
+/** Busca una válvula/soporte/línea por ID/ITEM/etiqueta y resalta sus elementos vinculados en el modelo. */
 export async function bimLoadCapaItem(capa, termino) {
-    if (!bimState.initialized) return;
-    const ui = BIM_CAPA_UI[capa];
+    const inp = document.getElementById('bim-search-input');
+    if (inp) inp.value = termino;
+
+    if (!bimState.initialized) {
+        bimState.pendingSearch = { capa, termino };
+        console.log(`[BIM] Visor no listo. Búsqueda de ${capa} "${termino}" encolada.`);
+        return;
+    }
+
+    const ui = BIM_CAPA_UI[capa] || BIM_CAPA_UI['spool'];
     const id = bimResolveCapaId(capa, termino);
 
-    bimSetMetaCargando('Buscando elementos...');
+    bimSetMetaCargando(`Buscando elementos de ${ui.label.toLowerCase()} "${termino}"...`);
     try {
         const resp = await fetch(`/api/bim/${capa}/item/${encodeURIComponent(id)}`);
         const data = await resp.json();
