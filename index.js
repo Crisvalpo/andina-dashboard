@@ -2158,6 +2158,61 @@ app.get('/api/lineas/resumen', async (req, res) => {
     }
 });
 
+// GET /api/bim/linea/item/:id → GUIDs 3D y consolidado por línea de cañería para el visor BIM 3D
+app.get('/api/bim/linea/item/:id', async (req, res) => {
+    const rawLine = decodeURIComponent(req.params.id).trim();
+    try {
+        const [rawBim, lineasData] = await Promise.all([
+            fetchAppSheetCached('LIST_Bim_MS').catch(() => []),
+            obtenerLineasResumenData()
+        ]);
+
+        const cleanLine = s => String(s || '').replace(/"/g, '_').replace(/-(HC_HOJA|HOJA|HC|N|R\d+|REV\d+).*$/i, '').toLowerCase().trim();
+        const searchKey = cleanLine(rawLine) || rawLine.toLowerCase();
+
+        // Buscar información de la línea en la caché de resumen
+        const lineMeta = (lineasData.lineas || []).find(l => 
+            l.clean_key === searchKey || 
+            l.id_linea.toLowerCase() === rawLine.toLowerCase() || 
+            l.id_linea.toLowerCase().includes(searchKey) ||
+            searchKey.includes(l.clean_key)
+        );
+
+        const targetLineId = lineMeta ? lineMeta.id_linea : rawLine;
+        const targetCleanKey = lineMeta ? lineMeta.clean_key : searchKey;
+
+        // Encontrar GUIDs 3D en LIST_Bim_MS
+        const guids = [];
+        rawBim.forEach(r => {
+            const guid = r['Elemento GUID'] || r['GUID'];
+            if (!guid) return;
+
+            const lineCol = String(r['Line Number LUKEAPP'] || r['Line Number'] || r['ID_LINEA'] || r['LINEA'] || r['TAG'] || '').trim();
+            const spoolCol = String(r['SPOOL LUKEAPP'] || r['ID_SPOOL'] || r['TAG GESTION'] || '').trim();
+            const isoCol = String(r['ID_ISO'] || r['ISOMETRICO'] || '').trim();
+
+            const matchLine = lineCol && (cleanLine(lineCol) === targetCleanKey || lineCol.toLowerCase().includes(targetCleanKey) || targetCleanKey.includes(cleanLine(lineCol)));
+            const matchSpool = spoolCol && (cleanLine(spoolCol).includes(targetCleanKey) || spoolCol.toLowerCase().includes(targetCleanKey));
+            const matchIso = isoCol && cleanLine(isoCol).includes(targetCleanKey);
+
+            if (matchLine || matchSpool || matchIso) {
+                guids.push(guid);
+            }
+        });
+
+        res.json({
+            id_linea: targetLineId,
+            clean_key: targetCleanKey,
+            label: targetLineId,
+            guids: guids,
+            meta: lineMeta || null
+        });
+    } catch (e) {
+        console.error('[API /api/bim/linea/item Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // GET /api/bim/subsistema/:id/por-estado → GUIDs de un subsistema agrupados por estado de fabricación del spool
 // Para colorear los elementos de un subsistema según el estado de sus spools en el visor 3D
 app.get('/api/bim/subsistema/:id/por-estado', async (req, res) => {

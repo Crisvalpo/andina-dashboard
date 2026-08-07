@@ -341,6 +341,14 @@ export function toggleLineaAccordion(cleanKey) {
 window.toggleLineaAccordion = toggleLineaAccordion;
 window.filterLineas = filterLineas;
 window.verIsoPdf = function(idIso, directUrl) {
+    // 1. Auto-seleccionar y enfocar la línea en el visor 3D BIM
+    const cleanLineId = idIso ? idIso.replace(/-(HC_HOJA|HOJA|HC|N|R\d+|REV\d+).*$/i, '').trim() : '';
+    if (window.bimSetCapa && window.bimLoadCapaItem && cleanLineId) {
+        window.bimSetCapa('linea');
+        window.bimLoadCapaItem('linea', cleanLineId);
+    }
+
+    // 2. Abrir el PDF plano en pantalla dividida (Split Screen)
     if (directUrl && directUrl.length > 5 && window.bimOpenPdf) {
         window.bimOpenPdf(directUrl);
         return;

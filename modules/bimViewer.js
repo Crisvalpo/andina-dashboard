@@ -47,6 +47,10 @@ export const BIM_CAPA_UI = {
     subsistema: {
         label: 'Sub-sistema', buscar: 'Buscar Sub-sistema', placeholder: 'Código o Nombre (ej: 03350-02-06)',
         vincularLabel: 'Código Sub-sistema:', vincularPlaceholder: 'Ej: 03350-02-06'
+    },
+    linea: {
+        label: 'Línea', buscar: 'Buscar Línea de Cañería', placeholder: 'Tag o Número (ej: 0094, PW-4")',
+        vincularLabel: 'Tag Línea:', vincularPlaceholder: 'Ej: 03351-PW-4"-C1-0094-N'
     }
 };
 
@@ -649,7 +653,7 @@ export async function bimLoadCapaItem(capa, termino) {
                 if (window.innerWidth <= 1024) bimCloseSidebar();
             }
         });
-        bimRenderCapaMeta(capa, id);
+        bimRenderCapaMeta(capa, id, data);
     } catch (err) {
         bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error: ${err.message}</p></div>`);
     }
@@ -3708,9 +3712,41 @@ export function bimRenderMultiElementoMeta(count, tags, spools, subs, elems) {
         </div>`);
 }
 
-/** Renderiza la ficha (metadata + estado montaje) de una válvula/soporte. */
-export async function bimRenderCapaMeta(capa, id) {
+/** Renderiza la ficha (metadata + estado montaje) de una válvula/soporte/línea. */
+export async function bimRenderCapaMeta(capa, id, lineData = null) {
     if (capa === 'subsistema') return;
+    if (capa === 'linea') {
+        const l = lineData?.meta || {};
+        const label = lineData?.label || id;
+        const guidsCount = lineData?.guids?.length || 0;
+
+        const cards = [
+            { label: 'Línea de Cañería', value: l.id_linea || label, icon: 'fa-project-diagram' },
+            { label: 'Avance Juntas', value: l.juntas ? `${l.juntas.ejecutadas} / ${l.juntas.total} (${l.juntas.porcentaje}%)` : null, icon: 'fa-link' },
+            { label: 'Spools Montados', value: l.spools ? `${l.spools.montados} / ${l.spools.total} (${l.spools.porcentaje}%)` : null, icon: 'fa-industry' },
+            { label: 'Válvulas', value: l.valvulas ? `${l.valvulas.montadas} / ${l.valvulas.total}` : null, icon: 'fa-faucet' },
+            { label: 'Soportes', value: l.soportes ? `${l.soportes.montados} / ${l.soportes.total}` : null, icon: 'fa-border-all' },
+            { label: 'Subsistema', value: l.subsistema, icon: 'fa-layer-group' },
+            { label: 'CWP', value: l.cwp, icon: 'fa-map-marker-alt' },
+            { label: 'Fluido', value: l.fluido, icon: 'fa-burn' }
+        ].filter(f => f.value).map(f => `
+            <div class="bim-meta-card">
+                <span class="bim-meta-icon-sm"><i class="fas ${f.icon}"></i></span>
+                <div><span class="bim-meta-label">${f.label}</span><span class="bim-meta-value">${f.value}</span></div>
+            </div>`).join('');
+
+        let pdfBtnHtml = '';
+        if (l.pid) {
+            pdfBtnHtml += `<button onclick="window.verPidPdf('${l.pid}')" style="margin-top:10px; background:rgba(239,68,68,0.12); border:1px solid rgba(239,68,68,0.25); color:#fca5a5; display:flex; justify-content:center; align-items:center; gap:8px; width:100%; padding: 10px; border-radius: 8px; font-weight: 600; cursor: pointer;"><i class="fas fa-file-pdf"></i> Ver P&ID (${l.pid})</button>`;
+        }
+
+        bimSetMeta(`
+            <div class="bim-meta-header"><i class="fas fa-project-diagram" style="color:var(--primary-light,#818cf8);"></i><span>${label}</span><span class="bim-badge">${guidsCount} elem 3D</span></div>
+            <div class="bim-meta-cards">${cards}</div>
+            ${pdfBtnHtml}`);
+        return;
+    }
+
     const index = bimState.capaIndex[capa] || {};
     const row = index[id.toLowerCase()];
     const label = row?._label || id;
