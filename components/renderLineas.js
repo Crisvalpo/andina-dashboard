@@ -273,7 +273,7 @@ function renderIsometricosTable(isometricos, idLinea) {
                     ${isoTpBadges ? `<div style="margin-top:2px;">${isoTpBadges}</div>` : ''}
                 </td>
                 <td style="text-align:center;">
-                    <button class="btn-iso-pdf" onclick="verIsoPdf('${escapeHtml(iso.id_iso)}', '${escapeHtml(iso.pdf_url || '')}')"><i class="fas fa-file-pdf"></i> PDF</button>
+                    ${iso.pdf_url ? `<button class="btn-iso-pdf" onclick="verIsoPdf('${escapeHtml(iso.id_iso)}', '${escapeHtml(iso.pdf_url)}')"><i class="fas fa-file-pdf"></i> PDF</button>` : '<span style="opacity:0.4;">-</span>'}
                 </td>
                 <td>
                     <div class="table-mini-stat">
@@ -348,8 +348,9 @@ window.verIsoPdf = function(idIso, directUrl) {
     fetch(`/api/iso/pdf/${encodeURIComponent(idIso)}`)
         .then(r => r.json())
         .then(data => {
-            if (data.pdf_url && window.bimOpenPdf) {
-                window.bimOpenPdf(data.pdf_url);
+            const url = data.current_sheet?.pdf_url || (data.sheets && data.sheets[0]?.pdf_url) || data.pdf_url || null;
+            if (url && window.bimOpenPdf) {
+                window.bimOpenPdf(url);
             } else if (window.bimOpenPdf) {
                 alert(`No se encontró un PDF adjunto para el isométrico ${idIso}`);
             }

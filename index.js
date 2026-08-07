@@ -1820,7 +1820,8 @@ app.get('/api/lineas/resumen', async (req, res) => {
             valvulasRows,
             montajeValvulasRows,
             soportesRows,
-            montajeSoportesRows
+            montajeSoportesRows,
+            logIsoRows
         ] = await Promise.all([
             fetchAppSheetCached('LIST_Lineas_MS_').catch(() => []),
             fetchAppSheetCached('LIST_Isos_MS_').catch(() => []),
@@ -1831,10 +1832,26 @@ app.get('/api/lineas/resumen', async (req, res) => {
             fetchAppSheetCached('LIST_Valvulas_MS').catch(() => []),
             fetchAppSheetCached('REG_MontajeValvulas_MS').catch(() => []),
             fetchAppSheetCached('LIST_Soportes_MS').catch(() => []),
-            fetchAppSheetCached('REG_MontajeSoportes_MS').catch(() => [])
+            fetchAppSheetCached('REG_MontajeSoportes_MS').catch(() => []),
+            fetchAppSheetCached('LOG_Iso_MS').catch(() => [])
         ]);
 
         const cleanLine = s => String(s || '').replace(/"/g, '_').replace(/-(HC_HOJA|HOJA|HC|N|R\d+|REV\d+).*$/i, '').toLowerCase().trim();
+
+        // Mapeo de PDFs desde LOG_Iso_MS
+        const appName = CONFIG.APPSHEET_APP_ID || 'LukeAPP_Andina-526211656';
+        const isoPdfMap = {};
+        (logIsoRows || []).forEach(row => {
+            const isoId = String(row['ID_ISO'] || '').trim().toLowerCase();
+            const fileName = String(row['ARCHIVO_PDF_REVISION'] || '').trim();
+            if (isoId && fileName) {
+                let pdfUrl = fileName;
+                if (!fileName.startsWith('http://') && !fileName.startsWith('https://')) {
+                    pdfUrl = `https://www.appsheet.com/template/gettablefileurl?appName=${encodeURIComponent(appName)}&tableName=LOG_Iso_MS&fileName=${encodeURIComponent(fileName)}`;
+                }
+                isoPdfMap[isoId] = pdfUrl;
+            }
+        });
 
         // Helper para extraer lista de Test Packs desde columnas (EnumList separado por comas o punto y coma)
         const getTestPacks = (row) => {
@@ -1908,7 +1925,7 @@ app.get('/api/lineas/resumen', async (req, res) => {
             const idIso = String(r['ID_ISO'] || r['ID_ISOMETRICO'] || r['ISOMETRICO'] || '').trim();
             const idLinea = String(r['ID_LINEA'] || r['TAG_LINEA'] || '').trim();
             const hojaLabel = resolverHojaLabel(r, idIso);
-            const pdfUrl = String(r['LINK_PDF'] || r['PDF_URL'] || r['URL_PDF'] || r['PDF'] || r['LINK'] || r['FILE'] || r['ARCHIVA'] || r['PDF_ISOMETRICO'] || r['DOCUMENTO'] || r['Drive_URL'] || r['URL'] || '').trim();
+            const pdfUrl = String(r['LINK_PDF'] || r['PDF_URL'] || r['URL_PDF'] || r['PDF'] || r['LINK'] || r['FILE'] || r['ARCHIVA'] || r['PDF_ISOMETRICO'] || r['DOCUMENTO'] || r['Drive_URL'] || r['URL'] || '').trim() || isoPdfMap[idIso.toLowerCase()] || '';
 
             const key = cleanLine(idLinea) || idLinea.toLowerCase();
             let lineEntry = lineasMap[key];
