@@ -11,6 +11,11 @@
 import { bimState } from '../modules/bimState.js';
 
 export function bimOpenPdf(url) {
+    // Si no estamos en la sección BIM, cambiar automáticamente a la sección BIM
+    if (window.showSection) {
+        window.showSection('bim');
+    }
+
     const proxyUrl = `/api/iso/proxy-pdf?url=${encodeURIComponent(url)}`;
 
     if (window.innerWidth > 1024) {
