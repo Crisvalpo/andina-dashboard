@@ -102,7 +102,6 @@ export function filterLineas() {
     const query = (document.getElementById('lineas-search')?.value || '').toLowerCase().trim();
     const filterAvance = document.getElementById('lineas-filter-avance')?.value || 'TODOS';
 
-    // Si la búsqueda está vacía y el filtro es TODOS, no renderizamos todo de golpe para mantener el dashboard ultra rápido.
     if (!query && filterAvance === 'TODOS') {
         if (container) {
             container.innerHTML = `
@@ -262,6 +261,8 @@ function renderIsometricosTable(isometricos, idLinea) {
     let rowsHtml = isometricos.map(iso => {
         const pctJ = iso.juntas.total > 0 ? ((iso.juntas.ejecutadas / iso.juntas.total) * 100).toFixed(0) : 0;
         const pctS = iso.spools.total > 0 ? ((iso.spools.montados / iso.spools.total) * 100).toFixed(0) : 0;
+        const pctV = iso.valvulas.total > 0 ? ((iso.valvulas.montadas / iso.valvulas.total) * 100).toFixed(0) : 0;
+        const pctSop = iso.soportes.total > 0 ? ((iso.soportes.montados / iso.soportes.total) * 100).toFixed(0) : 0;
         const isoTpBadges = (iso.test_packs || []).map(tp => `<span class="subtag-pill subtag-tp" style="font-size:0.65rem; padding:1px 5px;"><i class="fas fa-vial"></i> ${escapeHtml(tp)}</span>`).join(' ');
 
         return `
@@ -272,7 +273,7 @@ function renderIsometricosTable(isometricos, idLinea) {
                     ${isoTpBadges ? `<div style="margin-top:2px;">${isoTpBadges}</div>` : ''}
                 </td>
                 <td style="text-align:center;">
-                    ${iso.pdf_url ? `<button class="btn-iso-pdf" onclick="window.bimOpenPdf('${escapeHtml(iso.pdf_url)}')"><i class="fas fa-file-pdf"></i> PDF</button>` : '<span style="opacity:0.4;">-</span>'}
+                    <button class="btn-iso-pdf" onclick="verIsoPdf('${escapeHtml(iso.id_iso)}', '${escapeHtml(iso.pdf_url || '')}')"><i class="fas fa-file-pdf"></i> PDF</button>
                 </td>
                 <td>
                     <div class="table-mini-stat">
@@ -286,11 +287,17 @@ function renderIsometricosTable(isometricos, idLinea) {
                         <span class="badge-mini-pct">${pctS}%</span>
                     </div>
                 </td>
-                <td style="text-align:center;">
-                    ${iso.valvulas.total > 0 ? `<strong>${iso.valvulas.montadas}</strong> / ${iso.valvulas.total}` : '<span style="opacity:0.4;">0</span>'}
+                <td>
+                    <div class="table-mini-stat">
+                        <span><strong>${iso.valvulas.montadas}</strong> / ${iso.valvulas.total}</span>
+                        ${iso.valvulas.total > 0 ? `<span class="badge-mini-pct">${pctV}%</span>` : ''}
+                    </div>
                 </td>
-                <td style="text-align:center;">
-                    ${iso.soportes.total > 0 ? `<strong>${iso.soportes.montados}</strong> / ${iso.soportes.total}` : '<span style="opacity:0.4;">0</span>'}
+                <td>
+                    <div class="table-mini-stat">
+                        <span><strong>${iso.soportes.montados}</strong> / ${iso.soportes.total}</span>
+                        ${iso.soportes.total > 0 ? `<span class="badge-mini-pct">${pctSop}%</span>` : ''}
+                    </div>
                 </td>
             </tr>
         `;
@@ -305,8 +312,8 @@ function renderIsometricosTable(isometricos, idLinea) {
                         <th style="text-align:center;">PDF</th>
                         <th>Juntas Ejec.</th>
                         <th>Spools Mont.</th>
-                        <th style="text-align:center;">Válvulas</th>
-                        <th style="text-align:center;">Soportes</th>
+                        <th>Válvulas Mont.</th>
+                        <th>Soportes Mont.</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -333,6 +340,23 @@ export function toggleLineaAccordion(cleanKey) {
 
 window.toggleLineaAccordion = toggleLineaAccordion;
 window.filterLineas = filterLineas;
+window.verIsoPdf = function(idIso, directUrl) {
+    if (directUrl && directUrl.length > 5 && window.bimOpenPdf) {
+        window.bimOpenPdf(directUrl);
+        return;
+    }
+    fetch(`/api/iso/pdf/${encodeURIComponent(idIso)}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.pdf_url && window.bimOpenPdf) {
+                window.bimOpenPdf(data.pdf_url);
+            } else if (window.bimOpenPdf) {
+                alert(`No se encontró un PDF adjunto para el isométrico ${idIso}`);
+            }
+        })
+        .catch(e => console.error('[verIsoPdf Error]', e.message));
+};
+
 window.verPidPdf = function(pidId) {
     fetch(`/api/pid/pdf/${encodeURIComponent(pidId)}`)
         .then(r => r.json())

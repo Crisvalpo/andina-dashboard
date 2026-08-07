@@ -1854,9 +1854,18 @@ app.get('/api/lineas/resumen', async (req, res) => {
         // 2. Estados de Spools
         const spoolStatuses = estadosActualesDeLog(logsSpoolRows);
 
-        // 3. Montaje Válvulas y Soportes
-        const valvulasMontaje = estadosMontajeDeCapa(BIM_CAPAS.valvula, montajeValvulasRows);
-        const soportesMontaje = estadosMontajeDeCapa(BIM_CAPAS.soporte, montajeSoportesRows);
+        // 3. 
+        const resolverHojaLabel = (r, idIso) => {
+            const rawHoja = String(r?.['HOJA'] || r?.['HOJA_LABEL'] || r?.['N_HOJA'] || '').trim();
+            if (rawHoja && rawHoja !== '1' && rawHoja !== 'HOJA 1') {
+                return rawHoja.toUpperCase().startsWith('HOJA') ? rawHoja : `HOJA ${rawHoja}`;
+            }
+            const match = String(idIso || '').match(/[-_]HOJA[-_]?(\d+)/i) || String(idIso || '').match(/[-_]H[-_]?(\d+)/i);
+            if (match && match[1]) {
+                return `HOJA ${match[1]}`;
+            }
+            return rawHoja ? (rawHoja.toUpperCase().startsWith('HOJA') ? rawHoja : `HOJA ${rawHoja}`) : 'HOJA 1';
+        };
 
         const lineasMap = {};
 
@@ -1893,10 +1902,10 @@ app.get('/api/lineas/resumen', async (req, res) => {
 
         // Isométricos desde LIST_Isos_MS_
         isosRows.forEach(r => {
-            const idIso = String(r['ID_ISO'] || r['ID_ISOMETRICO'] || '').trim();
+            const idIso = String(r['ID_ISO'] || r['ID_ISOMETRICO'] || r['ISOMETRICO'] || '').trim();
             const idLinea = String(r['ID_LINEA'] || r['TAG_LINEA'] || '').trim();
-            const hoja = String(r['HOJA'] || r['HOJA_LABEL'] || 'HOJA 1').trim();
-            const pdfUrl = String(r['LINK_PDF'] || r['PDF_URL'] || r['URL_PDF'] || '').trim();
+            const hojaLabel = resolverHojaLabel(r, idIso);
+            const pdfUrl = String(r['LINK_PDF'] || r['PDF_URL'] || r['URL_PDF'] || r['PDF'] || r['LINK'] || r['FILE'] || r['ARCHIVA'] || r['PDF_ISOMETRICO'] || r['DOCUMENTO'] || r['Drive_URL'] || r['URL'] || '').trim();
 
             const key = cleanLine(idLinea) || idLinea.toLowerCase();
             let lineEntry = lineasMap[key];
@@ -1906,12 +1915,12 @@ app.get('/api/lineas/resumen', async (req, res) => {
 
             if (lineEntry) {
                 getTestPacks(r).forEach(tp => lineEntry.test_packs.add(tp));
-                if (idIso || hoja) {
-                    const isoKey = (idIso || hoja).toLowerCase();
+                if (idIso || hojaLabel) {
+                    const isoKey = (idIso || hojaLabel).toLowerCase();
                     if (!lineEntry.isometricosMap[isoKey]) {
                         lineEntry.isometricosMap[isoKey] = {
                             id_iso: idIso || lineEntry.id_linea,
-                            hoja: hoja,
+                            hoja: hojaLabel,
                             pdf_url: pdfUrl,
                             test_packs: new Set(),
                             juntas: { total: 0, ejecutadas: 0 },
@@ -1924,6 +1933,18 @@ app.get('/api/lineas/resumen', async (req, res) => {
                 }
             }
         });
+
+        // Helper para resolver a qué isométrico asociar un elemento
+        const getIsoEntry = (lineEntry, idIso) => {
+            if (!lineEntry || !lineEntry.isometricosMap) return null;
+            const isos = Object.values(lineEntry.isometricosMap);
+            if (isos.length === 0) return null;
+            if (!idIso) return isos[0];
+            const searchKey = idIso.toLowerCase();
+            return isos.find(i => i.id_iso.toLowerCase() === searchKey || i.hoja.toLowerCase() === searchKey) ||
+                   isos.find(i => i.id_iso.toLowerCase().includes(searchKey) || searchKey.includes(i.id_iso.toLowerCase())) ||
+                   isos[0];
+        };
 
         // Juntas desde LIST_Juntas_MS_
         juntasRows.forEach(r => {
@@ -1951,23 +1972,12 @@ app.get('/api/lineas/resumen', async (req, res) => {
                     lineEntry.juntas.pulg_ejecutadas += dn;
                 }
 
-                const isoKey = (idIso || 'GENERAL').toLowerCase();
-                if (!lineEntry.isometricosMap[isoKey]) {
-                    lineEntry.isometricosMap[isoKey] = {
-                        id_iso: idIso || 'GENERAL',
-                        hoja: idIso ? idIso : 'GENERAL',
-                        pdf_url: '',
-                        test_packs: new Set(),
-                        juntas: { total: 0, ejecutadas: 0 },
-                        spools: { total: 0, montados: 0 },
-                        valvulas: { total: 0, montadas: 0 },
-                        soportes: { total: 0, montados: 0 }
-                    };
+                const isoEntry = getIsoEntry(lineEntry, idIso);
+                if (isoEntry) {
+                    tps.forEach(tp => isoEntry.test_packs.add(tp));
+                    isoEntry.juntas.total++;
+                    if (esEjecutada) isoEntry.juntas.ejecutadas++;
                 }
-                const isoEntry = lineEntry.isometricosMap[isoKey];
-                tps.forEach(tp => isoEntry.test_packs.add(tp));
-                isoEntry.juntas.total++;
-                if (esEjecutada) isoEntry.juntas.ejecutadas++;
             }
         });
 
@@ -1996,23 +2006,12 @@ app.get('/api/lineas/resumen', async (req, res) => {
                 lineEntry.spools.estados[statusName] = (lineEntry.spools.estados[statusName] || 0) + 1;
                 if (isMontado) lineEntry.spools.montados++;
 
-                const isoKey = (idIso || 'GENERAL').toLowerCase();
-                if (!lineEntry.isometricosMap[isoKey]) {
-                    lineEntry.isometricosMap[isoKey] = {
-                        id_iso: idIso || 'GENERAL',
-                        hoja: idIso ? idIso : 'GENERAL',
-                        pdf_url: '',
-                        test_packs: new Set(),
-                        juntas: { total: 0, ejecutadas: 0 },
-                        spools: { total: 0, montados: 0 },
-                        valvulas: { total: 0, montadas: 0 },
-                        soportes: { total: 0, montados: 0 }
-                    };
+                const isoEntry = getIsoEntry(lineEntry, idIso);
+                if (isoEntry) {
+                    tps.forEach(tp => isoEntry.test_packs.add(tp));
+                    isoEntry.spools.total++;
+                    if (isMontado) isoEntry.spools.montados++;
                 }
-                const isoEntry = lineEntry.isometricosMap[isoKey];
-                tps.forEach(tp => isoEntry.test_packs.add(tp));
-                isoEntry.spools.total++;
-                if (isMontado) isoEntry.spools.montados++;
             }
         });
 
@@ -2020,7 +2019,7 @@ app.get('/api/lineas/resumen', async (req, res) => {
         valvulasRows.forEach(r => {
             const idValvula = String(r['ID_VALVULA'] || r['TAG'] || r['VALVULA'] || '').trim();
             const lineRaw = String(r['ID_LINEA'] || r['LINEA'] || '').trim();
-            const idIso = String(r['ID_ISO'] || '').trim();
+            const idIso = String(r['ID_ISO'] || r['ID_ISOMETRICO'] || '').trim();
 
             const key = cleanLine(lineRaw) || lineRaw.toLowerCase();
             let lineEntry = lineasMap[key];
@@ -2036,9 +2035,8 @@ app.get('/api/lineas/resumen', async (req, res) => {
                 lineEntry.valvulas.estados[stName] = (lineEntry.valvulas.estados[stName] || 0) + 1;
                 if (isMontada) lineEntry.valvulas.montadas++;
 
-                const isoKey = (idIso || 'GENERAL').toLowerCase();
-                if (lineEntry.isometricosMap[isoKey]) {
-                    const isoEntry = lineEntry.isometricosMap[isoKey];
+                const isoEntry = getIsoEntry(lineEntry, idIso);
+                if (isoEntry) {
                     tps.forEach(tp => isoEntry.test_packs.add(tp));
                     isoEntry.valvulas.total++;
                     if (isMontada) isoEntry.valvulas.montadas++;
@@ -2050,7 +2048,7 @@ app.get('/api/lineas/resumen', async (req, res) => {
         soportesRows.forEach(r => {
             const idSoporte = String(r['ID_Soporte'] || r['ID_SOPORTE'] || r['TAG'] || r['SOPORTE'] || '').trim();
             const lineRaw = String(r['ID_LINEA'] || r['LINEA'] || '').trim();
-            const idIso = String(r['ID_ISO'] || '').trim();
+            const idIso = String(r['ID_ISO'] || r['ID_ISOMETRICO'] || '').trim();
 
             const key = cleanLine(lineRaw) || lineRaw.toLowerCase();
             let lineEntry = lineasMap[key];
@@ -2062,9 +2060,8 @@ app.get('/api/lineas/resumen', async (req, res) => {
                 const estaMontado = !!(soportesMontaje[idSoporte] || soportesMontaje[idSoporte.toLowerCase()]);
                 if (estaMontado) lineEntry.soportes.montados++;
 
-                const isoKey = (idIso || 'GENERAL').toLowerCase();
-                if (lineEntry.isometricosMap[isoKey]) {
-                    const isoEntry = lineEntry.isometricosMap[isoKey];
+                const isoEntry = getIsoEntry(lineEntry, idIso);
+                if (isoEntry) {
                     tps.forEach(tp => isoEntry.test_packs.add(tp));
                     isoEntry.soportes.total++;
                     if (estaMontado) isoEntry.soportes.montados++;
