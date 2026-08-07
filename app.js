@@ -216,7 +216,7 @@ async function refreshData() {
     console.log('[Dashboard] Cargando datos...');
     const dot = document.getElementById('api-dot');
 
-    const [lineas, isos, spools, juntas, ejecuciones, logSpools, sdis, relSdiIso, inspecciones, dimensional, catUniones, catFluidos, personal] = await Promise.all([
+    const [lineas, isos, spools, juntas, ejecuciones, logSpools, sdis, relSdiIso, inspecciones, dimensional] = await Promise.all([
         fetchTable('LIST_Lineas_MS_'),
         fetchTable('LIST_Isos_MS_'),
         fetchTable('LIST_Spools_MS_'),
@@ -226,10 +226,7 @@ async function refreshData() {
         fetchTable('LOG_SDI_MS'),
         fetchTable('REL_SDIIso_MS'),
         fetchTable('REG_InspeccionVisual_MS'),
-        fetchTable('REG_DimensionalSpool_MS'),
-        fetchTable('CAT_TipoUnion_MS'),
-        fetchTable('CAT_FluidoServicio_MS'),
-        fetchTable('CAT_Personal_MS')
+        fetchTable('REG_DimensionalSpool_MS')
     ]);
 
     // Helper to check if a value is truthy in the new AppSheet format
