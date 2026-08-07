@@ -1854,7 +1854,10 @@ app.get('/api/lineas/resumen', async (req, res) => {
         // 2. Estados de Spools
         const spoolStatuses = estadosActualesDeLog(logsSpoolRows);
 
-        // 3. 
+        // 3. Montaje Válvulas y Soportes
+        const valvulasMontaje = estadosMontajeDeCapa(BIM_CAPAS.valvula, montajeValvulasRows);
+        const soportesMontaje = estadosMontajeDeCapa(BIM_CAPAS.soporte, montajeSoportesRows);
+
         const resolverHojaLabel = (r, idIso) => {
             const rawHoja = String(r?.['HOJA'] || r?.['HOJA_LABEL'] || r?.['N_HOJA'] || '').trim();
             if (rawHoja && rawHoja !== '1' && rawHoja !== 'HOJA 1') {
