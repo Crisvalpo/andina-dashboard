@@ -1,7 +1,8 @@
 /**
  * Componente renderLineas.js — Sección de Control de Líneas & Test Packs
  * Muestra el consolidado a nivel de Línea de Cañería e Isométricos agrupados:
- * Juntas (totales vs ejecutadas), Spools (totales vs montados), Válvulas y Soportes.
+ * Juntas (totales vs ejecutadas), Spools (totales vs montados), Válvulas, Soportes y Test Packs.
+ * Carga optimizada: Renderiza tarjetas a demanda mediante búsqueda del usuario.
  */
 
 let lineasCacheData = null;
@@ -46,6 +47,7 @@ function renderLineasKPIs(lineas) {
     let spoolsTotal = 0, spoolsMontados = 0;
     let valvulasTotal = 0, valvulasMontadas = 0;
     let soportesTotal = 0, soportesMontados = 0;
+    const allTestPacks = new Set();
 
     lineas.forEach(l => {
         juntasTotal += l.juntas.total || 0;
@@ -59,12 +61,15 @@ function renderLineasKPIs(lineas) {
 
         soportesTotal += l.soportes.total || 0;
         soportesMontados += l.soportes.montados || 0;
+
+        (l.test_packs || []).forEach(tp => allTestPacks.add(tp));
     });
 
     const elTotal = document.getElementById('kpi-lineas-total');
     const elJuntas = document.getElementById('kpi-lineas-juntas');
     const elSpools = document.getElementById('kpi-lineas-spools');
-    const elValvSop = document.getElementById('kpi-lineas-valv-sop');
+    const elValvulas = document.getElementById('kpi-lineas-valvulas');
+    const elSoportes = document.getElementById('kpi-lineas-soportes');
     const elBadge = document.getElementById('badge-total-lineas');
 
     if (elTotal) elTotal.textContent = totalLineas;
@@ -76,17 +81,42 @@ function renderLineasKPIs(lineas) {
         const pct = spoolsTotal > 0 ? ((spoolsMontados / spoolsTotal) * 100).toFixed(1) : '0';
         elSpools.textContent = `${spoolsMontados} / ${spoolsTotal} (${pct}%)`;
     }
-    if (elValvSop) {
-        elValvSop.textContent = `🚰 ${valvulasMontadas}/${valvulasTotal} | 🏗️ ${soportesMontados}/${soportesTotal}`;
+    if (elValvulas) {
+        const pct = valvulasTotal > 0 ? ((valvulasMontadas / valvulasTotal) * 100).toFixed(1) : '0';
+        elValvulas.textContent = `${valvulasMontadas} / ${valvulasTotal} (${pct}%)`;
     }
-    if (elBadge) elBadge.textContent = `${totalLineas} líneas`;
+    if (elSoportes) {
+        const pct = soportesTotal > 0 ? ((soportesMontados / soportesTotal) * 100).toFixed(1) : '0';
+        elSoportes.textContent = `${soportesMontados} / ${soportesTotal} (${pct}%)`;
+    }
+    if (elBadge) {
+        const tpCount = allTestPacks.size;
+        elBadge.textContent = `${totalLineas} líneas ${tpCount > 0 ? `| 🧪 ${tpCount} Test Packs` : ''}`;
+    }
 }
 
 export function filterLineas() {
     if (!lineasCacheData) return;
 
+    const container = document.getElementById('lineas-container');
     const query = (document.getElementById('lineas-search')?.value || '').toLowerCase().trim();
     const filterAvance = document.getElementById('lineas-filter-avance')?.value || 'TODOS';
+
+    // Si la búsqueda está vacía y el filtro es TODOS, no renderizamos todo de golpe para mantener el dashboard ultra rápido.
+    if (!query && filterAvance === 'TODOS') {
+        if (container) {
+            container.innerHTML = `
+                <div class="empty-msg" style="text-align:center; padding: 50px 20px; opacity:0.85;">
+                    <i class="fas fa-search" style="font-size:2.2rem; margin-bottom:12px; color:var(--primary-light,#818cf8);"></i>
+                    <p style="font-size:1.1rem; font-weight:600; margin-bottom:4px; color:#f8fafc;">Busca una línea o Test Pack</p>
+                    <p style="font-size:0.88rem; opacity:0.75; max-width:480px; margin:0 auto;">
+                        Ingresa el número o indicio de la línea (ej. <strong>0094</strong>, <strong>PW</strong>, <strong>C1</strong>, <strong>TP-01</strong>) en la barra superior para desplegar su información detallada.
+                    </p>
+                </div>
+            `;
+        }
+        return;
+    }
 
     const filtered = lineasCacheData.filter(l => {
         const matchText = !query || 
@@ -94,7 +124,12 @@ export function filterLineas() {
             l.subsistema.toLowerCase().includes(query) ||
             l.cwp.toLowerCase().includes(query) ||
             l.pid.toLowerCase().includes(query) ||
-            (l.isometricos && l.isometricos.some(iso => iso.id_iso.toLowerCase().includes(query) || iso.hoja.toLowerCase().includes(query)));
+            (l.test_packs && l.test_packs.some(tp => tp.toLowerCase().includes(query))) ||
+            (l.isometricos && l.isometricos.some(iso => 
+                iso.id_iso.toLowerCase().includes(query) || 
+                iso.hoja.toLowerCase().includes(query) ||
+                (iso.test_packs && iso.test_packs.some(tp => tp.toLowerCase().includes(query)))
+            ));
 
         if (!matchText) return false;
 
@@ -116,14 +151,15 @@ function renderLineasCards(lineas) {
     if (!lineas || lineas.length === 0) {
         container.innerHTML = `
             <div class="empty-msg" style="text-align:center; padding: 40px; opacity:0.6;">
-                <i class="fas fa-search" style="font-size:1.5rem; margin-bottom:8px;"></i>
-                <p>No se encontraron líneas que coincidan con la búsqueda.</p>
+                <i class="fas fa-search-minus" style="font-size:1.6rem; margin-bottom:8px;"></i>
+                <p>No se encontraron líneas o Test Packs que coincidan con la búsqueda.</p>
             </div>
         `;
         return;
     }
 
-    let html = '<div class="lineas-grid">';
+    let html = `<div style="margin-bottom:10px; font-size:0.85rem; color:#94a3b8;"><i class="fas fa-filter"></i> Mostrando <strong>${lineas.length}</strong> resultado(s)</div>`;
+    html += '<div class="lineas-grid">';
 
     lineas.forEach((l, index) => {
         const pctJuntas = l.juntas.porcentaje || 0;
@@ -133,6 +169,10 @@ function renderLineasCards(lineas) {
         const isComplete = pctJuntas >= 100;
         const statusBadgeClass = isComplete ? 'badge-success' : (pctJuntas > 0 ? 'badge-warning' : 'badge-secondary');
         const statusText = isComplete ? '100% EJECUTADA' : (pctJuntas > 0 ? `${pctJuntas}% EN PROCESO` : 'PENDIENTE');
+
+        const tpBadges = (l.test_packs || []).map(tp => 
+            `<span class="subtag-pill subtag-tp" title="Test Pack"><i class="fas fa-vial"></i> ${escapeHtml(tp)}</span>`
+        ).join(' ');
 
         const spoolEstadosBadges = Object.entries(l.spools.estados || {})
             .map(([st, cant]) => `<span class="spool-mini-tag">${st}: <strong>${cant}</strong></span>`)
@@ -147,6 +187,7 @@ function renderLineasCards(lineas) {
                             <strong>${escapeHtml(l.id_linea)}</strong>
                         </div>
                         <div class="linea-subtags">
+                            ${tpBadges}
                             ${l.subsistema ? `<span class="subtag-pill subtag-sub"><i class="fas fa-layer-group"></i> ${escapeHtml(l.subsistema)}</span>` : ''}
                             ${l.cwp ? `<span class="subtag-pill subtag-cwp">CWP: ${escapeHtml(l.cwp)}</span>` : ''}
                             ${l.fluido ? `<span class="subtag-pill subtag-fluido">${escapeHtml(l.fluido)}</span>` : ''}
@@ -196,10 +237,7 @@ function renderLineasCards(lineas) {
                 </div>
 
                 <div class="linea-card-footer">
-                    <button class="linea-action-btn btn-bim" onclick="verLineaEnBIM('${escapeHtml(l.id_linea)}')">
-                        <i class="fas fa-cube"></i> Ver en BIM 3D
-                    </button>
-                    ${l.pid ? `<button class="linea-action-btn btn-pid" onclick="verPidPdf('${escapeHtml(l.pid)}')"><i class="fas fa-file-pdf"></i> P&ID</button>` : ''}
+                    ${l.pid ? `<button class="linea-action-btn btn-pid" onclick="verPidPdf('${escapeHtml(l.pid)}')"><i class="fas fa-file-pdf"></i> Ver P&ID</button>` : ''}
                     <button class="linea-action-btn btn-accordion" onclick="toggleLineaAccordion('${cleanKey}')">
                         <i class="fas fa-chevron-down" id="arrow-${cleanKey}" style="transition: transform 0.2s;"></i> Desglose Isométricos (${l.isometricos.length})
                     </button>
@@ -224,12 +262,14 @@ function renderIsometricosTable(isometricos, idLinea) {
     let rowsHtml = isometricos.map(iso => {
         const pctJ = iso.juntas.total > 0 ? ((iso.juntas.ejecutadas / iso.juntas.total) * 100).toFixed(0) : 0;
         const pctS = iso.spools.total > 0 ? ((iso.spools.montados / iso.spools.total) * 100).toFixed(0) : 0;
+        const isoTpBadges = (iso.test_packs || []).map(tp => `<span class="subtag-pill subtag-tp" style="font-size:0.65rem; padding:1px 5px;"><i class="fas fa-vial"></i> ${escapeHtml(tp)}</span>`).join(' ');
 
         return `
             <tr>
                 <td>
                     <strong><i class="fas fa-file-alt" style="color:#a78bfa; margin-right:6px;"></i>${escapeHtml(iso.hoja || iso.id_iso)}</strong>
                     <div style="font-size:0.75rem; opacity:0.6;">${escapeHtml(iso.id_iso)}</div>
+                    ${isoTpBadges ? `<div style="margin-top:2px;">${isoTpBadges}</div>` : ''}
                 </td>
                 <td style="text-align:center;">
                     ${iso.pdf_url ? `<button class="btn-iso-pdf" onclick="window.bimOpenPdf('${escapeHtml(iso.pdf_url)}')"><i class="fas fa-file-pdf"></i> PDF</button>` : '<span style="opacity:0.4;">-</span>'}
@@ -293,10 +333,6 @@ export function toggleLineaAccordion(cleanKey) {
 
 window.toggleLineaAccordion = toggleLineaAccordion;
 window.filterLineas = filterLineas;
-window.verLineaEnBIM = function(idLinea) {
-    if (window.showSection) window.showSection('bim');
-    if (window.bimFiltroGlobal) window.bimFiltroGlobal('linea', idLinea);
-};
 window.verPidPdf = function(pidId) {
     fetch(`/api/pid/pdf/${encodeURIComponent(pidId)}`)
         .then(r => r.json())

@@ -273,16 +273,25 @@ function normalizarEstadoSpool(st) {
  */
 function estadosActualesDeLog(logs) {
     const out = {};
-    logs.forEach(r => {
-        const id = String(r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
-        const st = String(r.STATUS || r['STATUS '] || '').trim();
+    (logs || []).forEach(r => {
+        const id = String(r.ID_SPOOL || r['ID_SPOOL '] || r['TAG GESTION'] || r['SPOOL'] || '').trim();
+        const st = String(r.STATUS || r['STATUS '] || r['ESTADO'] || '').trim();
         if (!id || !st) return;
         const fecha = parseFechaLog(r['FECHA_LEVANTAMIENTO']);
         const row = parseInt(r._RowNumber || '0', 10) || 0;
-        const prev = out[id];
-        if (!prev || fecha > prev.fecha || (fecha === prev.fecha && row > prev.row)) {
-            out[id] = { status: normalizarEstadoSpool(st), raw: st, fecha, row };
-        }
+        const keys = new Set([
+            id,
+            id.toLowerCase(),
+            String(r['TAG GESTION'] || '').trim(),
+            String(r['TAG GESTION'] || '').trim().toLowerCase()
+        ]);
+        keys.forEach(k => {
+            if (!k) return;
+            const prev = out[k];
+            if (!prev || fecha > prev.fecha || (fecha === prev.fecha && row > prev.row)) {
+                out[k] = { status: normalizarEstadoSpool(st), raw: st, fecha, row };
+            }
+        });
     });
     return out;
 }
@@ -1827,6 +1836,14 @@ app.get('/api/lineas/resumen', async (req, res) => {
 
         const cleanLine = s => String(s || '').replace(/"/g, '_').replace(/-(HC_HOJA|HOJA|HC|N|R\d+|REV\d+).*$/i, '').toLowerCase().trim();
 
+        // Helper para extraer lista de Test Packs desde columnas (EnumList separado por comas o punto y coma)
+        const getTestPacks = (row) => {
+            if (!row) return [];
+            const val = String(row['TEST_PACK'] || row['TEST PACK'] || row['TEST_PACKS'] || row['TEST PACKS'] || row['ID_TEST_PACK'] || row['TEST_PACK_1'] || row['TEST PACK LUKEAPP'] || '').trim();
+            if (!val) return [];
+            return val.split(/[,;]+/).map(s => s.trim()).filter(Boolean);
+        };
+
         // 1. Juntas ejecutadas
         const ejecutadasSet = new Set();
         ejecucionJuntasRows.forEach(r => {
@@ -1843,26 +1860,35 @@ app.get('/api/lineas/resumen', async (req, res) => {
 
         const lineasMap = {};
 
+        const initLineEntry = (idLinea, cleanKey) => ({
+            id_linea: idLinea,
+            clean_key: cleanKey,
+            subsistema: '',
+            cwp: '',
+            fluido: '',
+            pid: '',
+            test_packs: new Set(),
+            juntas: { total: 0, ejecutadas: 0, pulg_total: 0, pulg_ejecutadas: 0 },
+            spools: { total: 0, montados: 0, estados: {} },
+            valvulas: { total: 0, montadas: 0, estados: {} },
+            soportes: { total: 0, montados: 0 },
+            isometricosMap: {}
+        });
+
         // Inicializar desde LIST_Lineas_MS_
         lineasRows.forEach(r => {
             const idLinea = String(r['ID_LINEA'] || r['TAG_LINEA'] || r['LINEA'] || r['N_LINEA'] || '').trim();
             if (!idLinea) return;
             const key = cleanLine(idLinea) || idLinea.toLowerCase();
             if (!lineasMap[key]) {
-                lineasMap[key] = {
-                    id_linea: idLinea,
-                    clean_key: key,
-                    subsistema: String(r['SUBSISTEMA'] || r['SUB SISTEMA'] || r['DESCRIPCION_SISTEMA'] || '').trim(),
-                    cwp: String(r['CWP'] || '').trim(),
-                    fluido: String(r['FLUIDO'] || r['ID_FLUIDO'] || '').trim(),
-                    pid: String(r['ID_PID'] || r['PID'] || '').trim(),
-                    juntas: { total: 0, ejecutadas: 0, pulg_total: 0, pulg_ejecutadas: 0 },
-                    spools: { total: 0, montados: 0, estados: {} },
-                    valvulas: { total: 0, montadas: 0, estados: {} },
-                    soportes: { total: 0, montados: 0 },
-                    isometricosMap: {}
-                };
+                lineasMap[key] = initLineEntry(idLinea, key);
             }
+            const l = lineasMap[key];
+            if (r['SUBSISTEMA'] || r['SUB SISTEMA']) l.subsistema = String(r['SUBSISTEMA'] || r['SUB SISTEMA'] || r['DESCRIPCION_SISTEMA'] || '').trim();
+            if (r['CWP']) l.cwp = String(r['CWP'] || '').trim();
+            if (r['FLUIDO'] || r['ID_FLUIDO']) l.fluido = String(r['FLUIDO'] || r['ID_FLUIDO'] || '').trim();
+            if (r['ID_PID'] || r['PID']) l.pid = String(r['ID_PID'] || r['PID'] || '').trim();
+            getTestPacks(r).forEach(tp => l.test_packs.add(tp));
         });
 
         // Isométricos desde LIST_Isos_MS_
@@ -1875,30 +1901,26 @@ app.get('/api/lineas/resumen', async (req, res) => {
             const key = cleanLine(idLinea) || idLinea.toLowerCase();
             let lineEntry = lineasMap[key];
             if (!lineEntry && idLinea) {
-                lineEntry = lineasMap[key] = {
-                    id_linea: idLinea,
-                    clean_key: key,
-                    subsistema: '', cwp: '', fluido: '', pid: '',
-                    juntas: { total: 0, ejecutadas: 0, pulg_total: 0, pulg_ejecutadas: 0 },
-                    spools: { total: 0, montados: 0, estados: {} },
-                    valvulas: { total: 0, montadas: 0, estados: {} },
-                    soportes: { total: 0, montados: 0 },
-                    isometricosMap: {}
-                };
+                lineEntry = lineasMap[key] = initLineEntry(idLinea, key);
             }
 
-            if (lineEntry && (idIso || hoja)) {
-                const isoKey = (idIso || hoja).toLowerCase();
-                if (!lineEntry.isometricosMap[isoKey]) {
-                    lineEntry.isometricosMap[isoKey] = {
-                        id_iso: idIso || lineEntry.id_linea,
-                        hoja: hoja,
-                        pdf_url: pdfUrl,
-                        juntas: { total: 0, ejecutadas: 0 },
-                        spools: { total: 0, montados: 0 },
-                        valvulas: { total: 0, montadas: 0 },
-                        soportes: { total: 0, montados: 0 }
-                    };
+            if (lineEntry) {
+                getTestPacks(r).forEach(tp => lineEntry.test_packs.add(tp));
+                if (idIso || hoja) {
+                    const isoKey = (idIso || hoja).toLowerCase();
+                    if (!lineEntry.isometricosMap[isoKey]) {
+                        lineEntry.isometricosMap[isoKey] = {
+                            id_iso: idIso || lineEntry.id_linea,
+                            hoja: hoja,
+                            pdf_url: pdfUrl,
+                            test_packs: new Set(),
+                            juntas: { total: 0, ejecutadas: 0 },
+                            spools: { total: 0, montados: 0 },
+                            valvulas: { total: 0, montadas: 0 },
+                            soportes: { total: 0, montados: 0 }
+                        };
+                    }
+                    getTestPacks(r).forEach(tp => lineEntry.isometricosMap[isoKey].test_packs.add(tp));
                 }
             }
         });
@@ -1908,24 +1930,18 @@ app.get('/api/lineas/resumen', async (req, res) => {
             const idJunta = String(r['ID_JUNTA'] || r['ID JUNTA'] || r['ID_Junta'] || '').trim();
             const lineRaw = String(r['ID_LINEA'] || r['LINEA'] || r['N_LINEA'] || '').trim();
             const idIso = String(r['ID_ISO'] || r['ID_ISOMETRICO'] || '').trim();
-            const dn = parseFloat(r['DIAMETRO_NPS'] || r['DIAMETRO'] || r['DN'] || 0) || 0;
+            const dn = parseFloat(r['DIAMETRO_NPS'] || r['DIAMETRO'] || r['DN'] || r['NPS'] || r['PULGADAS'] || r['DIAMETRO (NPS)'] || 0) || 0;
 
             const key = cleanLine(lineRaw) || lineRaw.toLowerCase();
             let lineEntry = lineasMap[key];
             if (!lineEntry && lineRaw) {
-                lineEntry = lineasMap[key] = {
-                    id_linea: lineRaw,
-                    clean_key: key,
-                    subsistema: '', cwp: '', fluido: '', pid: '',
-                    juntas: { total: 0, ejecutadas: 0, pulg_total: 0, pulg_ejecutadas: 0 },
-                    spools: { total: 0, montados: 0, estados: {} },
-                    valvulas: { total: 0, montadas: 0, estados: {} },
-                    soportes: { total: 0, montados: 0 },
-                    isometricosMap: {}
-                };
+                lineEntry = lineasMap[key] = initLineEntry(lineRaw, key);
             }
 
             if (lineEntry) {
+                const tps = getTestPacks(r);
+                tps.forEach(tp => lineEntry.test_packs.add(tp));
+
                 lineEntry.juntas.total++;
                 lineEntry.juntas.pulg_total += dn;
 
@@ -1941,6 +1957,7 @@ app.get('/api/lineas/resumen', async (req, res) => {
                         id_iso: idIso || 'GENERAL',
                         hoja: idIso ? idIso : 'GENERAL',
                         pdf_url: '',
+                        test_packs: new Set(),
                         juntas: { total: 0, ejecutadas: 0 },
                         spools: { total: 0, montados: 0 },
                         valvulas: { total: 0, montadas: 0 },
@@ -1948,6 +1965,7 @@ app.get('/api/lineas/resumen', async (req, res) => {
                     };
                 }
                 const isoEntry = lineEntry.isometricosMap[isoKey];
+                tps.forEach(tp => isoEntry.test_packs.add(tp));
                 isoEntry.juntas.total++;
                 if (esEjecutada) isoEntry.juntas.ejecutadas++;
             }
@@ -1956,30 +1974,27 @@ app.get('/api/lineas/resumen', async (req, res) => {
         // Spools desde LIST_Spools_MS_
         spoolsRows.forEach(r => {
             const idSpool = String(r['ID_SPOOL'] || r['TAG GESTION'] || r['SPOOL'] || '').trim();
+            const tagG = String(r['TAG GESTION'] || '').trim();
             const lineRaw = String(r['ID_LINEA'] || r['LINEA'] || r['N_LINEA'] || '').trim();
             const idIso = String(r['ID_ISO'] || r['ID_ISOMETRICO'] || '').trim();
 
             const key = cleanLine(lineRaw) || lineRaw.toLowerCase();
             let lineEntry = lineasMap[key];
             if (!lineEntry && lineRaw) {
-                lineEntry = lineasMap[key] = {
-                    id_linea: lineRaw,
-                    clean_key: key,
-                    subsistema: '', cwp: '', fluido: '', pid: '',
-                    juntas: { total: 0, ejecutadas: 0, pulg_total: 0, pulg_ejecutadas: 0 },
-                    spools: { total: 0, montados: 0, estados: {} },
-                    valvulas: { total: 0, montadas: 0, estados: {} },
-                    soportes: { total: 0, montados: 0 },
-                    isometricosMap: {}
-                };
+                lineEntry = lineasMap[key] = initLineEntry(lineRaw, key);
             }
 
             if (lineEntry) {
+                const tps = getTestPacks(r);
+                tps.forEach(tp => lineEntry.test_packs.add(tp));
+
                 lineEntry.spools.total++;
-                const stEntry = spoolStatuses[idSpool.toLowerCase()];
-                const statusName = stEntry ? stEntry.status : 'SIN ESTADO';
+                const stEntry = spoolStatuses[idSpool] || spoolStatuses[idSpool.toLowerCase()] || spoolStatuses[tagG] || spoolStatuses[tagG.toLowerCase()];
+                const statusName = stEntry ? String(stEntry.status).toUpperCase() : 'SIN ESTADO';
+                const isMontado = (statusName === 'MONTADO' || statusName === 'MONTADA');
+
                 lineEntry.spools.estados[statusName] = (lineEntry.spools.estados[statusName] || 0) + 1;
-                if (statusName === 'MONTADO') lineEntry.spools.montados++;
+                if (isMontado) lineEntry.spools.montados++;
 
                 const isoKey = (idIso || 'GENERAL').toLowerCase();
                 if (!lineEntry.isometricosMap[isoKey]) {
@@ -1987,6 +2002,7 @@ app.get('/api/lineas/resumen', async (req, res) => {
                         id_iso: idIso || 'GENERAL',
                         hoja: idIso ? idIso : 'GENERAL',
                         pdf_url: '',
+                        test_packs: new Set(),
                         juntas: { total: 0, ejecutadas: 0 },
                         spools: { total: 0, montados: 0 },
                         valvulas: { total: 0, montadas: 0 },
@@ -1994,50 +2010,64 @@ app.get('/api/lineas/resumen', async (req, res) => {
                     };
                 }
                 const isoEntry = lineEntry.isometricosMap[isoKey];
+                tps.forEach(tp => isoEntry.test_packs.add(tp));
                 isoEntry.spools.total++;
-                if (statusName === 'MONTADO') isoEntry.spools.montados++;
+                if (isMontado) isoEntry.spools.montados++;
             }
         });
 
         // Válvulas desde LIST_Valvulas_MS
         valvulasRows.forEach(r => {
-            const idValvula = String(r['ID_VALVULA'] || '').trim();
+            const idValvula = String(r['ID_VALVULA'] || r['TAG'] || r['VALVULA'] || '').trim();
             const lineRaw = String(r['ID_LINEA'] || r['LINEA'] || '').trim();
             const idIso = String(r['ID_ISO'] || '').trim();
 
             const key = cleanLine(lineRaw) || lineRaw.toLowerCase();
             let lineEntry = lineasMap[key];
             if (lineEntry) {
+                const tps = getTestPacks(r);
+                tps.forEach(tp => lineEntry.test_packs.add(tp));
+
                 lineEntry.valvulas.total++;
-                const st = (valvulasMontaje[idValvula.toLowerCase()] ? valvulasMontaje[idValvula.toLowerCase()].status : 'PENDIENTE');
-                lineEntry.valvulas.estados[st] = (lineEntry.valvulas.estados[st] || 0) + 1;
-                if (st === 'Montada' || st === 'MONTADO') lineEntry.valvulas.montadas++;
+                const stEntry = valvulasMontaje[idValvula] || valvulasMontaje[idValvula.toLowerCase()];
+                const stName = stEntry ? String(stEntry.status || '').toUpperCase() : 'PENDIENTE';
+                const isMontada = (stName === 'MONTADA' || stName === 'MONTADO');
+
+                lineEntry.valvulas.estados[stName] = (lineEntry.valvulas.estados[stName] || 0) + 1;
+                if (isMontada) lineEntry.valvulas.montadas++;
 
                 const isoKey = (idIso || 'GENERAL').toLowerCase();
                 if (lineEntry.isometricosMap[isoKey]) {
-                    lineEntry.isometricosMap[isoKey].valvulas.total++;
-                    if (st === 'Montada' || st === 'MONTADO') lineEntry.isometricosMap[isoKey].valvulas.montadas++;
+                    const isoEntry = lineEntry.isometricosMap[isoKey];
+                    tps.forEach(tp => isoEntry.test_packs.add(tp));
+                    isoEntry.valvulas.total++;
+                    if (isMontada) isoEntry.valvulas.montadas++;
                 }
             }
         });
 
         // Soportes desde LIST_Soportes_MS
         soportesRows.forEach(r => {
-            const idSoporte = String(r['ID_Soporte'] || r['ID_SOPORTE'] || '').trim();
+            const idSoporte = String(r['ID_Soporte'] || r['ID_SOPORTE'] || r['TAG'] || r['SOPORTE'] || '').trim();
             const lineRaw = String(r['ID_LINEA'] || r['LINEA'] || '').trim();
             const idIso = String(r['ID_ISO'] || '').trim();
 
             const key = cleanLine(lineRaw) || lineRaw.toLowerCase();
             let lineEntry = lineasMap[key];
             if (lineEntry) {
+                const tps = getTestPacks(r);
+                tps.forEach(tp => lineEntry.test_packs.add(tp));
+
                 lineEntry.soportes.total++;
-                const estaMontado = !!soportesMontaje[idSoporte.toLowerCase()];
+                const estaMontado = !!(soportesMontaje[idSoporte] || soportesMontaje[idSoporte.toLowerCase()]);
                 if (estaMontado) lineEntry.soportes.montados++;
 
                 const isoKey = (idIso || 'GENERAL').toLowerCase();
                 if (lineEntry.isometricosMap[isoKey]) {
-                    lineEntry.isometricosMap[isoKey].soportes.total++;
-                    if (estaMontado) lineEntry.isometricosMap[isoKey].soportes.montados++;
+                    const isoEntry = lineEntry.isometricosMap[isoKey];
+                    tps.forEach(tp => isoEntry.test_packs.add(tp));
+                    isoEntry.soportes.total++;
+                    if (estaMontado) isoEntry.soportes.montados++;
                 }
             }
         });
@@ -2051,6 +2081,7 @@ app.get('/api/lineas/resumen', async (req, res) => {
                 id_iso: iso.id_iso,
                 hoja: iso.hoja,
                 pdf_url: iso.pdf_url,
+                test_packs: Array.from(iso.test_packs),
                 juntas: iso.juntas,
                 spools: iso.spools,
                 valvulas: iso.valvulas,
@@ -2064,6 +2095,7 @@ app.get('/api/lineas/resumen', async (req, res) => {
                 cwp: l.cwp,
                 fluido: l.fluido,
                 pid: l.pid,
+                test_packs: Array.from(l.test_packs),
                 juntas: { ...l.juntas, porcentaje: parseFloat(pctJuntas.toFixed(1)) },
                 spools: { ...l.spools, porcentaje: parseFloat(pctSpools.toFixed(1)) },
                 valvulas: l.valvulas,
