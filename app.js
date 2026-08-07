@@ -16,6 +16,7 @@ import {
     getVal, getEstado, getJuntaId, getEtapaBadge, getMaxEtapa
 } from './utils/dataHelpers.js';
 import { renderOverview } from './components/renderOverview.js';
+import { loadLineasData } from './components/renderLineas.js';
 import { renderJuntas } from './components/renderJuntas.js';
 import { renderSpools } from './components/renderSpools.js';
 import { renderQC } from './components/renderQC.js';
@@ -130,6 +131,7 @@ function showSection(name) {
 
     const titles = {
         overview:  'Dashboard Overview',
+        lineas:    '📐 Control de Líneas & Test Packs',
         juntas:    'Avance de Juntas',
         spools:    'Fabricación de Spools',
         qc:        'Control de Calidad',
@@ -146,7 +148,7 @@ function showSection(name) {
 
     // Ocultar filtro de semana en secciones estáticas
     const weekNav = document.getElementById('week-nav-container');
-    if (['spools', 'qc', 'sdi', 'logistica', 'bim', 'bot'].includes(name)) {
+    if (['lineas', 'spools', 'qc', 'sdi', 'logistica', 'bim', 'bot'].includes(name)) {
         if (weekNav) weekNav.style.display = 'none';
     } else {
         if (weekNav) weekNav.style.display = 'flex';
@@ -158,6 +160,7 @@ function showSection(name) {
 function renderCurrentSection() {
     switch (state.currentSection) {
         case 'overview':  renderOverview();  break;
+        case 'lineas':    loadLineasData();  break;
         case 'juntas':    renderJuntas();    break;
         case 'spools':    renderSpools();    break;
         case 'qc':        renderQC();        break;
