@@ -2162,15 +2162,18 @@ app.get('/api/lineas/resumen', async (req, res) => {
 app.get('/api/bim/linea/item/:id', async (req, res) => {
     const rawLine = decodeURIComponent(req.params.id).trim();
     try {
-        const [rawBim, lineasData] = await Promise.all([
+        const [rawBim, spoolsRows, valvulasRows, soportesRows, lineasData] = await Promise.all([
             fetchAppSheetCached('LIST_Bim_MS').catch(() => []),
+            fetchAppSheetCached('LIST_Spools_MS_').catch(() => []),
+            fetchAppSheetCached('LIST_Valvulas_MS').catch(() => []),
+            fetchAppSheetCached('LIST_Soportes_MS').catch(() => []),
             obtenerLineasResumenData()
         ]);
 
         const cleanLine = s => String(s || '').replace(/"/g, '_').replace(/-(HC_HOJA|HOJA|HC|N|R\d+|REV\d+).*$/i, '').toLowerCase().trim();
         const searchKey = cleanLine(rawLine) || rawLine.toLowerCase();
 
-        // Buscar información de la línea en la caché de resumen
+        // 1. Buscar información de la línea en la caché de resumen
         const lineMeta = (lineasData.lineas || []).find(l => 
             l.clean_key === searchKey || 
             l.id_linea.toLowerCase() === rawLine.toLowerCase() || 
@@ -2181,22 +2184,62 @@ app.get('/api/bim/linea/item/:id', async (req, res) => {
         const targetLineId = lineMeta ? lineMeta.id_linea : rawLine;
         const targetCleanKey = lineMeta ? lineMeta.clean_key : searchKey;
 
-        // Encontrar GUIDs 3D en LIST_Bim_MS
+        // 2. Coleccionar todos los Spool TAGs / IDs pertenecientes a esta línea en LIST_Spools_MS_
+        const spoolTags = new Set();
+        spoolsRows.forEach(s => {
+            const lineCol = String(s['ID_LINEA'] || s['LINEA'] || s['N_LINEA'] || '').trim();
+            if (cleanLine(lineCol) === targetCleanKey || lineCol.toLowerCase().includes(targetCleanKey) || targetCleanKey.includes(cleanLine(lineCol))) {
+                const tagG = String(s['TAG GESTION'] || '').trim().toLowerCase();
+                const idSpool = String(s['ID_SPOOL'] || '').trim().toLowerCase();
+                const spool = String(s['SPOOL'] || '').trim().toLowerCase();
+                if (tagG) spoolTags.add(tagG);
+                if (idSpool) spoolTags.add(idSpool);
+                if (spool) spoolTags.add(spool);
+            }
+        });
+
+        // 3. Coleccionar Válvulas y Soportes pertenecientes a esta línea
+        const valvulaTags = new Set();
+        valvulasRows.forEach(v => {
+            const lineCol = String(v['ID_LINEA'] || v['LINEA'] || '').trim();
+            if (cleanLine(lineCol) === targetCleanKey || lineCol.toLowerCase().includes(targetCleanKey)) {
+                const idV = String(v['ID_VALVULA'] || v['TAG'] || '').trim().toLowerCase();
+                if (idV) valvulaTags.add(idV);
+            }
+        });
+
+        const soporteTags = new Set();
+        soportesRows.forEach(sop => {
+            const lineCol = String(sop['ID_LINEA'] || sop['LINEA'] || '').trim();
+            if (cleanLine(lineCol) === targetCleanKey || lineCol.toLowerCase().includes(targetCleanKey)) {
+                const idS = String(sop['ID_Soporte'] || sop['ITEM'] || sop['TAG'] || '').trim().toLowerCase();
+                if (idS) soporteTags.add(idS);
+            }
+        });
+
+        // 4. Cruzar con LIST_Bim_MS para obtener todos los GUIDs 3D reales del modelo
         const guids = [];
+        const addedGuids = new Set();
+
         rawBim.forEach(r => {
             const guid = r['Elemento GUID'] || r['GUID'];
-            if (!guid) return;
+            if (!guid || addedGuids.has(guid)) return;
 
             const lineCol = String(r['Line Number LUKEAPP'] || r['Line Number'] || r['ID_LINEA'] || r['LINEA'] || r['TAG'] || '').trim();
-            const spoolCol = String(r['SPOOL LUKEAPP'] || r['ID_SPOOL'] || r['TAG GESTION'] || '').trim();
+            const spoolCol = String(r['SPOOL LUKEAPP'] || r['ID_SPOOL'] || r['TAG GESTION'] || r['SPOOL'] || '').trim().toLowerCase();
+            const valCol = String(r['VALVULA LUKEAPP'] || r['ID_VALVULA'] || '').trim().toLowerCase();
+            const sopCol = String(r['SOPORTE LUKEAPP'] || r['ID_Soporte'] || '').trim().toLowerCase();
             const isoCol = String(r['ID_ISO'] || r['ISOMETRICO'] || '').trim();
 
-            const matchLine = lineCol && (cleanLine(lineCol) === targetCleanKey || lineCol.toLowerCase().includes(targetCleanKey) || targetCleanKey.includes(cleanLine(lineCol)));
-            const matchSpool = spoolCol && (cleanLine(spoolCol).includes(targetCleanKey) || spoolCol.toLowerCase().includes(targetCleanKey));
+            const matchDirectLine = lineCol && (cleanLine(lineCol) === targetCleanKey || lineCol.toLowerCase().includes(targetCleanKey) || targetCleanKey.includes(cleanLine(lineCol)));
+            const matchSpool = spoolCol && (spoolTags.has(spoolCol) || spoolCol.includes(targetCleanKey));
+            const matchValvula = valCol && valvulaTags.has(valCol);
+            const matchSoporte = sopCol && soporteTags.has(sopCol);
             const matchIso = isoCol && cleanLine(isoCol).includes(targetCleanKey);
 
-            if (matchLine || matchSpool || matchIso) {
+            if (matchDirectLine || matchSpool || matchValvula || matchSoporte || matchIso) {
                 guids.push(guid);
+                addedGuids.add(guid);
             }
         });
 
