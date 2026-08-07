@@ -2231,8 +2231,17 @@ app.get('/api/bim/linea/item/:id', async (req, res) => {
             const sopCol = String(r['SOPORTE LUKEAPP'] || r['ID_Soporte'] || '').trim().toLowerCase();
             const isoCol = String(r['ID_ISO'] || r['ISOMETRICO'] || '').trim();
 
-            const matchDirectLine = lineCol && (cleanLine(lineCol) === targetCleanKey || lineCol.toLowerCase().includes(targetCleanKey) || targetCleanKey.includes(cleanLine(lineCol)));
-            const matchSpool = spoolCol && (spoolTags.has(spoolCol) || spoolCol.includes(targetCleanKey));
+            const matchDirectLine = lineCol && (
+                cleanLine(lineCol) === targetCleanKey || 
+                lineCol.toLowerCase().includes(targetCleanKey) || 
+                targetCleanKey.includes(cleanLine(lineCol)) ||
+                (searchKey.length >= 3 && lineCol.toLowerCase().includes(searchKey))
+            );
+            const matchSpool = spoolCol && (
+                spoolTags.has(spoolCol) || 
+                spoolCol.includes(targetCleanKey) || 
+                (searchKey.length >= 3 && spoolCol.includes(searchKey))
+            );
             const matchValvula = valCol && valvulaTags.has(valCol);
             const matchSoporte = sopCol && soporteTags.has(sopCol);
             const matchIso = isoCol && cleanLine(isoCol).includes(targetCleanKey);

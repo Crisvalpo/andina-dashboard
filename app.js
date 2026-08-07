@@ -328,9 +328,9 @@ async function refreshData() {
     state.relSdiIso = relSdiIso || [];
     state.inspecciones = inspecciones;
     state.dimensional = dimensional || [];
-    state.catUniones = catUniones || [];
-    state.catFluidos = catFluidos || [];
-    state.personal = personal || [];
+    state.catUniones = [];
+    state.catFluidos = [];
+    state.personal = [];
 
 
     const ok = mappedJuntas.length > 0 || mappedLineas.length > 0;

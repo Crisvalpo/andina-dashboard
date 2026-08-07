@@ -61,24 +61,29 @@ function tryPreFillInitialKPIs() {
         const elJuntas = document.getElementById('kpi-lineas-juntas');
         const elSpools = document.getElementById('kpi-lineas-spools');
 
-        if (state.rawLineas && state.rawLineas.length > 0 && elTotal) {
-            elTotal.textContent = state.rawLineas.length;
+        if (state.lineas && state.lineas.length > 0 && elTotal) {
+            elTotal.textContent = state.lineas.length;
         }
 
-        if (state.rawJuntas && state.rawJuntas.length > 0 && elJuntas) {
-            const totalJ = state.rawJuntas.length;
-            const ejecJ = (state.rawEjecucionJuntas || []).length;
+        if (state.juntas && state.juntas.length > 0 && elJuntas) {
+            const totalJ = state.juntas.length;
+            const ejecJ = (state.ejecuciones || []).length;
             const pctJ = totalJ > 0 ? ((ejecJ / totalJ) * 100).toFixed(1) : '0';
             elJuntas.textContent = `${ejecJ} / ${totalJ} (${pctJ}%)`;
         }
 
-        if (state.rawSpools && state.rawSpools.length > 0 && elSpools) {
-            const totalS = state.rawSpools.length;
+        if (state.spools && state.spools.length > 0 && elSpools) {
+            const totalS = state.spools.length;
             let montadosS = 0;
             if (state.spoolStatuses) {
                 Object.values(state.spoolStatuses).forEach(s => {
                     const st = String(s.status || '').toUpperCase();
                     if (st === 'MONTADO' || st === 'MONTADA') montadosS++;
+                });
+            } else {
+                state.spools.forEach(s => {
+                    const cv = String(s.ESTADO_CICLO_VIDA || s.Montaje || '').toUpperCase();
+                    if (cv === 'MONTADO' || cv === 'MONTADA' || cv === 'SI' || cv === '1') montadosS++;
                 });
             }
             const pctS = totalS > 0 ? ((montadosS / totalS) * 100).toFixed(1) : '0';
