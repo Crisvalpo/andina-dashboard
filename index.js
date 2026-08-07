@@ -1998,19 +1998,25 @@ app.get('/api/lineas/resumen', async (req, res) => {
                 const tps = getTestPacks(r);
                 tps.forEach(tp => lineEntry.test_packs.add(tp));
 
-                lineEntry.spools.total++;
                 const stEntry = spoolStatuses[idSpool] || spoolStatuses[idSpool.toLowerCase()] || spoolStatuses[tagG] || spoolStatuses[tagG.toLowerCase()];
                 const statusName = stEntry ? String(stEntry.status).toUpperCase() : 'SIN ESTADO';
+                const isEliminado = (statusName === 'ELIMINADO' || statusName === 'ELIMINADA' || statusName === 'CANCELADO' || statusName === 'CANCELADA');
                 const isMontado = (statusName === 'MONTADO' || statusName === 'MONTADA');
 
                 lineEntry.spools.estados[statusName] = (lineEntry.spools.estados[statusName] || 0) + 1;
-                if (isMontado) lineEntry.spools.montados++;
+                
+                if (!isEliminado) {
+                    lineEntry.spools.total++;
+                    if (isMontado) lineEntry.spools.montados++;
+                }
 
                 const isoEntry = getIsoEntry(lineEntry, idIso);
                 if (isoEntry) {
                     tps.forEach(tp => isoEntry.test_packs.add(tp));
-                    isoEntry.spools.total++;
-                    if (isMontado) isoEntry.spools.montados++;
+                    if (!isEliminado) {
+                        isoEntry.spools.total++;
+                        if (isMontado) isoEntry.spools.montados++;
+                    }
                 }
             }
         });
