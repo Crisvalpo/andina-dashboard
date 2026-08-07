@@ -5,20 +5,40 @@
  * Carga optimizada: Renderiza tarjetas a demanda mediante búsqueda del usuario.
  */
 
+import { state } from '../modules/state.js';
+
 let lineasCacheData = null;
+let isFetchingLineas = false;
 
 export async function loadLineasData() {
     const container = document.getElementById('lineas-container');
     if (!container) return;
 
-    if (!lineasCacheData) {
+    // 1. Llenar tarjetas KPI iniciales de forma instantánea usando datos que ya están en memoria de Overview
+    tryPreFillInitialKPIs();
+
+    // 2. Si no hay búsqueda activa, mostrar interfaz limpia inmediatamente (sin spinner global de pantalla)
+    const query = (document.getElementById('lineas-search')?.value || '').trim();
+    if (!lineasCacheData && !query) {
         container.innerHTML = `
-            <div class="empty-msg" style="text-align:center; padding: 40px; opacity:0.7;">
-                <i class="fas fa-spinner fa-spin" style="font-size:1.8rem; margin-bottom:8px; color:var(--primary-light,#818cf8);"></i>
-                <p style="font-size:0.95rem;">Cargando información consolidada de líneas...</p>
+            <div class="empty-msg" style="text-align:center; padding: 50px 20px; opacity:0.85;">
+                <i class="fas fa-search" style="font-size:2.2rem; margin-bottom:12px; color:var(--primary-light,#818cf8);"></i>
+                <p style="font-size:1.1rem; font-weight:600; margin-bottom:4px; color:#f8fafc;">Busca una línea o Test Pack</p>
+                <p style="font-size:0.88rem; opacity:0.75; max-width:480px; margin:0 auto;">
+                    Ingresa el número o indicio de la línea (ej. <strong>0094</strong>, <strong>PW</strong>, <strong>C1</strong>, <strong>TP-01</strong>) en la barra superior para desplegar su información detallada.
+                </p>
             </div>
         `;
     }
+
+    if (lineasCacheData) {
+        renderLineasKPIs(lineasCacheData);
+        filterLineas();
+        return;
+    }
+
+    if (isFetchingLineas) return;
+    isFetchingLineas = true;
 
     try {
         const res = await fetch('/api/lineas/resumen');
@@ -30,15 +50,41 @@ export async function loadLineasData() {
         filterLineas();
     } catch (e) {
         console.error('[renderLineas] Error:', e.message);
-        if (container) {
-            container.innerHTML = `
-                <div class="empty-msg" style="text-align:center; padding: 40px; color:#ef4444;">
-                    <i class="fas fa-exclamation-triangle" style="font-size:1.8rem; margin-bottom:8px;"></i>
-                    <p>Error cargando información de líneas: ${e.message}</p>
-                </div>
-            `;
-        }
+    } finally {
+        isFetchingLineas = false;
     }
+}
+
+function tryPreFillInitialKPIs() {
+    try {
+        const elTotal = document.getElementById('kpi-lineas-total');
+        const elJuntas = document.getElementById('kpi-lineas-juntas');
+        const elSpools = document.getElementById('kpi-lineas-spools');
+
+        if (state.rawLineas && state.rawLineas.length > 0 && elTotal) {
+            elTotal.textContent = state.rawLineas.length;
+        }
+
+        if (state.rawJuntas && state.rawJuntas.length > 0 && elJuntas) {
+            const totalJ = state.rawJuntas.length;
+            const ejecJ = (state.rawEjecucionJuntas || []).length;
+            const pctJ = totalJ > 0 ? ((ejecJ / totalJ) * 100).toFixed(1) : '0';
+            elJuntas.textContent = `${ejecJ} / ${totalJ} (${pctJ}%)`;
+        }
+
+        if (state.rawSpools && state.rawSpools.length > 0 && elSpools) {
+            const totalS = state.rawSpools.length;
+            let montadosS = 0;
+            if (state.spoolStatuses) {
+                Object.values(state.spoolStatuses).forEach(s => {
+                    const st = String(s.status || '').toUpperCase();
+                    if (st === 'MONTADO' || st === 'MONTADA') montadosS++;
+                });
+            }
+            const pctS = totalS > 0 ? ((montadosS / totalS) * 100).toFixed(1) : '0';
+            elSpools.textContent = `${montadosS} / ${totalS} (${pctS}%)`;
+        }
+    } catch (e) { /* silencioso */ }
 }
 
 function renderLineasKPIs(lineas) {
