@@ -392,20 +392,12 @@ export function toggleLineaAccordion(cleanKey) {
 window.toggleLineaAccordion = toggleLineaAccordion;
 window.filterLineas = filterLineas;
 window.verIsoPdf = function(idIso, directUrl) {
-    const cleanLineId = idIso ? idIso.replace(/-(HC_HOJA|HOJA|HC|N|R\d+|REV\d+).*$/i, '').trim() : '';
-
     // 1. Abrir la sección BIM
     if (window.showSection) {
         window.showSection('bim');
     }
 
-    // 2. Activar la capa 'Línea', escribir en la barra de búsqueda y ejecutar el aislamiento 3D
-    if (cleanLineId) {
-        if (window.bimSetCapa) window.bimSetCapa('linea');
-        if (window.bimLoadCapaItem) window.bimLoadCapaItem('linea', cleanLineId);
-    }
-
-    // 3. Abrir el PDF plano en pantalla dividida (Split Screen)
+    // 2. Abrir el PDF plano en pantalla dividida (Split Screen)
     if (directUrl && directUrl.length > 5 && window.bimOpenPdf) {
         window.bimOpenPdf(directUrl);
         return;
