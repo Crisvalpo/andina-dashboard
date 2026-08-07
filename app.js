@@ -50,6 +50,9 @@ document.addEventListener('DOMContentLoaded', () => {
         refreshData();
     }
 
+    // Precargar datos de la sección Líneas en segundo plano para apertura instantánea
+    loadLineasData().catch(e => console.warn('[Background Load Lineas]', e));
+
     // Inicializar barra divisoria de PDFs
     initBimSplitResizer();
 
