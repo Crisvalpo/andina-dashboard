@@ -2056,14 +2056,17 @@ async function obtenerLineasResumenData(forceRefresh = false) {
 
         const key = cleanLine(lineRaw) || lineRaw.toLowerCase();
         let lineEntry = lineasMap[key];
+        if (!lineEntry && lineRaw) {
+            lineEntry = lineasMap[key] = initLineEntry(lineRaw, key);
+        }
         if (lineEntry) {
             const tps = getTestPacks(r);
             tps.forEach(tp => lineEntry.test_packs.add(tp));
 
             lineEntry.valvulas.total++;
             const stEntry = valvulasMontaje[idValvula] || valvulasMontaje[idValvula.toLowerCase()];
-            const stName = stEntry ? String(stEntry.status || '').toUpperCase() : 'PENDIENTE';
-            const isMontada = (stName === 'MONTADA' || stName === 'MONTADO');
+            const stName = stEntry ? String(stEntry.status || stEntry.Status || '').toUpperCase() : 'PENDIENTE';
+            const isMontada = (stName === 'MONTADA' || stName === 'MONTADO' || stName === 'POSICIONADA' || stName === 'POSICIONADO');
 
             lineEntry.valvulas.estados[stName] = (lineEntry.valvulas.estados[stName] || 0) + 1;
             if (isMontada) lineEntry.valvulas.montadas++;
@@ -2085,6 +2088,9 @@ async function obtenerLineasResumenData(forceRefresh = false) {
 
         const key = cleanLine(lineRaw) || lineRaw.toLowerCase();
         let lineEntry = lineasMap[key];
+        if (!lineEntry && lineRaw) {
+            lineEntry = lineasMap[key] = initLineEntry(lineRaw, key);
+        }
         if (lineEntry) {
             const tps = getTestPacks(r);
             tps.forEach(tp => lineEntry.test_packs.add(tp));
