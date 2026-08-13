@@ -3781,9 +3781,9 @@ export function bimRedlineOnFile(event) {
         const btn = document.getElementById('redline-btn-upload');
 
         if (preview) {
-            preview.style.display = 'block';
+            preview.style.display = 'flex';
             preview.innerHTML = `
-                <img src="${_redlineBase64}" alt="Preview">
+                <img src="${_redlineBase64}" alt="Preview" onclick="bimRedlineLightbox('${_redlineBase64}', 'Vista Previa (Por Subir)', '${(document.getElementById('redline-obs')?.value || '').replace(/'/g, '')}', 'Por subir', 'Ahora')" title="Ampliar foto en pantalla completa">
                 <button class="redline-preview-remove" onclick="bimRedlineLimpiar()" title="Quitar foto">
                     <i class="fas fa-times"></i>
                 </button>`;
@@ -3948,25 +3948,36 @@ export async function bimRedlineEliminar(id, guid) {
     }
 }
 
-/** Abre un lightbox para ver la foto Red Line en pantalla completa. */
+/** Abre el visor modal premium (pantalla completa, igual al visor PDF) para ver la foto Red Line en detalle. */
 export function bimRedlineLightbox(url, tipo, obs, usuario, fecha) {
-    const overlay = document.createElement('div');
-    overlay.className = 'redline-lightbox';
-    overlay.innerHTML = `
-        <button class="redline-lightbox-close" onclick="this.parentElement.remove()">
-            <i class="fas fa-times"></i>
-        </button>
-        <img src="${url}" alt="Red Line">
-        <div class="redline-lightbox-info">
-            <span class="redline-lightbox-tipo">${tipo}</span>
-            ${obs ? `<span style="opacity:0.9;">${obs}</span>` : ''}
-            <span style="font-size:0.7rem;opacity:0.6;">${usuario} — ${fecha}</span>
-        </div>`;
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
-    document.addEventListener('keydown', function handler(e) {
-        if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', handler); }
-    });
-    document.body.appendChild(overlay);
+    const modal = document.getElementById('redline-viewer-modal');
+    const img = document.getElementById('redline-modal-img');
+    const title = document.getElementById('redline-modal-title');
+    const info = document.getElementById('redline-modal-info');
+
+    if (modal && img) {
+        img.src = url;
+        if (title) {
+            title.innerHTML = `<i class="fas fa-camera" style="color:#ef4444;"></i> ${tipo || 'Foto Red Line'}`;
+        }
+        if (info) {
+            info.innerHTML = `
+                <div style="font-weight:700; color:#fca5a5; font-size:0.92rem;">${tipo || 'Red Line'}</div>
+                ${obs ? `<div style="opacity:0.95; margin:4px 0; max-width:650px; word-break:break-word;">${obs}</div>` : ''}
+                <div style="font-size:0.75rem; opacity:0.6; margin-top:2px;">
+                    <i class="fas fa-user"></i> ${usuario || 'Desconocido'} &nbsp;•&nbsp; <i class="fas fa-clock"></i> ${fecha || ''}
+                </div>`;
+        }
+        modal.style.display = 'flex';
+    }
+}
+
+/** Cierra el visor modal de fotos Red Line */
+export function closeRedlineModal() {
+    const modal = document.getElementById('redline-viewer-modal');
+    const img = document.getElementById('redline-modal-img');
+    if (modal) modal.style.display = 'none';
+    if (img) img.src = '';
 }
 
 /** Renderiza la tarjeta resumen para múltiple selección de elementos 3D. */
@@ -4685,5 +4696,6 @@ if (typeof window !== 'undefined') {
     window.bimRedlineCargarHistorial = bimRedlineCargarHistorial;
     window.bimRedlineEliminar       = bimRedlineEliminar;
     window.bimRedlineLightbox       = bimRedlineLightbox;
+    window.closeRedlineModal        = closeRedlineModal;
     window.divState                 = divState;
 }

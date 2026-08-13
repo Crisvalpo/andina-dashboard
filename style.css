@@ -3004,6 +3004,10 @@ body.sidebar-collapsed #bim-section {
     margin-top: 1rem;
     border-top: 1px solid rgba(239, 68, 68, 0.25);
     padding-top: 0.75rem;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 /* Cabecera RED LINE */
@@ -3020,6 +3024,7 @@ body.sidebar-collapsed #bim-section {
     font-weight: 700;
     color: #fca5a5;
     letter-spacing: 0.5px;
+    box-sizing: border-box;
 }
 
 .redline-header i {
@@ -3043,6 +3048,9 @@ body.sidebar-collapsed #bim-section {
     flex-direction: column;
     gap: 0.5rem;
     margin-bottom: 0.75rem;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
 /* Zona de drop / selección de archivo */
@@ -3061,6 +3069,9 @@ body.sidebar-collapsed #bim-section {
     text-align: center;
     min-height: 80px;
     position: relative;
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
 }
 
 .redline-dropzone:hover,
@@ -3095,13 +3106,23 @@ body.sidebar-collapsed #bim-section {
     overflow: hidden;
     max-height: 180px;
     border: 1px solid rgba(239, 68, 68, 0.3);
+    background: rgba(15, 23, 42, 0.8);
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .redline-preview img {
     width: 100%;
+    max-width: 100%;
+    height: auto;
     max-height: 180px;
-    object-fit: cover;
+    object-fit: contain;
     display: block;
+    cursor: pointer;
 }
 
 .redline-preview-remove {
