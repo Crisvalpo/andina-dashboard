@@ -4094,17 +4094,71 @@ export async function bimRedlineEliminar(id, currentGuidContext) {
     }
 }
 
-/** Abre el visor modal premium (pantalla completa, igual al visor PDF) para ver la foto Red Line en detalle. */
+/** Abre el visor para ver la foto Red Line en detalle (Split Screen en PC / Modal en Móvil). */
 export function bimRedlineLightbox(url, tipo, obs, usuario, fecha, guidsAttr = '', idRecord = '') {
-    const modal = document.getElementById('redline-viewer-modal');
-    const img = document.getElementById('redline-modal-img');
-    const title = document.getElementById('redline-modal-title');
-    const info = document.getElementById('redline-modal-info');
-
     let guidsList = [];
     try {
         if (guidsAttr) guidsList = JSON.parse(decodeURIComponent(guidsAttr));
     } catch (e) {}
+
+    // En PC / Pantalla ancha (> 1024px): Abrir en Split Screen al lado del visor 3D (misma lógica que PDF)
+    if (window.innerWidth > 1024) {
+        const splitPanel = document.getElementById('bim-pdf-split-panel');
+        const splitIframe = document.getElementById('bim-pdf-split-iframe');
+        const splitImgContainer = document.getElementById('bim-pdf-split-img-container');
+        const splitImg = document.getElementById('bim-pdf-split-img');
+        const splitTitle = document.getElementById('bim-pdf-split-title');
+        const splitInfo = document.getElementById('bim-pdf-split-info');
+        const resizeBar = document.getElementById('bim-pdf-resize-bar');
+
+        if (splitPanel && splitImg) {
+            if (splitIframe) splitIframe.style.display = 'none';
+            if (splitImgContainer) splitImgContainer.style.display = 'flex';
+            splitImg.src = url;
+
+            if (splitTitle) {
+                splitTitle.innerHTML = `<i class="fas fa-camera" style="color:#ef4444;"></i> ${tipo || 'Foto Red Line'}`;
+            }
+
+            if (splitInfo) {
+                splitInfo.innerHTML = `
+                    <div style="font-weight:700; color:#fca5a5; font-size:0.95rem;">${tipo || 'Red Line'}</div>
+                    ${obs ? `<div style="opacity:0.95; margin:4px 0; max-width:600px; word-break:break-word;">${obs}</div>` : ''}
+                    <div style="font-size:0.75rem; opacity:0.6; margin-top:2px; display:flex; gap:8px; align-items:center; justify-content:center;">
+                        <span><i class="fas fa-user"></i> ${usuario || 'Desconocido'}</span>
+                        <span>•</span>
+                        <span><i class="fas fa-clock"></i> ${fecha || ''}</span>
+                        ${guidsList.length ? `<span>•</span><span><i class="fas fa-link"></i> ${guidsList.length} elem. vinculados</span>` : ''}
+                    </div>
+                    <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
+                        ${guidsList.length ? `
+                            <button onclick="bimFocoElementoRedline(${JSON.stringify(guidsList).replace(/"/g, '&quot;')});"
+                                    class="bim-scan-btn" style="background:rgba(239,68,68,0.2); border-color:rgba(239,68,68,0.4); color:#fca5a5; font-size:0.78rem; padding:4px 10px;">
+                                <i class="fas fa-crosshairs"></i> Enfocar/Aislar ${guidsList.length} elem. en 3D
+                            </button>` : ''}
+                        ${idRecord ? `
+                            <button onclick="bimRedlineVincularSeleccionActual('${idRecord}');"
+                                    class="bim-scan-btn" style="background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light); font-size:0.78rem; padding:4px 10px;">
+                                <i class="fas fa-plus"></i> Vincular selección 3D actual a esta foto
+                            </button>` : ''}
+                    </div>`;
+            }
+
+            splitPanel.style.display = 'flex';
+            if (resizeBar) resizeBar.style.display = 'flex';
+
+            if (bimState.viewer) {
+                setTimeout(() => { bimState.viewer.resize(); }, 150);
+            }
+            return;
+        }
+    }
+
+    // En Móvil / Pantalla pequeña (<= 1024px): Abrir en Modal flotante
+    const modal = document.getElementById('redline-viewer-modal');
+    const img = document.getElementById('redline-modal-img');
+    const title = document.getElementById('redline-modal-title');
+    const info = document.getElementById('redline-modal-info');
 
     if (modal && img) {
         img.src = url;

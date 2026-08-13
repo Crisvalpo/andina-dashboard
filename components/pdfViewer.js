@@ -49,11 +49,16 @@ export function bimOpenPdf(url) {
 export function closePdfSplit() {
     const splitPanel = document.getElementById('bim-pdf-split-panel');
     const splitIframe = document.getElementById('bim-pdf-split-iframe');
+    const splitImgContainer = document.getElementById('bim-pdf-split-img-container');
+    const splitImg = document.getElementById('bim-pdf-split-img');
     const resizeBar = document.getElementById('bim-pdf-resize-bar');
-    if (splitPanel && splitIframe) {
+
+    if (splitPanel) {
         splitPanel.style.display = 'none';
         if (resizeBar) resizeBar.style.display = 'none';
-        splitIframe.src = '';
+        if (splitIframe) { splitIframe.src = ''; splitIframe.style.display = 'block'; }
+        if (splitImgContainer) { splitImgContainer.style.display = 'none'; }
+        if (splitImg) { splitImg.src = ''; }
         
         // Restablecer el ancho del panel por defecto al cerrar
         splitPanel.style.width = '48%';

@@ -1050,15 +1050,18 @@
                 <div class="resize-bar-handle"></div>
             </div>
 
-            <!-- Panel Split Screen de PDF (para PC) -->
+            <!-- Panel Split Screen de PDF / Fotos (para PC) -->
             <div id="bim-pdf-split-panel" class="bim-pdf-split-panel glass" style="display: none;">
                 <div class="pdf-modal-header" style="padding: 12px 16px; background: rgba(15, 23, 42, 0.4);">
-                    <!-- Sin título: el mismo visor sirve isométricos y P&ID -->
-                    <h3><i class="fas fa-file-pdf"></i></h3>
+                    <h3 id="bim-pdf-split-title"><i class="fas fa-file-pdf"></i></h3>
                     <button class="pdf-modal-close" onclick="closePdfSplit()" style="font-size: 1rem;"><i class="fas fa-times"></i></button>
                 </div>
-                <div class="pdf-modal-body" style="flex: 1; position: relative;">
+                <div class="pdf-modal-body" style="flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column;">
                     <iframe id="bim-pdf-split-iframe" src="" width="100%" height="100%" frameborder="0"></iframe>
+                    <div id="bim-pdf-split-img-container" style="display: none; width: 100%; height: 100%; flex-direction: column; align-items: center; justify-content: center; padding: 16px; background: #0f172a; overflow: auto; box-sizing: border-box;">
+                        <img id="bim-pdf-split-img" src="" style="max-width: 100%; max-height: calc(100% - 80px); object-fit: contain; border-radius: 8px; border: 1px solid rgba(239, 68, 68, 0.3); box-shadow: 0 10px 30px rgba(0,0,0,0.5);" alt="Red Line Foto">
+                        <div id="bim-pdf-split-info" style="margin-top: 12px; text-align: center; color: #e2e8f0; font-size: 0.85rem; display: flex; flex-direction: column; gap: 4px; align-items: center;"></div>
+                    </div>
                 </div>
             </div>
 
