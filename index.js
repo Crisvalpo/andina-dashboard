@@ -4,7 +4,7 @@ const fs = require('fs');
 const { CONFIG, resumenSeguro } = require('./config');
 const { fetchAppSheet, fetchAppSheetCached, invalidarCache } = require('./lib/appsheet');
 const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS, requerirSesion } = require('./lib/auth');
-const { getSupabase, asegurarBucketExistente } = require('./lib/supabase');
+const { getSupabase, asegurarBucketExistente, asegurarBucketRedline } = require('./lib/supabase');
 const { cargarTools, ejecutarTool, registrarTool } = require('./lib/botTools');
 const { procesarCambioEstadoSpool } = require('./lib/pipelineRealtime');
 const app = express();
@@ -74,8 +74,9 @@ const TABLAS_WARMUP = [
 ];
 async function precalentarCache() {
     console.log(`[Warmup] Precargando ${TABLAS_WARMUP.length} tablas del dashboard...`);
-    // Asegurar que el bucket en Supabase Storage exista
+    // Asegurar que los buckets en Supabase Storage existan
     await asegurarBucketExistente();
+    await asegurarBucketRedline();
     const t0 = Date.now();
     await Promise.allSettled(TABLAS_WARMUP.map(t => refrescarTabla(t)));
     console.log(`[Warmup] Caché caliente en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
@@ -3186,6 +3187,150 @@ app.post('/api/pipeline/spool-update', async (req, res) => {
     } catch (e) {
         console.error('[Pipeline Endpoint Error]', e.message);
         res.status(500).json({ success: false, error: e.message });
+    }
+});
+
+// =================================================================
+// RED LINE — Registro fotográfico de modificaciones de terreno
+// Fotos vinculadas a elementos BIM por GUID, almacenadas en
+// Supabase Storage (bucket andina-redline) con metadata en
+// andina.redline_registros.
+// =================================================================
+
+// POST /api/bim/redline/upload — Subir foto Red Line (base64)
+// Escritura protegida: requiere clave de edición BIM.
+app.post('/api/bim/redline/upload', requerirPermiso('bim'), async (req, res) => {
+    const { guid, spool_tag, tag_linea, subsistema, foto_base64, observacion, tipo_modificacion, usuario } = req.body || {};
+
+    if (!guid || !foto_base64) {
+        return res.status(400).json({ error: 'Se requiere guid y foto_base64.' });
+    }
+
+    try {
+        const supabase = getSupabase();
+
+        // Decodificar la imagen base64
+        // Soporta con o sin prefijo data:image/...;base64,
+        const matches = foto_base64.match(/^data:image\/([\w+]+);base64,(.+)$/);
+        let ext = 'jpg';
+        let rawBase64 = foto_base64;
+        if (matches) {
+            ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+            rawBase64 = matches[2];
+        }
+
+        const buffer = Buffer.from(rawBase64, 'base64');
+        const timestamp = Date.now();
+        const filePath = `${guid.toLowerCase()}/${timestamp}.${ext}`;
+
+        // Subir a Supabase Storage
+        const { error: uploadError } = await supabase.storage
+            .from('andina-redline')
+            .upload(filePath, buffer, {
+                contentType: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+                upsert: false
+            });
+
+        if (uploadError) throw new Error(`Storage upload: ${uploadError.message}`);
+
+        // Obtener URL pública
+        const { data: urlData } = supabase.storage
+            .from('andina-redline')
+            .getPublicUrl(filePath);
+
+        const fotoUrl = urlData?.publicUrl || '';
+
+        // Insertar registro en la tabla
+        const { data: insertData, error: insertError } = await supabase
+            .from('redline_registros')
+            .insert([{
+                guid: guid.toLowerCase(),
+                spool_tag: spool_tag || null,
+                tag_linea: tag_linea || null,
+                subsistema: subsistema || null,
+                foto_url: fotoUrl,
+                foto_path: filePath,
+                observacion: observacion || '',
+                tipo_modificacion: tipo_modificacion || 'Red Line',
+                usuario: usuario || 'Desconocido'
+            }])
+            .select();
+
+        if (insertError) throw new Error(`DB insert: ${insertError.message}`);
+
+        console.log(`[Red Line] Foto subida para GUID ${guid}: ${filePath}`);
+        res.json({
+            success: true,
+            registro: insertData?.[0] || { foto_url: fotoUrl }
+        });
+    } catch (e) {
+        console.error('[Red Line Upload Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/bim/redline/:guid — Historial de fotos Red Line de un elemento
+app.get('/api/bim/redline/:guid', async (req, res) => {
+    const guid = (req.params.guid || '').toLowerCase();
+    if (!guid) return res.status(400).json({ error: 'GUID requerido.' });
+
+    try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+            .from('redline_registros')
+            .select('*')
+            .eq('guid', guid)
+            .order('created_at', { ascending: false });
+
+        if (error) throw new Error(error.message);
+        res.json({ registros: data || [] });
+    } catch (e) {
+        console.error('[Red Line GET Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DELETE /api/bim/redline/:id — Eliminar un registro Red Line (foto + row)
+// Escritura protegida: requiere clave de edición BIM.
+app.delete('/api/bim/redline/:id', requerirPermiso('bim'), async (req, res) => {
+    const id = req.params.id;
+    if (!id) return res.status(400).json({ error: 'ID requerido.' });
+
+    try {
+        const supabase = getSupabase();
+
+        // Obtener la ruta del archivo antes de borrar
+        const { data: row, error: fetchErr } = await supabase
+            .from('redline_registros')
+            .select('foto_path')
+            .eq('id', id)
+            .single();
+
+        if (fetchErr || !row) {
+            return res.status(404).json({ error: 'Registro no encontrado.' });
+        }
+
+        // Borrar el archivo de Storage
+        if (row.foto_path) {
+            const { error: delStorageErr } = await supabase.storage
+                .from('andina-redline')
+                .remove([row.foto_path]);
+            if (delStorageErr) console.warn('[Red Line] No se pudo borrar archivo:', delStorageErr.message);
+        }
+
+        // Borrar el registro de la tabla
+        const { error: delErr } = await supabase
+            .from('redline_registros')
+            .delete()
+            .eq('id', id);
+
+        if (delErr) throw new Error(delErr.message);
+
+        console.log(`[Red Line] Registro eliminado: ${id}`);
+        res.json({ success: true });
+    } catch (e) {
+        console.error('[Red Line DELETE Error]', e.message);
+        res.status(500).json({ error: e.message });
     }
 });
 

@@ -3697,7 +3697,276 @@ export function bimRenderElementoMeta(data) {
             <span style="font-weight:700;">${tagVal}</span>
             <span class="bim-badge" style="background:#8b5cf6;">TAG</span>
         </div>
-        <div class="bim-meta-cards">${mainCards}</div>`);
+        <div class="bim-meta-cards">${mainCards}</div>
+        ${bimRedlineRenderSection(data.guid, data.spool, tagVal, data.subsistema)}`);
+
+    // Cargar historial Red Line en background
+    if (data.guid) {
+        setTimeout(() => bimRedlineCargarHistorial(data.guid), 100);
+    }
+}
+
+// =================================================================
+// RED LINE — Registro fotográfico de modificaciones de terreno
+// =================================================================
+
+/** Estado temporal del formulario Red Line */
+let _redlineBase64 = null;
+let _redlineFileName = null;
+
+/** Genera el HTML de la sección Red Line (dropzone + form + galería placeholder). */
+export function bimRedlineRenderSection(guid, spoolTag, tagLinea, subsistema) {
+    if (!guid) return '';
+    return `
+    <div class="redline-section">
+        <div class="redline-header">
+            <i class="fas fa-camera-retro"></i>
+            <span>REGISTRO RED LINE</span>
+            <span class="redline-badge">TERRENO</span>
+        </div>
+
+        <div class="redline-upload-form" id="redline-form">
+            <!-- Dropzone / Preview -->
+            <div id="redline-dropzone" class="redline-dropzone">
+                <i class="fas fa-camera"></i>
+                <span>Toca para tomar foto o seleccionar archivo</span>
+                <input type="file" accept="image/*" capture="environment"
+                       onchange="bimRedlineOnFile(event)" id="redline-file-input">
+            </div>
+            <div id="redline-preview" style="display:none;"></div>
+
+            <!-- Tipo de modificación -->
+            <select class="redline-select" id="redline-tipo">
+                <option value="Red Line">🔴 Red Line</option>
+                <option value="Interferencia">⚠️ Interferencia</option>
+                <option value="Desplazamiento">📐 Desplazamiento</option>
+                <option value="Cambio de Componente">🔧 Cambio de Componente</option>
+                <option value="Ajuste de Soporte">🔩 Ajuste de Soporte</option>
+                <option value="Otro">📝 Otro</option>
+            </select>
+
+            <!-- Observación -->
+            <textarea class="redline-input" id="redline-obs" rows="2"
+                      placeholder="Describe la modificación de terreno..."></textarea>
+
+            <!-- Usuario -->
+            <input type="text" class="redline-input" id="redline-usuario"
+                   placeholder="Tu nombre (ej: Juan Pérez)" value="">
+
+            <!-- Botón subir -->
+            <button class="redline-btn-upload" id="redline-btn-upload" disabled
+                    onclick="bimRedlineSubir('${guid}', '${(spoolTag || '').replace(/'/g, '')}', '${(tagLinea || '').replace(/'/g, '')}', '${(subsistema || '').replace(/'/g, '')}')">
+                <i class="fas fa-cloud-upload-alt"></i> Subir Foto Red Line
+            </button>
+        </div>
+
+        <!-- Galería de fotos existentes -->
+        <div id="redline-gallery-container">
+            <div class="redline-uploading"><div class="redline-spinner"></div> Cargando historial...</div>
+        </div>
+    </div>`;
+}
+
+/** Maneja la selección de archivo (input onchange). */
+export function bimRedlineOnFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    _redlineFileName = file.name;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        _redlineBase64 = e.target.result;
+        const preview = document.getElementById('redline-preview');
+        const dropzone = document.getElementById('redline-dropzone');
+        const btn = document.getElementById('redline-btn-upload');
+
+        if (preview) {
+            preview.style.display = 'block';
+            preview.innerHTML = `
+                <img src="${_redlineBase64}" alt="Preview">
+                <button class="redline-preview-remove" onclick="bimRedlineLimpiar()" title="Quitar foto">
+                    <i class="fas fa-times"></i>
+                </button>`;
+        }
+        if (dropzone) dropzone.style.display = 'none';
+        if (btn) btn.disabled = false;
+    };
+    reader.readAsDataURL(file);
+}
+
+/** Limpia la foto seleccionada del preview. */
+export function bimRedlineLimpiar() {
+    _redlineBase64 = null;
+    _redlineFileName = null;
+    const preview = document.getElementById('redline-preview');
+    const dropzone = document.getElementById('redline-dropzone');
+    const btn = document.getElementById('redline-btn-upload');
+    const fileInput = document.getElementById('redline-file-input');
+
+    if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+    if (dropzone) dropzone.style.display = 'flex';
+    if (btn) btn.disabled = true;
+    if (fileInput) fileInput.value = '';
+}
+
+/** Sube la foto Red Line al servidor. */
+export async function bimRedlineSubir(guid, spoolTag, tagLinea, subsistema) {
+    if (!_redlineBase64 || !guid) return;
+
+    const desbloqueado = await authAsegurar('bim');
+    if (!desbloqueado) return;
+
+    const btn = document.getElementById('redline-btn-upload');
+    const form = document.getElementById('redline-form');
+    const originalBtnHtml = btn?.innerHTML;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="redline-spinner"></div> Subiendo...';
+    }
+
+    try {
+        const tipo = document.getElementById('redline-tipo')?.value || 'Red Line';
+        const obs = document.getElementById('redline-obs')?.value || '';
+        const usuario = document.getElementById('redline-usuario')?.value || 'Desconocido';
+
+        const resp = await fetch('/api/bim/redline/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({
+                guid,
+                spool_tag: spoolTag || null,
+                tag_linea: tagLinea || null,
+                subsistema: subsistema || null,
+                foto_base64: _redlineBase64,
+                observacion: obs,
+                tipo_modificacion: tipo,
+                usuario
+            })
+        });
+
+        if (resp.status === 401) {
+            authOlvidar('bim');
+            alert('🔒 Clave BIM incorrecta o expirada.');
+            return;
+        }
+
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || 'Error al subir');
+
+        // Limpiar form y recargar galería
+        bimRedlineLimpiar();
+        if (document.getElementById('redline-obs')) document.getElementById('redline-obs').value = '';
+        await bimRedlineCargarHistorial(guid);
+
+    } catch (e) {
+        console.error('[Red Line Subir Error]', e);
+        alert('Error al subir foto Red Line: ' + e.message);
+    } finally {
+        if (btn) {
+            btn.disabled = !_redlineBase64;
+            btn.innerHTML = originalBtnHtml || '<i class="fas fa-cloud-upload-alt"></i> Subir Foto Red Line';
+        }
+    }
+}
+
+/** Carga y renderiza la galería de fotos Red Line existentes para un GUID. */
+export async function bimRedlineCargarHistorial(guid) {
+    const container = document.getElementById('redline-gallery-container');
+    if (!container) return;
+
+    container.innerHTML = '<div class="redline-uploading"><div class="redline-spinner"></div> Cargando historial...</div>';
+
+    try {
+        const resp = await fetch(`/api/bim/redline/${encodeURIComponent(guid)}`);
+        const data = await resp.json();
+        const registros = data.registros || [];
+
+        if (registros.length === 0) {
+            container.innerHTML = '<div class="redline-empty"><i class="fas fa-image"></i> Sin fotos Red Line registradas</div>';
+            return;
+        }
+
+        const formatDate = (iso) => {
+            try {
+                const d = new Date(iso);
+                return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                    + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+            } catch { return iso; }
+        };
+
+        const thumbs = registros.map(r => {
+            const safeObs = (r.observacion || '').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+            const safeTipo = (r.tipo_modificacion || 'Red Line').replace(/'/g, '&#39;');
+            const safeUsuario = (r.usuario || '').replace(/'/g, '&#39;');
+            const safeUrl = (r.foto_url || '').replace(/'/g, '&#39;');
+            return `
+            <div class="redline-thumb" onclick="bimRedlineLightbox('${safeUrl}', '${safeTipo}', '${safeObs}', '${safeUsuario}', '${formatDate(r.created_at)}')">
+                <img src="${r.foto_url}" alt="Red Line" loading="lazy">
+                <div class="redline-thumb-overlay">
+                    <i class="fas fa-clock"></i> ${formatDate(r.created_at)}
+                </div>
+                <button class="redline-thumb-delete" onclick="event.stopPropagation(); bimRedlineEliminar('${r.id}', '${guid.toLowerCase()}')"
+                        title="Eliminar foto">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
+            </div>`;
+        }).join('');
+
+        container.innerHTML = `
+            <div class="redline-gallery-title">
+                <i class="fas fa-images"></i> Historial Red Line (${registros.length})
+            </div>
+            <div class="redline-gallery">${thumbs}</div>`;
+
+    } catch (e) {
+        console.error('[Red Line Historial Error]', e);
+        container.innerHTML = '<div class="redline-empty"><i class="fas fa-exclamation-triangle"></i> Error al cargar historial</div>';
+    }
+}
+
+/** Elimina un registro Red Line (foto + fila en DB). */
+export async function bimRedlineEliminar(id, guid) {
+    if (!confirm('¿Eliminar esta foto Red Line?')) return;
+
+    const desbloqueado = await authAsegurar('bim');
+    if (!desbloqueado) return;
+
+    try {
+        const resp = await fetch(`/api/bim/redline/${id}`, {
+            method: 'DELETE',
+            headers: authHeaders('bim')
+        });
+        if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM expirada.'); return; }
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || 'Error');
+
+        // Recargar galería
+        await bimRedlineCargarHistorial(guid);
+    } catch (e) {
+        console.error('[Red Line Eliminar Error]', e);
+        alert('No se pudo eliminar: ' + e.message);
+    }
+}
+
+/** Abre un lightbox para ver la foto Red Line en pantalla completa. */
+export function bimRedlineLightbox(url, tipo, obs, usuario, fecha) {
+    const overlay = document.createElement('div');
+    overlay.className = 'redline-lightbox';
+    overlay.innerHTML = `
+        <button class="redline-lightbox-close" onclick="this.parentElement.remove()">
+            <i class="fas fa-times"></i>
+        </button>
+        <img src="${url}" alt="Red Line">
+        <div class="redline-lightbox-info">
+            <span class="redline-lightbox-tipo">${tipo}</span>
+            ${obs ? `<span style="opacity:0.9;">${obs}</span>` : ''}
+            <span style="font-size:0.7rem;opacity:0.6;">${usuario} — ${fecha}</span>
+        </div>`;
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+    document.addEventListener('keydown', function handler(e) {
+        if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', handler); }
+    });
+    document.body.appendChild(overlay);
 }
 
 /** Renderiza la tarjeta resumen para múltiple selección de elementos 3D. */
@@ -4409,5 +4678,12 @@ if (typeof window !== 'undefined') {
     window.bimTrozoVincular         = bimTrozoVincular;
     window.bimRenderElementoMeta    = bimRenderElementoMeta;
     window.bimRenderMultiElementoMeta = bimRenderMultiElementoMeta;
+    window.bimRedlineRenderSection  = bimRedlineRenderSection;
+    window.bimRedlineOnFile         = bimRedlineOnFile;
+    window.bimRedlineLimpiar        = bimRedlineLimpiar;
+    window.bimRedlineSubir          = bimRedlineSubir;
+    window.bimRedlineCargarHistorial = bimRedlineCargarHistorial;
+    window.bimRedlineEliminar       = bimRedlineEliminar;
+    window.bimRedlineLightbox       = bimRedlineLightbox;
     window.divState                 = divState;
 }
