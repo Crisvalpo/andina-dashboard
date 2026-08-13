@@ -99,7 +99,18 @@ export async function bimSetCapa(capa) {
     if (bimState.viewer) { bimState.viewer.clearThemingColors(bimState.viewer.model); bimState.viewer.select([]); }
     const panel = document.getElementById('bim-link-panel');
     if (panel) panel.style.display = 'none';
-    bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Capa: <strong>${BIM_CAPA_UI[capa].label}s</strong>. Selecciona un elemento en el modelo o busca por su ID.</p></div>`);
+
+    if (capa === 'subsistema') {
+        bimSetMeta(`
+            <div class="bim-meta-placeholder">
+                <i class="fas fa-sitemap bim-meta-icon" style="color:#c4b5fd;"></i>
+                <p>Capa: <strong>Sub-sistemas</strong>. Selecciona elementos en el modelo o filtra un sub-sistema.</p>
+            </div>
+            ${bimRedlineRenderSection('all', '', '', '')}`);
+        setTimeout(() => bimRedlineCargarHistorial('all'), 100);
+    } else {
+        bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Capa: <strong>${BIM_CAPA_UI[capa].label}s</strong>. Selecciona un elemento en el modelo o busca por su ID.</p></div>`);
+    }
 
     // Filtro por estado según capa
     bimUpdateStatusFilterOptions(capa);
@@ -993,11 +1004,22 @@ export function bimResetView() {
 
     const actionsEl = document.getElementById('bim-actions');
     if (actionsEl) actionsEl.style.display = 'none';
-    bimSetMeta(`
-        <div class="bim-meta-placeholder">
-            <i class="fas fa-cube bim-meta-icon"></i>
-            <p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p>
-        </div>`);
+
+    if (bimState.capa === 'subsistema') {
+        bimSetMeta(`
+            <div class="bim-meta-placeholder">
+                <i class="fas fa-sitemap bim-meta-icon" style="color:#c4b5fd;"></i>
+                <p>Capa: <strong>Sub-sistemas</strong>. Selecciona elementos en el modelo o filtra un sub-sistema.</p>
+            </div>
+            ${bimRedlineRenderSection('all', '', '', '')}`);
+        setTimeout(() => bimRedlineCargarHistorial('all'), 100);
+    } else {
+        bimSetMeta(`
+            <div class="bim-meta-placeholder">
+                <i class="fas fa-cube bim-meta-icon"></i>
+                <p>Escanea un QR o busca un spool para ver su información y resaltarlo en el modelo 3D</p>
+            </div>`);
+    }
     const listEl = document.getElementById('bim-elements-list');
     if (listEl) listEl.style.display = 'none';
 }
@@ -3714,9 +3736,99 @@ export function bimRenderElementoMeta(data) {
 let _redlineBase64 = null;
 let _redlineFileName = null;
 
+/** Centra, selecciona y aísla en el modelo 3D los elementos asociados a un registro Red Line. */
+export function bimFocoElementoRedline(guids) {
+    if (!bimState.viewer) return;
+    let list = Array.isArray(guids) ? guids : [guids];
+    list = list.map(g => String(g).trim().toLowerCase()).filter(Boolean);
+    if (!list.length) return;
+
+    bimGuidsToDbIds(list, (dbIds) => {
+        if (dbIds && dbIds.length > 0) {
+            bimState.dbIds = dbIds;
+            bimState.currentGuids = list;
+            bimState.viewer.select(dbIds);
+            bimState.viewer.isolate(dbIds);
+            bimState.viewer.fitToView(dbIds);
+            const actionsEl = document.getElementById('bim-actions');
+            if (actionsEl) actionsEl.style.display = 'flex';
+            console.log(`[Red Line Foco] Enfocados ${dbIds.length} objeto(s) en modelo 3D para GUIDs:`, list);
+        } else {
+            console.warn('[Red Line Foco] No se encontraron objetos 3D para:', list);
+        }
+    });
+}
+
+/** Asocia la selección 3D actual a un registro Red Line existente. */
+export async function bimRedlineVincularSeleccionActual(idRecord, currentGuidContext) {
+    let selectedGuids = [];
+    if (bimState.currentGuids && bimState.currentGuids.length) {
+        selectedGuids = [...bimState.currentGuids];
+    } else if (bimState.viewer) {
+        const dbIds = bimState.viewer.getSelection();
+        if (dbIds && dbIds.length) {
+            selectedGuids = await new Promise(resolve => {
+                bimState.viewer.model.getBulkProperties(dbIds, { propFilter: ['externalId', 'GUID', 'Element GUID'] }, (results) => {
+                    const res = [];
+                    (results || []).forEach(r => {
+                        if (r.externalId) res.push(r.externalId.toLowerCase());
+                        else if (r.properties) {
+                            r.properties.forEach(p => {
+                                if (['guid', 'element guid'].includes(String(p.displayName || p.attributeName).toLowerCase())) {
+                                    if (p.displayValue) res.push(String(p.displayValue).toLowerCase());
+                                }
+                            });
+                        }
+                    });
+                    resolve([...new Set(res)]);
+                });
+            });
+        }
+    }
+
+    if (!selectedGuids.length) {
+        alert('⚠️ Selecciona uno o más elementos 3D en el visor antes de vincular.');
+        return;
+    }
+
+    const desbloqueado = await authAsegurar('bim');
+    if (!desbloqueado) return;
+
+    try {
+        const resp = await fetch('/api/bim/redline/vincular-elementos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({ id: idRecord, guids: selectedGuids })
+        });
+
+        if (resp.status === 401) { authOlvidar('bim'); alert('🔒 Clave BIM expirada.'); return; }
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || 'Error al vincular');
+
+        alert(`✅ Se vincularon ${selectedGuids.length} elemento(s) 3D adicionales a la foto Red Line.`);
+        if (currentGuidContext) {
+            await bimRedlineCargarHistorial(currentGuidContext);
+        }
+    } catch (e) {
+        console.error('[Red Line Vincular Error]', e);
+        alert('No se pudo vincular elementos: ' + e.message);
+    }
+}
+
 /** Genera el HTML de la sección Red Line (dropzone + form + galería placeholder). */
-export function bimRedlineRenderSection(guid, spoolTag, tagLinea, subsistema) {
-    if (!guid) return '';
+export function bimRedlineRenderSection(guidOrGuids, spoolTag, tagLinea, subsistema) {
+    let guidsList = [];
+    if (Array.isArray(guidOrGuids)) {
+        guidsList = guidOrGuids.map(g => String(g).trim()).filter(Boolean);
+    } else if (guidOrGuids && guidOrGuids !== 'all') {
+        guidsList = [String(guidOrGuids).trim()];
+    }
+
+    const guidsAttr = encodeURIComponent(JSON.stringify(guidsList));
+    const btnLabel = guidsList.length > 1
+        ? `Subir Foto Red Line (${guidsList.length} elem. seleccionados)`
+        : 'Subir Foto Red Line';
+
     return `
     <div class="redline-section">
         <div class="redline-header">
@@ -3755,8 +3867,8 @@ export function bimRedlineRenderSection(guid, spoolTag, tagLinea, subsistema) {
 
             <!-- Botón subir -->
             <button class="redline-btn-upload" id="redline-btn-upload" disabled
-                    onclick="bimRedlineSubir('${guid}', '${(spoolTag || '').replace(/'/g, '')}', '${(tagLinea || '').replace(/'/g, '')}', '${(subsistema || '').replace(/'/g, '')}')">
-                <i class="fas fa-cloud-upload-alt"></i> Subir Foto Red Line
+                    onclick="bimRedlineSubir('${guidsAttr}', '${(spoolTag || '').replace(/'/g, '')}', '${(tagLinea || '').replace(/'/g, '')}', '${(subsistema || '').replace(/'/g, '')}')">
+                <i class="fas fa-cloud-upload-alt"></i> ${btnLabel}
             </button>
         </div>
 
@@ -3810,14 +3922,30 @@ export function bimRedlineLimpiar() {
 }
 
 /** Sube la foto Red Line al servidor. */
-export async function bimRedlineSubir(guid, spoolTag, tagLinea, subsistema) {
-    if (!_redlineBase64 || !guid) return;
+export async function bimRedlineSubir(guidsAttr, spoolTag, tagLinea, subsistema) {
+    if (!_redlineBase64) return;
+
+    let guidsList = [];
+    try {
+        guidsList = JSON.parse(decodeURIComponent(guidsAttr || '[]'));
+    } catch (e) {
+        guidsList = [];
+    }
+
+    // Si no vinieron GUIDs por parámetro, intentar tomar la selección 3D actual
+    if (!guidsList.length && bimState.currentGuids && bimState.currentGuids.length) {
+        guidsList = [...bimState.currentGuids];
+    }
+
+    if (!guidsList.length) {
+        alert('⚠️ Selecciona uno o más elementos 3D en el modelo antes de subir la foto Red Line.');
+        return;
+    }
 
     const desbloqueado = await authAsegurar('bim');
     if (!desbloqueado) return;
 
     const btn = document.getElementById('redline-btn-upload');
-    const form = document.getElementById('redline-form');
     const originalBtnHtml = btn?.innerHTML;
     if (btn) {
         btn.disabled = true;
@@ -3833,7 +3961,7 @@ export async function bimRedlineSubir(guid, spoolTag, tagLinea, subsistema) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
             body: JSON.stringify({
-                guid,
+                guids: guidsList,
                 spool_tag: spoolTag || null,
                 tag_linea: tagLinea || null,
                 subsistema: subsistema || null,
@@ -3856,7 +3984,7 @@ export async function bimRedlineSubir(guid, spoolTag, tagLinea, subsistema) {
         // Limpiar form y recargar galería
         bimRedlineLimpiar();
         if (document.getElementById('redline-obs')) document.getElementById('redline-obs').value = '';
-        await bimRedlineCargarHistorial(guid);
+        await bimRedlineCargarHistorial(guidsList.length ? guidsList : 'all');
 
     } catch (e) {
         console.error('[Red Line Subir Error]', e);
@@ -3869,15 +3997,27 @@ export async function bimRedlineSubir(guid, spoolTag, tagLinea, subsistema) {
     }
 }
 
-/** Carga y renderiza la galería de fotos Red Line existentes para un GUID. */
-export async function bimRedlineCargarHistorial(guid) {
+/** Carga y renderiza la galería de fotos Red Line existentes para un GUID o lista de GUIDs. */
+export async function bimRedlineCargarHistorial(guidOrGuids, subsistemaContext = '') {
     const container = document.getElementById('redline-gallery-container');
     if (!container) return;
 
     container.innerHTML = '<div class="redline-uploading"><div class="redline-spinner"></div> Cargando historial...</div>';
 
+    let guidParam = 'all';
+    if (Array.isArray(guidOrGuids)) {
+        guidParam = guidOrGuids.filter(Boolean).join(',');
+    } else if (guidOrGuids) {
+        guidParam = String(guidOrGuids).trim();
+    }
+
     try {
-        const resp = await fetch(`/api/bim/redline/${encodeURIComponent(guid)}`);
+        let url = `/api/bim/redline/${encodeURIComponent(guidParam || 'all')}`;
+        if (subsistemaContext) {
+            url += `?subsistema=${encodeURIComponent(subsistemaContext)}`;
+        }
+
+        const resp = await fetch(url);
         const data = await resp.json();
         const registros = data.registros || [];
 
@@ -3899,13 +4039,19 @@ export async function bimRedlineCargarHistorial(guid) {
             const safeTipo = (r.tipo_modificacion || 'Red Line').replace(/'/g, '&#39;');
             const safeUsuario = (r.usuario || '').replace(/'/g, '&#39;');
             const safeUrl = (r.foto_url || '').replace(/'/g, '&#39;');
+            const guidsList = (Array.isArray(r.guids) && r.guids.length) ? r.guids : [r.guid];
+            const guidsAttr = encodeURIComponent(JSON.stringify(guidsList));
+
             return `
-            <div class="redline-thumb" onclick="bimRedlineLightbox('${safeUrl}', '${safeTipo}', '${safeObs}', '${safeUsuario}', '${formatDate(r.created_at)}')">
+            <div class="redline-thumb" onclick="bimFocoElementoRedline(${JSON.stringify(guidsList).replace(/"/g, '&quot;')}); bimRedlineLightbox('${safeUrl}', '${safeTipo}', '${safeObs}', '${safeUsuario}', '${formatDate(r.created_at)}', '${guidsAttr}', '${r.id}')">
                 <img src="${r.foto_url}" alt="Red Line" loading="lazy">
                 <div class="redline-thumb-overlay">
-                    <i class="fas fa-clock"></i> ${formatDate(r.created_at)}
+                    <span style="font-size:0.58rem; background:rgba(239,68,68,0.7); padding:1px 4px; border-radius:3px; font-weight:700;">
+                        🔗 ${guidsList.length} elem.
+                    </span>
+                    <span style="margin-left:auto;"><i class="fas fa-clock"></i> ${formatDate(r.created_at)}</span>
                 </div>
-                <button class="redline-thumb-delete" onclick="event.stopPropagation(); bimRedlineEliminar('${r.id}', '${guid.toLowerCase()}')"
+                <button class="redline-thumb-delete" onclick="event.stopPropagation(); bimRedlineEliminar('${r.id}', '${guidParam}')"
                         title="Eliminar foto">
                     <i class="fas fa-trash-alt"></i>
                 </button>
@@ -3925,7 +4071,7 @@ export async function bimRedlineCargarHistorial(guid) {
 }
 
 /** Elimina un registro Red Line (foto + fila en DB). */
-export async function bimRedlineEliminar(id, guid) {
+export async function bimRedlineEliminar(id, currentGuidContext) {
     if (!confirm('¿Eliminar esta foto Red Line?')) return;
 
     const desbloqueado = await authAsegurar('bim');
@@ -3941,7 +4087,7 @@ export async function bimRedlineEliminar(id, guid) {
         if (!data.success) throw new Error(data.error || 'Error');
 
         // Recargar galería
-        await bimRedlineCargarHistorial(guid);
+        await bimRedlineCargarHistorial(currentGuidContext || 'all');
     } catch (e) {
         console.error('[Red Line Eliminar Error]', e);
         alert('No se pudo eliminar: ' + e.message);
@@ -3949,11 +4095,16 @@ export async function bimRedlineEliminar(id, guid) {
 }
 
 /** Abre el visor modal premium (pantalla completa, igual al visor PDF) para ver la foto Red Line en detalle. */
-export function bimRedlineLightbox(url, tipo, obs, usuario, fecha) {
+export function bimRedlineLightbox(url, tipo, obs, usuario, fecha, guidsAttr = '', idRecord = '') {
     const modal = document.getElementById('redline-viewer-modal');
     const img = document.getElementById('redline-modal-img');
     const title = document.getElementById('redline-modal-title');
     const info = document.getElementById('redline-modal-info');
+
+    let guidsList = [];
+    try {
+        if (guidsAttr) guidsList = JSON.parse(decodeURIComponent(guidsAttr));
+    } catch (e) {}
 
     if (modal && img) {
         img.src = url;
@@ -3962,10 +4113,25 @@ export function bimRedlineLightbox(url, tipo, obs, usuario, fecha) {
         }
         if (info) {
             info.innerHTML = `
-                <div style="font-weight:700; color:#fca5a5; font-size:0.92rem;">${tipo || 'Red Line'}</div>
+                <div style="font-weight:700; color:#fca5a5; font-size:0.95rem;">${tipo || 'Red Line'}</div>
                 ${obs ? `<div style="opacity:0.95; margin:4px 0; max-width:650px; word-break:break-word;">${obs}</div>` : ''}
-                <div style="font-size:0.75rem; opacity:0.6; margin-top:2px;">
-                    <i class="fas fa-user"></i> ${usuario || 'Desconocido'} &nbsp;•&nbsp; <i class="fas fa-clock"></i> ${fecha || ''}
+                <div style="font-size:0.75rem; opacity:0.6; margin-top:2px; display:flex; gap:8px; align-items:center; justify-content:center;">
+                    <span><i class="fas fa-user"></i> ${usuario || 'Desconocido'}</span>
+                    <span>•</span>
+                    <span><i class="fas fa-clock"></i> ${fecha || ''}</span>
+                    ${guidsList.length ? `<span>•</span><span><i class="fas fa-link"></i> ${guidsList.length} elem. vinculados</span>` : ''}
+                </div>
+                <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
+                    ${guidsList.length ? `
+                        <button onclick="bimFocoElementoRedline(${JSON.stringify(guidsList).replace(/"/g, '&quot;')});"
+                                class="bim-scan-btn" style="background:rgba(239,68,68,0.2); border-color:rgba(239,68,68,0.4); color:#fca5a5; font-size:0.78rem; padding:4px 10px;">
+                            <i class="fas fa-crosshairs"></i> Enfocar/Aislar ${guidsList.length} elem. en 3D
+                        </button>` : ''}
+                    ${idRecord ? `
+                        <button onclick="bimRedlineVincularSeleccionActual('${idRecord}');"
+                                class="bim-scan-btn" style="background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light); font-size:0.78rem; padding:4px 10px;">
+                            <i class="fas fa-plus"></i> Vincular selección 3D actual a esta foto
+                        </button>` : ''}
                 </div>`;
         }
         modal.style.display = 'flex';
@@ -3983,7 +4149,8 @@ export function closeRedlineModal() {
 /** Renderiza la tarjeta resumen para múltiple selección de elementos 3D. */
 export function bimRenderMultiElementoMeta(count, tags, spools, subs, elems) {
     const renderList = (arr) => arr.length ? arr.map(x => `<span class="status-pill" style="font-size:0.7rem;background:rgba(255,255,255,0.08);">${x}</span>`).join(' ') : '<span style="opacity:0.5;">N/A</span>';
-    
+    const guids = (elems || []).map(e => e.guid).filter(Boolean);
+
     bimSetMeta(`
         <div class="bim-meta-header" style="background: rgba(139,92,246,0.2); border-color: rgba(139,92,246,0.4);">
             <i class="fas fa-layer-group" style="color: #a78bfa;"></i>
@@ -4002,7 +4169,13 @@ export function bimRenderMultiElementoMeta(count, tags, spools, subs, elems) {
                 <span style="display:block;font-size:0.72rem;opacity:0.6;margin-bottom:2px;">Sub-sistemas (${subs.length})</span>
                 <div style="display:flex;flex-wrap:wrap;gap:4px;">${renderList(subs)}</div>
             </div>
-        </div>`);
+        </div>
+        ${bimRedlineRenderSection(guids, spools.join(', '), tags.join(', '), subs.join(', '))}`);
+
+    // Cargar historial Red Line para los elementos seleccionados
+    if (guids.length) {
+        setTimeout(() => bimRedlineCargarHistorial(guids, subs[0] || ''), 100);
+    }
 }
 
 /** Renderiza la ficha (metadata + estado montaje) de una válvula/soporte/línea. */
@@ -4697,5 +4870,7 @@ if (typeof window !== 'undefined') {
     window.bimRedlineEliminar       = bimRedlineEliminar;
     window.bimRedlineLightbox       = bimRedlineLightbox;
     window.closeRedlineModal        = closeRedlineModal;
+    window.bimFocoElementoRedline   = bimFocoElementoRedline;
+    window.bimRedlineVincularSeleccionActual = bimRedlineVincularSeleccionActual;
     window.divState                 = divState;
 }

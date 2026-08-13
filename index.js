@@ -3200,17 +3200,30 @@ app.post('/api/pipeline/spool-update', async (req, res) => {
 // POST /api/bim/redline/upload — Subir foto Red Line (base64)
 // Escritura protegida: requiere clave de edición BIM.
 app.post('/api/bim/redline/upload', requerirPermiso('bim'), async (req, res) => {
-    const { guid, spool_tag, tag_linea, subsistema, foto_base64, observacion, tipo_modificacion, usuario } = req.body || {};
+    let { guid, guids, spool_tag, tag_linea, subsistema, foto_base64, observacion, tipo_modificacion, usuario } = req.body || {};
 
-    if (!guid || !foto_base64) {
-        return res.status(400).json({ error: 'Se requiere guid y foto_base64.' });
+    if (!foto_base64) {
+        return res.status(400).json({ error: 'Se requiere foto_base64.' });
     }
+
+    // Normalizar lista de GUIDs
+    let guidsArr = [];
+    if (Array.isArray(guids) && guids.length) {
+        guidsArr = [...new Set(guids.map(g => String(g).trim().toLowerCase()).filter(Boolean))];
+    } else if (guid) {
+        guidsArr = [String(guid).trim().toLowerCase()];
+    }
+
+    if (!guidsArr.length) {
+        return res.status(400).json({ error: 'Se requiere al menos un GUID de elemento.' });
+    }
+
+    const primaryGuid = guidsArr[0];
 
     try {
         const supabase = getSupabase();
 
         // Decodificar la imagen base64
-        // Soporta con o sin prefijo data:image/...;base64,
         const matches = foto_base64.match(/^data:image\/([\w+]+);base64,(.+)$/);
         let ext = 'jpg';
         let rawBase64 = foto_base64;
@@ -3221,7 +3234,7 @@ app.post('/api/bim/redline/upload', requerirPermiso('bim'), async (req, res) => 
 
         const buffer = Buffer.from(rawBase64, 'base64');
         const timestamp = Date.now();
-        const filePath = `${guid.toLowerCase()}/${timestamp}.${ext}`;
+        const filePath = `${primaryGuid}/${timestamp}.${ext}`;
 
         // Subir a Supabase Storage
         const { error: uploadError } = await supabase.storage
@@ -3244,7 +3257,8 @@ app.post('/api/bim/redline/upload', requerirPermiso('bim'), async (req, res) => 
         const { data: insertData, error: insertError } = await supabase
             .from('redline_registros')
             .insert([{
-                guid: guid.toLowerCase(),
+                guid: primaryGuid,
+                guids: guidsArr,
                 spool_tag: spool_tag || null,
                 tag_linea: tag_linea || null,
                 subsistema: subsistema || null,
@@ -3258,7 +3272,7 @@ app.post('/api/bim/redline/upload', requerirPermiso('bim'), async (req, res) => 
 
         if (insertError) throw new Error(`DB insert: ${insertError.message}`);
 
-        console.log(`[Red Line] Foto subida para GUID ${guid}: ${filePath}`);
+        console.log(`[Red Line] Foto subida para ${guidsArr.length} elemento(s) (${primaryGuid}): ${filePath}`);
         res.json({
             success: true,
             registro: insertData?.[0] || { foto_url: fotoUrl }
@@ -3269,23 +3283,123 @@ app.post('/api/bim/redline/upload', requerirPermiso('bim'), async (req, res) => 
     }
 });
 
-// GET /api/bim/redline/:guid — Historial de fotos Red Line de un elemento
+// GET /api/bim/redline/:guid — Historial de fotos Red Line (por GUID, lista de GUIDs, o por subsistema)
 app.get('/api/bim/redline/:guid', async (req, res) => {
-    const guid = (req.params.guid || '').toLowerCase();
-    if (!guid) return res.status(400).json({ error: 'GUID requerido.' });
+    const paramGuid = (req.params.guid || '').trim().toLowerCase();
+    const subsistemaQuery = (req.query.subsistema || '').trim();
 
     try {
         const supabase = getSupabase();
-        const { data, error } = await supabase
-            .from('redline_registros')
-            .select('*')
-            .eq('guid', guid)
-            .order('created_at', { ascending: false });
+        let query = supabase.from('redline_registros').select('*');
+
+        if (paramGuid === 'all' && subsistemaQuery) {
+            query = query.eq('subsistema', subsistemaQuery);
+        } else if (paramGuid && paramGuid !== 'all') {
+            const list = paramGuid.split(',').map(g => g.trim()).filter(Boolean);
+            if (list.length === 1) {
+                const targetG = list[0];
+                query = query.or(`guid.eq.${targetG},guids.cs.["${targetG}"]`);
+            } else {
+                // Múltiples GUIDs
+                const orConditions = list.map(g => `guid.eq.${g},guids.cs.["${g}"]`).join(',');
+                query = query.or(orConditions);
+            }
+        } else if (subsistemaQuery) {
+            query = query.eq('subsistema', subsistemaQuery);
+        }
+
+        const { data, error } = await query.order('created_at', { ascending: false });
 
         if (error) throw new Error(error.message);
-        res.json({ registros: data || [] });
+
+        // Si se buscó un subsistema pero hay registros guardados con 'guid', deduplicar por id
+        const dedupped = [];
+        const seen = new Set();
+        (data || []).forEach(r => {
+            if (!seen.has(r.id)) {
+                seen.add(r.id);
+                dedupped.push(r);
+            }
+        });
+
+        res.json({ registros: dedupped });
     } catch (e) {
         console.error('[Red Line GET Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/bim/redline/vincular-elementos — Asocia elementos 3D adicionales a una foto Red Line existente
+app.post('/api/bim/redline/vincular-elementos', requerirPermiso('bim'), async (req, res) => {
+    const { id, guids } = req.body || {};
+    if (!id || !Array.isArray(guids) || !guids.length) {
+        return res.status(400).json({ error: 'Se requiere id de registro y lista de guids.' });
+    }
+
+    try {
+        const supabase = getSupabase();
+
+        // 1. Obtener registro actual
+        const { data: row, error: fetchErr } = await supabase
+            .from('redline_registros')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (fetchErr || !row) return res.status(404).json({ error: 'Registro Red Line no encontrado.' });
+
+        const existingGuids = Array.isArray(row.guids) ? row.guids : [row.guid];
+        const newGuids = guids.map(g => String(g).trim().toLowerCase()).filter(Boolean);
+        const mergedGuids = [...new Set([...existingGuids, ...newGuids])];
+
+        // 2. Actualizar guids
+        const { data: updated, error: updateErr } = await supabase
+            .from('redline_registros')
+            .update({ guids: mergedGuids })
+            .eq('id', id)
+            .select();
+
+        if (updateErr) throw new Error(updateErr.message);
+
+        console.log(`[Red Line] Vinculados ${newGuids.length} elemento(s) nuevos a foto ${id}. Total: ${mergedGuids.length}`);
+        res.json({ success: true, registro: updated?.[0] });
+    } catch (e) {
+        console.error('[Red Line Vincular Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/bim/redline/desvincular-elemento — Desvincula un GUID específico de una foto Red Line
+app.post('/api/bim/redline/desvincular-elemento', requerirPermiso('bim'), async (req, res) => {
+    const { id, guid } = req.body || {};
+    if (!id || !guid) return res.status(400).json({ error: 'Se requiere id y guid.' });
+
+    try {
+        const targetGuid = String(guid).trim().toLowerCase();
+        const supabase = getSupabase();
+
+        const { data: row, error: fetchErr } = await supabase
+            .from('redline_registros')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (fetchErr || !row) return res.status(404).json({ error: 'Registro Red Line no encontrado.' });
+
+        const existingGuids = Array.isArray(row.guids) ? row.guids : [row.guid];
+        const filteredGuids = existingGuids.filter(g => g !== targetGuid);
+
+        const { data: updated, error: updateErr } = await supabase
+            .from('redline_registros')
+            .update({ guids: filteredGuids })
+            .eq('id', id)
+            .select();
+
+        if (updateErr) throw new Error(updateErr.message);
+
+        res.json({ success: true, registro: updated?.[0] });
+    } catch (e) {
+        console.error('[Red Line Desvincular Error]', e.message);
         res.status(500).json({ error: e.message });
     }
 });
