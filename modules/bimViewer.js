@@ -3759,35 +3759,54 @@ export function bimFocoElementoRedline(guids) {
     });
 }
 
+/** Obtiene la lista limpia de GUIDs de los elementos 3D actualmente seleccionados en el visor en tiempo real. */
+export async function bimObtenerGuidsSeleccionActual() {
+    if (!bimState.viewer) return [];
+    const dbIds = bimState.viewer.getSelection();
+    if (!dbIds || !dbIds.length) return [];
+
+    return new Promise(resolve => {
+        bimState.viewer.model.getBulkProperties(
+            dbIds,
+            { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'PnPGuid', 'PnPGUID'] },
+            (results) => {
+                const guids = [];
+                (results || []).forEach(r => {
+                    if (r.externalId) {
+                        guids.push(String(r.externalId).trim().toLowerCase());
+                    }
+                    if (r.properties && r.properties.length > 0) {
+                        for (const prop of r.properties) {
+                            const name = String(prop.displayName || prop.attributeName || '').toLowerCase();
+                            if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(name)) {
+                                const val = String(prop.displayValue || '').trim().toLowerCase();
+                                if (val) guids.push(val);
+                            }
+                        }
+                    }
+                });
+                resolve([...new Set(guids.filter(Boolean))]);
+            },
+            (err) => {
+                console.error('[BIM Guids Error]', err);
+                resolve([]);
+            }
+        );
+    });
+}
+
 /** Asocia la selección 3D actual a un registro Red Line existente. */
 export async function bimRedlineVincularSeleccionActual(idRecord, currentGuidContext) {
-    let selectedGuids = [];
-    if (bimState.currentGuids && bimState.currentGuids.length) {
+    // Obtener los GUIDs de la selección activa en el visor 3D en este instante
+    let selectedGuids = await bimObtenerGuidsSeleccionActual();
+
+    // Fallback si getSelection() no retornó pero bimState.currentGuids tiene elementos
+    if (!selectedGuids.length && bimState.currentGuids && bimState.currentGuids.length) {
         selectedGuids = [...bimState.currentGuids];
-    } else if (bimState.viewer) {
-        const dbIds = bimState.viewer.getSelection();
-        if (dbIds && dbIds.length) {
-            selectedGuids = await new Promise(resolve => {
-                bimState.viewer.model.getBulkProperties(dbIds, { propFilter: ['externalId', 'GUID', 'Element GUID'] }, (results) => {
-                    const res = [];
-                    (results || []).forEach(r => {
-                        if (r.externalId) res.push(r.externalId.toLowerCase());
-                        else if (r.properties) {
-                            r.properties.forEach(p => {
-                                if (['guid', 'element guid'].includes(String(p.displayName || p.attributeName).toLowerCase())) {
-                                    if (p.displayValue) res.push(String(p.displayValue).toLowerCase());
-                                }
-                            });
-                        }
-                    });
-                    resolve([...new Set(res)]);
-                });
-            });
-        }
     }
 
     if (!selectedGuids.length) {
-        alert('⚠️ Selecciona uno o más elementos 3D en el visor antes de vincular.');
+        alert('⚠️ Selecciona uno o más elementos 3D en el modelo antes de vincular.');
         return;
     }
 
@@ -3805,10 +3824,18 @@ export async function bimRedlineVincularSeleccionActual(idRecord, currentGuidCon
         const data = await resp.json();
         if (!data.success) throw new Error(data.error || 'Error al vincular');
 
-        alert(`✅ Se vincularon ${selectedGuids.length} elemento(s) 3D adicionales a la foto Red Line.`);
-        if (currentGuidContext) {
-            await bimRedlineCargarHistorial(currentGuidContext);
-        }
+        const totalGuids = data.registro?.guids || [];
+        alert(`✅ Se vincularon ${selectedGuids.length} elemento(s) 3D a la foto Red Line (Total: ${totalGuids.length} elem. vinculados).`);
+
+        // Actualizar bimState.currentGuids con el total acumulado
+        bimState.currentGuids = totalGuids;
+
+        // Enfocar todos los elementos asociados en 3D
+        bimFocoElementoRedline(totalGuids);
+
+        // Recargar la galería de historial
+        await bimRedlineCargarHistorial(currentGuidContext || 'all');
+
     } catch (e) {
         console.error('[Red Line Vincular Error]', e);
         alert('No se pudo vincular elementos: ' + e.message);
@@ -3932,8 +3959,11 @@ export async function bimRedlineSubir(guidsAttr, spoolTag, tagLinea, subsistema)
         guidsList = [];
     }
 
-    // Si no vinieron GUIDs por parámetro, intentar tomar la selección 3D actual
-    if (!guidsList.length && bimState.currentGuids && bimState.currentGuids.length) {
+    // Tomar los GUIDs de la selección activa en tiempo real
+    const activeGuids = await bimObtenerGuidsSeleccionActual();
+    if (activeGuids.length) {
+        guidsList = [...new Set([...guidsList, ...activeGuids])];
+    } else if (!guidsList.length && bimState.currentGuids && bimState.currentGuids.length) {
         guidsList = [...bimState.currentGuids];
     }
 
@@ -4925,6 +4955,7 @@ if (typeof window !== 'undefined') {
     window.bimRedlineLightbox       = bimRedlineLightbox;
     window.closeRedlineModal        = closeRedlineModal;
     window.bimFocoElementoRedline   = bimFocoElementoRedline;
+    window.bimObtenerGuidsSeleccionActual = bimObtenerGuidsSeleccionActual;
     window.bimRedlineVincularSeleccionActual = bimRedlineVincularSeleccionActual;
     window.divState                 = divState;
 }
