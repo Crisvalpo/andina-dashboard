@@ -292,8 +292,12 @@ async function refreshData() {
         };
     });
 
-    // Adapt Juntas
-    const mappedJuntas = juntas.map(j => ({
+    // Adapt Juntas — Excluir las marcadas como "Eliminada" en [OBSERV.]
+    const juntasActivas = juntas.filter(j => {
+        const obs = String(j['[OBSERV.]'] || j['OBSERV.'] || j['OBSERV'] || j['[OBSERV]'] || j['OBSERVACIONES'] || '').trim().toUpperCase();
+        return obs !== 'ELIMINADA' && obs !== 'ELIMINADO';
+    });
+    const mappedJuntas = juntasActivas.map(j => ({
         ...j,
         CATEGORIA_JUNTA: j.DESTINATION || j.CATEGORIA_JUNTA || '',
         ID_TIPO_UNION: j['TIPO UNION'] || j.ID_TIPO_UNION || '',

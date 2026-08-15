@@ -1976,6 +1976,10 @@ async function obtenerLineasResumenData(forceRefresh = false) {
 
     // Juntas desde LIST_Juntas_MS_
     juntasRows.forEach(r => {
+        // Excluir juntas marcadas como "Eliminada" en la columna [OBSERV.]
+        const observJunta = String(r['[OBSERV.]'] || r['OBSERV.'] || r['OBSERV'] || r['[OBSERV]'] || r['OBSERVACIONES'] || '').trim().toUpperCase();
+        if (observJunta === 'ELIMINADA' || observJunta === 'ELIMINADO') return;
+
         const idJunta = String(r['ID_JUNTA'] || r['ID JUNTA'] || r['ID_Junta'] || '').trim();
         const lineRaw = String(r['ID_LINEA'] || r['LINEA'] || r['N_LINEA'] || '').trim();
         const idIso = String(r['ID_ISO'] || r['ID_ISOMETRICO'] || '').trim();
