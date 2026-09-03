@@ -11,6 +11,7 @@
 import { state, charts } from '../modules/state.js';
 import { setText } from '../utils/domUtils.js';
 import { resolveSpoolId, normalizeStatus, resolveSpoolStatuses } from '../utils/statusHelpers.js';
+import { getWeekOfDate, parseDate, currentISOWeek } from '../utils/dataHelpers.js';
 import { barLabelsPlugin, doughnutLabelsPlugin } from './chartPlugins.js';
 import { bimState } from '../modules/bimState.js';
 import { bimColorDeEstado, bimRgbAHex, bimCargarColoresEstados } from '../modules/bimColors.js';
@@ -100,37 +101,170 @@ export function renderSpools() {
         return a.localeCompare(b);
     });
 
-    // --- GENERAR TARJETAS DINÁMICAS ---
+    // --- CÁLCULO DE SPOOLS MONTADOS POR SEMANA Y DÍA (Filtro Superior state.currentWeek) ---
+    const currentWeek = state.currentWeek ?? currentISOWeek();
+    const daysLabels = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const weekDailyCounts = [0, 0, 0, 0, 0, 0, 0];
+    let totalSemanaMontados = 0;
+
+    const dedupeWeekSpoolSet = new Set();
+    state.logSpools.forEach(r => {
+        const st = (r.STATUS || r['STATUS '] || '').trim().toUpperCase();
+        if (st !== 'MONTADO') return;
+        const fechaRaw = r.FECHA_LEVANTAMIENTO || r['FECHA_LEVANTAMIENTO '];
+        if (getWeekOfDate(fechaRaw) !== currentWeek) return;
+
+        const spoolId = (r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
+        const d = parseDate(fechaRaw);
+        if (!d || !spoolId) return;
+
+        const dIdx = d.getDay(); // 0=Dom, 1=Lun, ..., 6=Sáb
+        const arrIdx = dIdx === 0 ? 6 : dIdx - 1; // 0=Lun, ..., 6=Dom
+        if (arrIdx < 0 || arrIdx >= 7) return;
+
+        const dedupeKey = `${spoolId}_${arrIdx}`;
+        if (dedupeWeekSpoolSet.has(dedupeKey)) return;
+        dedupeWeekSpoolSet.add(dedupeKey);
+
+        weekDailyCounts[arrIdx]++;
+        totalSemanaMontados++;
+    });
+
+    const diasConMontajeSemana = weekDailyCounts.filter(c => c > 0).length;
+    const promedioSemanal = diasConMontajeSemana > 0 ? (totalSemanaMontados / diasConMontajeSemana).toFixed(1) : '0';
+
+    // Montados hoy (fecha calendario actual)
+    const now = new Date();
+    let montadosHoy = 0;
+    const todayISO = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const dedupeTodaySpoolSet = new Set();
+    state.logSpools.forEach(r => {
+        const st = (r.STATUS || r['STATUS '] || '').trim().toUpperCase();
+        if (st !== 'MONTADO') return;
+        const d = parseDate(r.FECHA_LEVANTAMIENTO || r['FECHA_LEVANTAMIENTO ']);
+        if (!d) return;
+        const dateISO = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (dateISO === todayISO) {
+            const spoolId = (r.ID_SPOOL || r['ID_SPOOL '] || '').trim();
+            if (spoolId && !dedupeTodaySpoolSet.has(spoolId)) {
+                dedupeTodaySpoolSet.add(spoolId);
+                montadosHoy++;
+            }
+        }
+    });
+
+    // --- CONTEOS PARA TARJETAS CONTRAÍDAS ---
+    const cTotal = spools.length;
+    const cEliminados = statusCounts['ELIMINADO'] || 0;
+    const cPorMontar = statusCounts['POR MONTAR'] || 0;
+    const cPosicionado = statusCounts['POSICIONADO'] || 0;
+    const cMontados = statusCounts['MONTADO'] || 0;
+
+    // Suma de todos los otros estados distintos
+    let cOtros = 0;
+    const otrosDetalle = [];
+    Object.keys(statusCounts).forEach(st => {
+        if (!['ELIMINADO', 'POR MONTAR', 'POSICIONADO', 'MONTADO'].includes(st)) {
+            const cnt = statusCounts[st] || 0;
+            cOtros += cnt;
+            if (cnt > 0) {
+                const lbl = st === 'SIN ESTADO' ? 'Sin Registro' : getSpoolStatusVisual(st).label;
+                otrosDetalle.push(`${lbl}: ${cnt}`);
+            }
+        }
+    });
+
+    // --- GENERAR TARJETAS CONTRAÍDAS ---
     const container = document.getElementById('spools-status-cards');
     if (container) {
         /** Convierte hex (#rrggbb) a rgba con alpha 0.15 para fondo del icono */
         function iconBg(hex) {
+            if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return 'rgba(100, 116, 139, 0.15)';
             const r = parseInt(hex.slice(1, 3), 16);
             const g = parseInt(hex.slice(3, 5), 16);
             const b = parseInt(hex.slice(5, 7), 16);
             return `rgba(${r}, ${g}, ${b}, 0.15)`;
         }
 
-        let cardsHtml = sortedStatuses.map(st => {
-            const vis = getSpoolStatusVisual(st);
-            const count = statusCounts[st] || 0;
-            return `<div class="kpi-card glass">
-                <div class="kpi-icon" style="background:${iconBg(vis.color)}"><i class="fas ${vis.icon}" style="color:${vis.color}"></i></div>
-                <div>
-                    <p class="kpi-label">${vis.label}</p>
-                    <p class="kpi-value">${count}</p>
-                </div>
-            </div>`;
-        }).join('');
+        const visEliminado   = getSpoolStatusVisual('ELIMINADO');
+        const visPorMontar   = getSpoolStatusVisual('POR MONTAR');
+        const visPosicionado = getSpoolStatusVisual('POSICIONADO');
+        const visMontado     = getSpoolStatusVisual('MONTADO');
+        const tooltipOtros   = otrosDetalle.join(' | ');
 
-        // Tarjeta fija: Total Activos (siempre al final)
-        cardsHtml += `<div class="kpi-card glass">
-            <div class="kpi-icon" style="background:rgba(56, 189, 248, 0.15)"><i class="fas fa-industry" style="color:#38bdf8"></i></div>
-            <div>
-                <p class="kpi-label">Total Activos</p>
-                <p class="kpi-value">${cTotalActivos}</p>
+        let cardsHtml = `
+            <!-- Total General -->
+            <div class="kpi-card glass">
+                <div class="kpi-icon" style="background:rgba(56, 189, 248, 0.15)"><i class="fas fa-cubes" style="color:#38bdf8"></i></div>
+                <div>
+                    <p class="kpi-label">Total</p>
+                    <p class="kpi-value">${cTotal}</p>
+                </div>
             </div>
-        </div>`;
+
+            <!-- Eliminados -->
+            <div class="kpi-card glass">
+                <div class="kpi-icon" style="background:${iconBg(visEliminado.color)}"><i class="fas ${visEliminado.icon}" style="color:${visEliminado.color}"></i></div>
+                <div>
+                    <p class="kpi-label">${visEliminado.label}</p>
+                    <p class="kpi-value">${cEliminados}</p>
+                </div>
+            </div>
+
+            <!-- Activos -->
+            <div class="kpi-card glass">
+                <div class="kpi-icon" style="background:rgba(14, 165, 233, 0.15)"><i class="fas fa-industry" style="color:#0ea5e9"></i></div>
+                <div>
+                    <p class="kpi-label">Activos</p>
+                    <p class="kpi-value">${cTotalActivos}</p>
+                </div>
+            </div>
+
+            <!-- Por Montar -->
+            <div class="kpi-card glass">
+                <div class="kpi-icon" style="background:${iconBg(visPorMontar.color)}"><i class="fas ${visPorMontar.icon}" style="color:${visPorMontar.color}"></i></div>
+                <div>
+                    <p class="kpi-label">${visPorMontar.label}</p>
+                    <p class="kpi-value">${cPorMontar}</p>
+                </div>
+            </div>
+
+            <!-- Posicionado -->
+            <div class="kpi-card glass">
+                <div class="kpi-icon" style="background:${iconBg(visPosicionado.color)}"><i class="fas ${visPosicionado.icon}" style="color:${visPosicionado.color}"></i></div>
+                <div>
+                    <p class="kpi-label">${visPosicionado.label}</p>
+                    <p class="kpi-value">${cPosicionado}</p>
+                </div>
+            </div>
+
+            <!-- Montados -->
+            <div class="kpi-card glass">
+                <div class="kpi-icon" style="background:${iconBg(visMontado.color)}"><i class="fas ${visMontado.icon}" style="color:${visMontado.color}"></i></div>
+                <div>
+                    <p class="kpi-label">${visMontado.label}</p>
+                    <p class="kpi-value">${cMontados}</p>
+                </div>
+            </div>
+
+            <!-- Otros Estados (Suma de los demás) -->
+            <div class="kpi-card glass" ${tooltipOtros ? `title="${tooltipOtros}" style="cursor:help;"` : ''}>
+                <div class="kpi-icon" style="background:rgba(245, 158, 11, 0.15)"><i class="fas fa-tools" style="color:#f59e0b"></i></div>
+                <div>
+                    <p class="kpi-label">Otros Estados</p>
+                    <p class="kpi-value">${cOtros}</p>
+                </div>
+            </div>
+
+            <!-- Montados Hoy -->
+            <div class="kpi-card glass" style="border: 1px solid rgba(16, 185, 129, 0.3);">
+                <div class="kpi-icon" style="background:rgba(16, 185, 129, 0.15)"><i class="fas fa-calendar-day" style="color:#10b981"></i></div>
+                <div>
+                    <p class="kpi-label">Montados Hoy</p>
+                    <p class="kpi-value">${montadosHoy} <span style="font-size:0.75rem; font-weight:normal; color:#10b981;" title="Promedio de la semana S${currentWeek}">(${promedioSemanal} prom/d)</span></p>
+                </div>
+            </div>
+        `;
 
         container.innerHTML = cardsHtml;
     }
@@ -342,6 +476,80 @@ export function renderSpools() {
                     }
                 },
                 plugins: { legend: { display: false } }
+            },
+            plugins: [barLabelsPlugin]
+        });
+    }
+
+    // --- Actualizar indicadores de semana y promedio semanal ---
+    const weekTagEl = document.getElementById('spools-chart-week-tag');
+    if (weekTagEl) {
+        weekTagEl.textContent = `S${currentWeek}`;
+    }
+
+    const promedioBadge = document.getElementById('spools-montados-promedio-badge');
+    if (promedioBadge) {
+        promedioBadge.textContent = `Semana S${currentWeek}: ${totalSemanaMontados} spools (${promedioSemanal} prom/d)`;
+    }
+
+    // --- Gráfico: Spools Montados por Día (Semanal) ---
+    const ctxMontadosDia = document.getElementById('spools-montados-dia-chart');
+    if (ctxMontadosDia) {
+        if (charts.spoolsMontadosDia) charts.spoolsMontadosDia.destroy();
+
+        // Gradiente verde esmeralda para las barras de montaje diario
+        const ctx2d = ctxMontadosDia.getContext('2d');
+        let bgGradient = '#10b981';
+        if (ctx2d) {
+            const grad = ctx2d.createLinearGradient(0, 0, 0, 260);
+            grad.addColorStop(0, '#10b981');
+            grad.addColorStop(1, '#059669');
+            bgGradient = grad;
+        }
+
+        charts.spoolsMontadosDia = new Chart(ctxMontadosDia, {
+            type: 'bar',
+            data: {
+                labels: daysLabels,
+                datasets: [{
+                    label: `Spools Montados (S${currentWeek})`,
+                    data: weekDailyCounts,
+                    backgroundColor: bgGradient,
+                    hoverBackgroundColor: '#34d399',
+                    borderRadius: 6,
+                    maxBarThickness: 46
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: { color: '#1e293b' },
+                        ticks: {
+                            color: '#64748b',
+                            precision: 0
+                        },
+                        grace: '18%'
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: {
+                            color: '#64748b',
+                            font: { weight: '500' }
+                        }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: (items) => `${items[0].label} (Semana S${currentWeek})`,
+                            label: (item) => ` Montados: ${item.raw} spools`
+                        }
+                    }
+                }
             },
             plugins: [barLabelsPlugin]
         });

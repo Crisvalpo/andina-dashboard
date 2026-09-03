@@ -329,41 +329,13 @@
                     </div>
                 </div>
 
-                <!-- KPI Row: Desglose Juntas -->
-                <div class="kpi-section-label" style="margin-top:0.5rem">🛠️ Distribución de Juntas (Taller vs Terreno)
+                <!-- KPI Row: Juntas Pendientes por Tipo y Área -->
+                <div class="kpi-section-label" style="margin-top:1rem; display:flex; justify-content:space-between; align-items:center;">
+                    <span>⏳ Juntas Pendientes por Tipo y Área</span>
+                    <span id="juntas-pendientes-total-badge" class="badge badge-pending" style="font-size:0.75rem;">Total: -- pendientes</span>
                 </div>
-                <div class="juntas-breakdown-grid" id="juntas-breakdown">
-                    <!-- Taller Column -->
-                    <div class="jc-col glass collapsed" id="col-shop">
-                        <div class="jc-header" onclick="toggleJuntaCol('shop')">
-                            <div class="jc-header-main">
-                                <i class="fas fa-chevron-down toggle-icon"></i>
-                                <div class="jc-header-title">🏭 Shop (Taller)</div>
-                            </div>
-                            <div class="jc-metrics-grid" id="shop-metrics">
-                                <!-- Populated via app.js -->
-                            </div>
-                        </div>
-                        <div class="jc-content" id="shop-content">
-                            <div class="jc-materials-list" id="shop-cards"></div>
-                        </div>
-                    </div>
-
-                    <!-- Terreno Column -->
-                    <div class="jc-col glass collapsed" id="col-field">
-                        <div class="jc-header" onclick="toggleJuntaCol('field')">
-                            <div class="jc-header-main">
-                                <i class="fas fa-chevron-down toggle-icon"></i>
-                                <div class="jc-header-title">🏗️ Field (Terreno)</div>
-                            </div>
-                            <div class="jc-metrics-grid" id="field-metrics">
-                                <!-- Populated via app.js -->
-                            </div>
-                        </div>
-                        <div class="jc-content" id="field-content">
-                            <div class="jc-materials-list" id="field-cards"></div>
-                        </div>
-                    </div>
+                <div class="juntas-areas-grid" id="juntas-pendientes-areas-container">
+                    <!-- Generado dinámicamente en renderJuntas() -->
                 </div>
 
                 <div class="charts-grid">
@@ -445,6 +417,15 @@
                         <h3>Spools por Fluido</h3>
                         <div class="chart-body">
                             <canvas id="spools-fluido-chart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card glass">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                            <h3 style="margin-bottom: 0;">Spools Montados por Día <span id="spools-chart-week-tag" class="badge" style="background:rgba(99,102,241,0.15); color:#818cf8; margin-left:6px; font-size:0.75rem;">S50</span></h3>
+                            <span id="spools-montados-promedio-badge" class="badge badge-done" style="font-size: 0.75rem;">Semana S50: -- / día</span>
+                        </div>
+                        <div class="chart-body">
+                            <canvas id="spools-montados-dia-chart"></canvas>
                         </div>
                     </div>
                 </div>
