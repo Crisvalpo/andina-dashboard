@@ -112,6 +112,15 @@ export async function bimSetCapa(capa) {
             </div>
             ${bimRedlineRenderSection('all', '', '', '')}`);
         setTimeout(() => bimRedlineCargarHistorial('all'), 100);
+    } else if (capa === 'reemplazo') {
+        bimSetMeta(`
+            <div class="bim-meta-placeholder">
+                <i class="fas fa-arrows-rotate bim-meta-icon" style="color:#ec4899;"></i>
+                <p>Capa: <strong>Spools a Reemplazar</strong>. Selecciona elementos en el modelo o filtra por reemplazo.</p>
+                <button onclick="bimFiltrarTodosReemplazos()" class="bim-scan-btn" style="margin-top:10px; background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; width:100%; justify-content:center;">
+                    <i class="fas fa-filter"></i> Ver todos los Spools a Reemplazar en 3D
+                </button>
+            </div>`);
     } else {
         bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Capa: <strong>${BIM_CAPA_UI[capa].label}s</strong>. Selecciona un elemento en el modelo o busca por su ID.</p></div>`);
     }
@@ -1149,6 +1158,15 @@ export function bimLimpiarFiltroEstados() {
     bimState.filtroEstados.clear();
     bimRenderStatusChips();
     bimResetView();
+}
+
+/** Aisla y colorea de un clic todos los elementos con spool a reemplazar asignado. */
+export async function bimFiltrarTodosReemplazos() {
+    bimState.capa = 'reemplazo';
+    bimState.filtroEstados.clear();
+    bimState.filtroEstados.add('REEMPLAZO');
+    bimRenderStatusChips();
+    bimAplicarFiltroEstados();
 }
 
 /** Edita el color de un estado (persistido; requiere clave BIM). */
@@ -4942,6 +4960,7 @@ if (typeof window !== 'undefined') {
     window.bimToggleEstado          = bimToggleEstado;
     window.bimSubsistemaVerPorEstado = bimSubsistemaVerPorEstado;
     window.bimAplicarFiltroEstados  = bimAplicarFiltroEstados;
+    window.bimFiltrarTodosReemplazos = bimFiltrarTodosReemplazos;
     window.bimToggleElementsList    = bimToggleElementsList;
     window.bimToggleMetaExtra       = bimToggleMetaExtra;
     window.bimToggleSidebar         = bimToggleSidebar;

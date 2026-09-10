@@ -2413,7 +2413,7 @@ app.get('/api/bim/:capa/statuses', async (req, res) => {
             const guid = String(row['Elemento GUID'] || '').trim();
             const id   = String(row[capa.col] || '').trim().toLowerCase();
             if (!guid || !id) return;
-            const st = estados[id] ? estados[id].status : 'PENDIENTE';
+            const st = req.params.capa === 'reemplazo' ? 'REEMPLAZO' : (estados[id] ? estados[id].status : 'PENDIENTE');
             (result[st] = result[st] || []).push(guid);
         });
         res.json(result);

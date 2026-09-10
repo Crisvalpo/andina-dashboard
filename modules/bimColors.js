@@ -28,7 +28,8 @@ export const BIM_STATUS_COLORS = {
     'PENDIENTE':       [0.55, 0.55, 0.55, 0.4], // Gris
 
     'MONTADA':         [0.06, 0.75, 0.35, 1],
-    'POSICIONADA':     [0.95, 0.45, 0.10, 1]
+    'POSICIONADA':     [0.95, 0.45, 0.10, 1],
+    'REEMPLAZO':       [0.92, 0.28, 0.60, 1]  // Rosa / Fucsia (#ec4899)
 };
 
 export const BIM_SUBSISTEMA_COLORS = {
