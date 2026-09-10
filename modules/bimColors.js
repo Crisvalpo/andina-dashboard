@@ -29,7 +29,8 @@ export const BIM_STATUS_COLORS = {
 
     'MONTADA':         [0.06, 0.75, 0.35, 1],
     'POSICIONADA':     [0.95, 0.45, 0.10, 1],
-    'REEMPLAZO':       [0.92, 0.28, 0.60, 1]  // Rosa / Fucsia (#ec4899)
+    'REEMPLAZO':       [0.92, 0.28, 0.60, 1], // Rosa / Fucsia (#ec4899)
+    'MONTADO (HOY)':   [0.00, 0.90, 0.45, 1]  // Verde neón brillante
 };
 
 export const BIM_SUBSISTEMA_COLORS = {

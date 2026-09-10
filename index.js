@@ -260,6 +260,15 @@ function parseFechaLog(str) {
     return new Date(+yyyy, mm - 1, dd, +(hh || 0), +(mi || 0), +(ss || 0)).getTime();
 }
 
+function esFechaHoy(ts) {
+    if (!ts) return false;
+    const d = new Date(ts);
+    const ahora = new Date();
+    return d.getFullYear() === ahora.getFullYear() &&
+           d.getMonth() === ahora.getMonth() &&
+           d.getDate() === ahora.getDate();
+}
+
 // El estado se toma tal cual lo escribe terreno en LOG_Spool_MS; solo se
 // homogeneiza la caja. LOG es la única autoridad: plegar variantes aquí
 // escondía estados que el usuario sí quiere distinguir (p.ej. "En Pintura").
@@ -494,7 +503,7 @@ app.get('/api/bim/statuses', async (req, res) => {
         // grupo a la vez y SIN ESTADO terminaba pintando encima de estados
         // reales. Ahora cada GUID queda en UN solo grupo: gana el estado más
         // avanzado, y SIN ESTADO solo si NINGUNA fila le da estado.
-        const porGuid = {}; // guidLower -> { guid, status, peso }
+        const porGuid = {}; // guidLower -> { guid, status, peso, statusEntry }
         bimRows.forEach(row => {
             const guid = String(row['Elemento GUID'] || '').trim();
             if (!guid) return;
@@ -509,14 +518,19 @@ app.get('/api/bim/statuses', async (req, res) => {
 
             const key = guid.toLowerCase();
             const prev = porGuid[key];
-            if (!prev || peso > prev.peso) porGuid[key] = { guid, status, peso };
+            if (!prev || peso > prev.peso) porGuid[key] = { guid, status, peso, statusEntry };
         });
 
-        Object.values(porGuid).forEach(({ guid, status }) => {
+        Object.values(porGuid).forEach(({ guid, status, statusEntry }) => {
             if (!result[status]) {
                 result[status] = [];
             }
             result[status].push(guid);
+
+            if (status === 'MONTADO' && statusEntry && esFechaHoy(statusEntry.fecha)) {
+                if (!result['MONTADO (HOY)']) result['MONTADO (HOY)'] = [];
+                result['MONTADO (HOY)'].push(guid);
+            }
         });
 
         res.json(result);
@@ -2580,6 +2594,13 @@ app.get('/api/bim/estado-conteos', async (req, res) => {
             conteos[status].total++;
             if (tag && tagsAsociados.has(tag)) conteos[status].asociados++;
             else conteos[status].sin_asociar++;
+
+            if (status === 'MONTADO' && est && esFechaHoy(est.fecha)) {
+                if (!conteos['MONTADO (HOY)']) conteos['MONTADO (HOY)'] = { total: 0, asociados: 0, sin_asociar: 0 };
+                conteos['MONTADO (HOY)'].total++;
+                if (tag && tagsAsociados.has(tag)) conteos['MONTADO (HOY)'].asociados++;
+                else conteos['MONTADO (HOY)'].sin_asociar++;
+            }
         });
         res.json(conteos);
     } catch (e) {

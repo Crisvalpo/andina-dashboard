@@ -1038,7 +1038,7 @@ export function bimResetView() {
 // nuevo en AppSheet, aparece solo, con color auto-asignado y editable.
 // =================================================================
 export const BIM_ORDEN_FLUJO = ['EN FABRICACIÓN', 'QAQC', 'EN PINT/REVEST.', 'RETIRAR',
-    'POR MONTAR', 'POSICIONADO', 'MONTADO', 'ELIMINADO', 'PENDIENTE', 'SIN ESTADO'];
+    'POR MONTAR', 'POSICIONADO', 'MONTADO', 'MONTADO (HOY)', 'ELIMINADO', 'PENDIENTE', 'SIN ESTADO'];
 
 
 /** Color automático y estable para estados nuevos (hash → tono HSL). */
