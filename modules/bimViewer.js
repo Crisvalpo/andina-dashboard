@@ -402,9 +402,14 @@ export function bimStartViewer() {
                                         if (selectedList.length > 0) {
                                             bimState.selectedElements = selectedList;
 
-                                             // Capa válvulas/soportes/subsistemas: flujo simple (1 elemento = 1 ítem, sin auto-grupo)
+                                             // Capa válvulas/soportes/subsistemas/reemplazo: flujo simple
                                             if (bimState.capa !== 'spool') {
-                                                bimRenderCapaSelection(bimState.capa, selectedList, uniqueLayers);
+                                                bimRenderCapaSelection(bimState.capa, selectedList, uniqueLayers, bimState.isProgrammaticSelection);
+                                                if (panel) panel.style.display = 'flex';
+                                                return;
+                                            }
+
+                                            if (bimState.isProgrammaticSelection) {
                                                 if (panel) panel.style.display = 'flex';
                                                 return;
                                             }
@@ -1240,6 +1245,7 @@ export async function bimBuscarReemplazoTag(tag) {
         return;
     }
 
+    bimState.isProgrammaticSelection = true;
     bimFocoElementoRedline(guids);
     bimSetMeta(`
         <div class="bim-meta-header" style="background: rgba(236,72,153,0.2); border-color: rgba(236,72,153,0.4);">
@@ -1256,7 +1262,10 @@ export async function bimBuscarReemplazoTag(tag) {
         </div>
         ${bimRedlineRenderSection(guids, tag, tag, 'REEMPLAZO')}`);
 
-    setTimeout(() => bimRedlineCargarHistorial(guids[0]), 100);
+    setTimeout(() => {
+        bimRedlineCargarHistorial(guids[0]);
+        setTimeout(() => { bimState.isProgrammaticSelection = false; }, 400);
+    }, 100);
 }
 
 /** Edita el color de un estado (persistido; requiere clave BIM). */
@@ -3646,7 +3655,7 @@ export function bimSetLoader(msg, isError = false) {
  * Pinta el panel de vinculación para capas válvula/soporte/subsistema.
  * A diferencia de spools, aquí 1 elemento = 1 ítem (sin auto-grupo).
  */
-export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
+export function bimRenderCapaSelection(capa, selectedList, uniqueLayers, suppressMeta = false) {
     bimResetUnlinkMenu();
     const ui = BIM_CAPA_UI[capa] || BIM_CAPA_UI['spool'];
     const mapeo = bimState.capaMapeo[capa] || {};
@@ -3696,7 +3705,7 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
                                 </div>`;
                         }
                         if (inputEl) inputEl.value = tieneSub ? info.subsistema : '';
-                        bimRenderElementoMeta(info);
+                        if (!suppressMeta) bimRenderElementoMeta(info);
                     }
                 })
                 .catch(err => console.error('[BIM Elemento Info Error]', err));
@@ -3724,7 +3733,7 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
                         <div style="font-size:0.78rem;color:#e2e8f0;">${subs.join(', ')}</div>`;
                 }
                 if (inputEl) inputEl.value = subs.length === 1 ? subs[0] : '';
-                bimRenderMultiElementoMeta(selectedList.length, tags, spools, subs, elems);
+                if (!suppressMeta) bimRenderMultiElementoMeta(selectedList.length, tags, spools, subs, elems);
             })
             .catch(err => console.error('[BIM Multi Elemento Info Error]', err));
         }
@@ -3757,31 +3766,33 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
         }
         if (inputEl) inputEl.value = idsSel.length === 1 ? idsSel[0] : '';
         // Metadata + estado de montaje del primer ítem
-        if (idsSel.length === 1) bimRenderCapaMeta(capa, idsSel[0]);
+        if (idsSel.length === 1 && !suppressMeta) bimRenderCapaMeta(capa, idsSel[0]);
     } else {
         if (statusContainer) statusContainer.style.display = 'none';
         if (inputEl) inputEl.value = '';
-        const selGuids = selectedList.map(x => x.guid);
-        const tieneClave = !!authObtener('bim');
-        if (!tieneClave) {
-            bimSetMeta(`
-                <div class="bim-meta-placeholder">
-                    <i class="fas fa-cube bim-meta-icon" style="color:#a78bfa;"></i>
-                    <p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada (Modo Solo Lectura).</p>
-                    <button onclick="authAsegurar('bim').then(ok => { if(ok) bimActualizarPermisosUI(); })" class="bim-scan-btn" style="margin-top:10px; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light);">
-                        <i class="fas fa-cube"></i> Editar BIM (Ingresar Clave)
-                    </button>
-                </div>
-                ${bimRedlineRenderSection(selGuids, '', '', '')}`);
-        } else {
-            bimSetMeta(`
-                <div class="bim-meta-placeholder">
-                    <i class="fas fa-cube bim-meta-icon" style="${capa === 'reemplazo' ? 'color:#ec4899;' : ''}"></i>
-                    <p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada. Ingresa su ID abajo para vincular.</p>
-                </div>
-                ${bimRedlineRenderSection(selGuids, '', '', '')}`);
+        if (!suppressMeta) {
+            const selGuids = selectedList.map(x => x.guid);
+            const tieneClave = !!authObtener('bim');
+            if (!tieneClave) {
+                bimSetMeta(`
+                    <div class="bim-meta-placeholder">
+                        <i class="fas fa-cube bim-meta-icon" style="color:#a78bfa;"></i>
+                        <p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada (Modo Solo Lectura).</p>
+                        <button onclick="authAsegurar('bim').then(ok => { if(ok) bimActualizarPermisosUI(); })" class="bim-scan-btn" style="margin-top:10px; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light);">
+                            <i class="fas fa-cube"></i> Editar BIM (Ingresar Clave)
+                        </button>
+                    </div>
+                    ${bimRedlineRenderSection(selGuids, '', '', '')}`);
+            } else {
+                bimSetMeta(`
+                    <div class="bim-meta-placeholder">
+                        <i class="fas fa-cube bim-meta-icon" style="${capa === 'reemplazo' ? 'color:#ec4899;' : ''}"></i>
+                        <p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada. Ingresa su ID abajo para vincular.</p>
+                    </div>
+                    ${bimRedlineRenderSection(selGuids, '', '', '')}`);
+            }
+            setTimeout(() => bimRedlineCargarHistorial(selGuids[0] || 'all'), 100);
         }
-        setTimeout(() => bimRedlineCargarHistorial(selGuids[0] || 'all'), 100);
     }
 
     // Botón guardar
