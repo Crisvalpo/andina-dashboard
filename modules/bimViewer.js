@@ -113,14 +113,7 @@ export async function bimSetCapa(capa) {
             ${bimRedlineRenderSection('all', '', '', '')}`);
         setTimeout(() => bimRedlineCargarHistorial('all'), 100);
     } else if (capa === 'reemplazo') {
-        bimSetMeta(`
-            <div class="bim-meta-placeholder">
-                <i class="fas fa-arrows-rotate bim-meta-icon" style="color:#ec4899;"></i>
-                <p>Capa: <strong>Spools a Reemplazar</strong>. Selecciona elementos en el modelo o filtra por reemplazo.</p>
-                <button onclick="bimFiltrarTodosReemplazos()" class="bim-scan-btn" style="margin-top:10px; background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; width:100%; justify-content:center;">
-                    <i class="fas fa-filter"></i> Ver todos los Spools a Reemplazar en 3D
-                </button>
-            </div>`);
+        bimRenderReemplazosList();
     } else {
         bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>Capa: <strong>${BIM_CAPA_UI[capa].label}s</strong>. Selecciona un elemento en el modelo o busca por su ID.</p></div>`);
     }
@@ -1167,6 +1160,100 @@ export async function bimFiltrarTodosReemplazos() {
     bimState.filtroEstados.add('REEMPLAZO');
     bimRenderStatusChips();
     bimAplicarFiltroEstados();
+}
+
+/** Renderiza la lista completa interactiva de todos los tramos/spools a reemplazar en la barra lateral. */
+export async function bimRenderReemplazosList() {
+    bimSetMetaCargando('Cargando lista de tramos a reemplazar...');
+    try {
+        const mapeo = await (await fetch('/api/bim/reemplazo/mapeo')).json() || {};
+        const agrupados = {};
+        Object.entries(mapeo).forEach(([guid, tag]) => {
+            if (!tag) return;
+            const cleanTag = String(tag).trim();
+            (agrupados[cleanTag] = agrupados[cleanTag] || []).push(guid);
+        });
+
+        const tags = Object.keys(agrupados).sort();
+        if (tags.length === 0) {
+            bimSetMeta(`
+                <div class="bim-meta-placeholder">
+                    <i class="fas fa-arrows-rotate bim-meta-icon" style="color:#ec4899;"></i>
+                    <p>Capa: <strong>Spools a Reemplazar</strong>.</p>
+                    <p style="font-size:0.75rem;opacity:0.7;margin-top:6px;">No hay tramos a reemplazar vinculados aún.<br>Selecciona elementos en el modelo 3D e ingresa un TAG (ej: 412) para registrarlos.</p>
+                </div>`);
+            return;
+        }
+
+        const cardsHtml = tags.map(tag => {
+            const guids = agrupados[tag];
+            const escTag = tag.replace(/'/g, "\\'");
+            return `
+            <div class="bim-meta-card" style="background: rgba(236,72,153,0.1); border: 1px solid rgba(236,72,153,0.3); border-left: 4px solid #ec4899; margin-bottom: 8px; padding: 10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
+                    <div>
+                        <span style="font-weight:700; color:#f472b6; font-size:0.92rem;"><i class="fas fa-arrows-rotate" style="margin-right:6px;"></i>Spool ${tag}</span>
+                        <div style="font-size:0.72rem; color:var(--text-dim); margin-top:2px;">${guids.length} elemento(s) 3D asignados</div>
+                    </div>
+                    <span class="bim-badge" style="background:#ec4899; font-size:0.68rem;">REEMPLAZO</span>
+                </div>
+                <div style="display:flex; gap:6px; margin-top:8px;">
+                    <button onclick="bimFocoElementoRedline(${JSON.stringify(guids).replace(/"/g, '&quot;')})" class="bim-scan-btn" style="padding:4px 8px; font-size:0.72rem; background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; flex:1; justify-content:center;">
+                        <i class="fas fa-eye"></i> Ver 3D
+                    </button>
+                    <button onclick="bimBuscarReemplazoTag('${escTag}')" class="bim-scan-btn" style="padding:4px 8px; font-size:0.72rem; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light); flex:1; justify-content:center;">
+                        <i class="fas fa-camera"></i> Fotos y Detalles
+                    </button>
+                </div>
+            </div>`;
+        }).join('');
+
+        bimSetMeta(`
+            <div class="bim-meta-header" style="background: rgba(236,72,153,0.18); border-color: rgba(236,72,153,0.35);">
+                <i class="fas fa-list-check" style="color:#f472b6;"></i>
+                <span style="font-weight:700;">Tramos a Reemplazar (${tags.length})</span>
+                <button onclick="bimFiltrarTodosReemplazos()" style="margin-left:auto; background:rgba(236,72,153,0.3); border:1px solid rgba(236,72,153,0.5); color:#fff; border-radius:4px; padding:2px 8px; font-size:0.7rem; cursor:pointer;">
+                    <i class="fas fa-filter"></i> Ver Todos 3D
+                </button>
+            </div>
+            <div class="bim-meta-cards" style="margin-top:8px;">${cardsHtml}</div>
+        `);
+    } catch (e) {
+        console.error('[BIM Render Reemplazos List Error]', e);
+        bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error cargando lista: ${e.message}</p></div>`);
+    }
+}
+
+/** Despliega la vista detallada de un spool a reemplazar con su ficha de fotos. */
+export async function bimBuscarReemplazoTag(tag) {
+    if (!tag) return;
+    const mapeo = await (await fetch('/api/bim/reemplazo/mapeo')).json() || {};
+    const guids = Object.entries(mapeo)
+        .filter(([g, t]) => String(t).trim().toLowerCase() === String(tag).trim().toLowerCase())
+        .map(([g]) => g);
+
+    if (guids.length === 0) {
+        alert(`No se encontraron elementos para el spool a reemplazar "${tag}".`);
+        return;
+    }
+
+    bimFocoElementoRedline(guids);
+    bimSetMeta(`
+        <div class="bim-meta-header" style="background: rgba(236,72,153,0.2); border-color: rgba(236,72,153,0.4);">
+            <i class="fas fa-arrows-rotate" style="color: #f472b6;"></i>
+            <span style="font-weight:700;">Spool a Reemplazar: ${tag}</span>
+            <span class="bim-badge" style="background:#ec4899;">${guids.length} elem.</span>
+        </div>
+        <div class="bim-meta-card" style="background: rgba(236,72,153,0.12); border: 1px solid rgba(236,72,153,0.3); border-left: 4px solid #ec4899; margin-bottom:10px;">
+            <div style="font-size:0.8rem; color:#f472b6; font-weight:600; margin-bottom:4px;">TAG Reemplazo: Spool ${tag}</div>
+            <div style="font-size:0.75rem; color:var(--text-dim);">Elementos aislados y enfocados en el modelo 3D.</div>
+            <button onclick="bimRenderReemplazosList()" class="bim-scan-btn" style="margin-top:8px; padding:3px 8px; font-size:0.72rem; background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.15); color:var(--text-bright); width:100%; justify-content:center;">
+                <i class="fas fa-arrow-left"></i> Volver a la lista de tramos
+            </button>
+        </div>
+        ${bimRedlineRenderSection(guids, tag, tag, 'REEMPLAZO')}`);
+
+    setTimeout(() => bimRedlineCargarHistorial(guids[0]), 100);
 }
 
 /** Edita el color de un estado (persistido; requiere clave BIM). */
@@ -4962,6 +5049,8 @@ if (typeof window !== 'undefined') {
     window.bimSubsistemaVerPorEstado = bimSubsistemaVerPorEstado;
     window.bimAplicarFiltroEstados  = bimAplicarFiltroEstados;
     window.bimFiltrarTodosReemplazos = bimFiltrarTodosReemplazos;
+    window.bimRenderReemplazosList  = bimRenderReemplazosList;
+    window.bimBuscarReemplazoTag    = bimBuscarReemplazoTag;
     window.bimToggleElementsList    = bimToggleElementsList;
     window.bimToggleMetaExtra       = bimToggleMetaExtra;
     window.bimToggleSidebar         = bimToggleSidebar;
