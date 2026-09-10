@@ -51,6 +51,10 @@ export const BIM_CAPA_UI = {
     linea: {
         label: 'Línea', buscar: 'Buscar Línea de Cañería', placeholder: 'Tag o Número (ej: 0094, PW-4")',
         vincularLabel: 'Tag Línea:', vincularPlaceholder: 'Ej: 03351-PW-4"-C1-0094-N'
+    },
+    reemplazo: {
+        label: 'Spool a Reemplazar', buscar: 'Buscar Spool a Reemplazar', placeholder: 'TAG Spool (ej: 412)',
+        vincularLabel: 'TAG Spool a Reemplazar:', vincularPlaceholder: 'Ej: 412'
     }
 };
 
@@ -3678,11 +3682,13 @@ export function bimRenderElementoMeta(data) {
         : '#8b5cf6';
     
     const tagVal = (data.tagLinea && data.tagLinea !== 'N/A') ? data.tagLinea : data.tag;
+    const reemplazoVal = data.reemplazo || (bimState.capaMapeo['reemplazo'] ? bimState.capaMapeo['reemplazo'][(data.guid || '').toLowerCase()] : null);
 
     const fields = [
         { label: 'TAG Elemento / Línea', value: tagVal, icon: 'fa-tag', highlight: true },
         { label: 'Spool (TAG Gestión)', value: data.spool, icon: 'fa-industry' },
         { label: 'Estado del Spool', value: estado, icon: 'fa-circle-dot', estado: true },
+        { label: 'Spool a Reemplazar', value: reemplazoVal ? `Spool ${reemplazoVal}` : null, icon: 'fa-arrows-rotate', reemplazo: true },
         { label: 'Sub-sistema', value: data.subsistema, icon: 'fa-sitemap' },
         { label: 'CWP', value: data.cwp, icon: 'fa-map-marker-alt' },
         { label: 'Descripción', value: data.descripcion, icon: 'fa-info-circle' },
@@ -3696,14 +3702,14 @@ export function bimRenderElementoMeta(data) {
             : '';
         const highlightStyle = f.highlight
             ? 'background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.4); border-left: 4px solid #8b5cf6;'
-            : '';
+            : (f.reemplazo ? 'background: rgba(236,72,153,0.15); border: 1px solid rgba(236,72,153,0.4); border-left: 4px solid #ec4899;' : '');
         const valueStyle = f.highlight
             ? 'color: #c4b5fd; font-weight: 700; font-size: 0.92rem;'
-            : '';
+            : (f.reemplazo ? 'color: #f472b6; font-weight: 700; font-size: 0.92rem;' : '');
 
         return `
         <div class="bim-meta-card" style="${highlightStyle}">
-            <span class="bim-meta-icon-sm" style="${f.highlight ? 'color:#a78bfa;' : ''}"><i class="fas ${f.icon}"></i></span>
+            <span class="bim-meta-icon-sm" style="${f.highlight ? 'color:#a78bfa;' : (f.reemplazo ? 'color:#f472b6;' : '')}"><i class="fas ${f.icon}"></i></span>
             <div>
                 <span class="bim-meta-label">${f.label}</span>
                 <span class="bim-meta-value" style="${valueStyle}">${dot}${f.value}</span>

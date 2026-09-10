@@ -1101,6 +1101,16 @@ const BIM_CAPAS = {
         montajeKey:  null,
         montajeStatusCol: null,
         montajeFechaCol:  null,
+    },
+    reemplazo: {
+        col:         'REEMPLAZO LUKEAPP',
+        listTable:   'LIST_Spools_MS_',
+        listKey:     'TAG GESTION',
+        labelCols:   ['TAG GESTION'],
+        montajeTable: null,
+        montajeKey:  null,
+        montajeStatusCol: null,
+        montajeFechaCol:  null,
     }
 };
 
@@ -1147,7 +1157,7 @@ function estadosMontajeDeCapa(capa, montajeRows) {
     return out;
 }
 
-const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP', 'SUB SISTEMA LUKEAPP',
+const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP', 'SUB SISTEMA LUKEAPP', 'REEMPLAZO LUKEAPP',
     'CWP', 'Line Number', 'TAG', 'AutoCad Size'];
 
 function bimBuildEditRow(existingRow, colName, valor) {
@@ -1736,6 +1746,7 @@ async function obtenerElementoInfo(guid) {
     const cwp = String(bimRow?.['CWP'] || aguaRow?.cwp || '').trim();
     const desc = String(bimRow?.['DESCRIPCIÓN'] || bimRow?.['DESCRIPCION'] || aguaRow?.elemento || '').trim();
     const size = String(bimRow?.['AutoCad Size'] || '').trim();
+    const reemplazo = String(bimRow?.['REEMPLAZO LUKEAPP'] || '').trim();
 
     // Resolver ID_SPOOL largo a partir de TAG GESTION
     let idSpool = tagG;
@@ -1765,6 +1776,7 @@ async function obtenerElementoInfo(guid) {
         tagLinea: tagLinea || 'N/A',
         spool: tagG || 'SIN SPOOL',
         idSpool: idSpool || tagG,
+        reemplazo: reemplazo || null,
         status: status,
         subsistema: subLabel,
         cwp: cwp || 'N/A',

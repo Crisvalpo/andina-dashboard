@@ -2774,6 +2774,7 @@ body.sidebar-collapsed #bim-section {
 .bim-sidebar.capa-valvula { --capa-color: #06b6d4; --capa-rgb: 6, 182, 212; }   /* cian */
 .bim-sidebar.capa-soporte { --capa-color: #f59e0b; --capa-rgb: 245, 158, 11; }  /* ámbar */
 .bim-sidebar.capa-subsistema { --capa-color: #8b5cf6; --capa-rgb: 139, 92, 246; } /* violeta */
+.bim-sidebar.capa-reemplazo { --capa-color: #ec4899; --capa-rgb: 236, 72, 153; } /* rosa / fucsia */
 
 /* El panel de vinculación es donde más dolía la confusión: se marca con el
    color de la capa a la que se está vinculando. */
