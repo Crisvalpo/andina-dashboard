@@ -1084,7 +1084,10 @@ export function bimRenderStatusChips() {
     };
 
     // Unificar keys de statuses y estadoConteos para mostrar todos los estados conocidos
-    const keysStatuses = Object.keys(statuses);
+    let keysStatuses = Object.keys(statuses);
+    if (bimState.capa === 'reemplazo') {
+        keysStatuses = keysStatuses.filter(k => k !== 'PENDIENTE');
+    }
     const keysConteos  = bimState.capa === 'spool' && bimState.estadoConteos ? Object.keys(bimState.estadoConteos) : [];
     const allKeys = [...new Set([...keysStatuses, ...keysConteos])];
     const nombres = allKeys.sort((a, b) => {
@@ -3758,6 +3761,7 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
     } else {
         if (statusContainer) statusContainer.style.display = 'none';
         if (inputEl) inputEl.value = '';
+        const selGuids = selectedList.map(x => x.guid);
         const tieneClave = !!authObtener('bim');
         if (!tieneClave) {
             bimSetMeta(`
@@ -3767,10 +3771,17 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers) {
                     <button onclick="authAsegurar('bim').then(ok => { if(ok) bimActualizarPermisosUI(); })" class="bim-scan-btn" style="margin-top:10px; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light);">
                         <i class="fas fa-cube"></i> Editar BIM (Ingresar Clave)
                     </button>
-                </div>`);
+                </div>
+                ${bimRedlineRenderSection(selGuids, '', '', '')}`);
         } else {
-            bimSetMeta(`<div class="bim-meta-placeholder"><i class="fas fa-cube bim-meta-icon"></i><p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada. Ingresa su ID abajo para vincular.</p></div>`);
+            bimSetMeta(`
+                <div class="bim-meta-placeholder">
+                    <i class="fas fa-cube bim-meta-icon" style="${capa === 'reemplazo' ? 'color:#ec4899;' : ''}"></i>
+                    <p>${selectedList.length} elemento(s) sin ${ui.label.toLowerCase()} asignada. Ingresa su ID abajo para vincular.</p>
+                </div>
+                ${bimRedlineRenderSection(selGuids, '', '', '')}`);
         }
+        setTimeout(() => bimRedlineCargarHistorial(selGuids[0] || 'all'), 100);
     }
 
     // Botón guardar

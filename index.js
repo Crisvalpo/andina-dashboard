@@ -2408,7 +2408,7 @@ app.get('/api/bim/:capa/statuses', async (req, res) => {
 
         const estados = estadosMontajeDeCapa(capa, montajeRows);
 
-        const result = { 'PENDIENTE': [] };
+        const result = req.params.capa === 'reemplazo' ? { 'REEMPLAZO': [] } : { 'PENDIENTE': [] };
         bimRows.forEach(row => {
             const guid = String(row['Elemento GUID'] || '').trim();
             const id   = String(row[capa.col] || '').trim().toLowerCase();
