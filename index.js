@@ -1101,6 +1101,16 @@ const BIM_CAPAS = {
         montajeKey:  null,
         montajeStatusCol: null,
         montajeFechaCol:  null,
+    },
+    reemplazo: {
+        col:         'REEMPLAZO LUKEAPP',
+        listTable:   'LIST_Spools_MS_',
+        listKey:     'TAG GESTION',
+        labelCols:   ['TAG GESTION'],
+        montajeTable: null,
+        montajeKey:  null,
+        montajeStatusCol: null,
+        montajeFechaCol:  null,
     }
 };
 
@@ -1165,7 +1175,7 @@ function estadosMontajeDeCapa(capa, montajeRows) {
     return out;
 }
 
-const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP', 'SUB SISTEMA LUKEAPP',
+const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP', 'SUB SISTEMA LUKEAPP', 'REEMPLAZO LUKEAPP',
     'CWP', 'Line Number', 'TAG', 'AutoCad Size'];
 
 function bimBuildEditRow(existingRow, colName, valor) {
@@ -1621,9 +1631,6 @@ app.post('/api/bim/vincular-masivo-agua', requerirPermiso('bim'), async (req, re
 
 // GET /api/bim/:capa/mapeo → { [guidLower]: idItem }
 app.get('/api/bim/:capa/mapeo', async (req, res) => {
-    if (req.params.capa === 'reemplazo') {
-        return res.json(cargarMapeoReemplazo());
-    }
     if (req.params.capa === 'subsistema') {
         try {
             const data = await obtenerSubSistemasData();
@@ -1652,20 +1659,6 @@ app.get('/api/bim/:capa/mapeo', async (req, res) => {
 
 // GET /api/bim/:capa/index → { [idLower]: { id, ...campos maestros } }
 app.get('/api/bim/:capa/index', async (req, res) => {
-    if (req.params.capa === 'reemplazo') {
-        try {
-            const spools = await fetchAppSheetCached('LIST_Spools_MS_').catch(() => []);
-            const index = {};
-            spools.forEach(r => {
-                const id = String(r['TAG GESTION'] || r['ID_SPOOL'] || '').trim();
-                if (id) index[id.toLowerCase()] = { ...r, _label: id };
-            });
-            return res.json(index);
-        } catch (e) {
-            console.error('[BIM reemplazo index]', e.message);
-            return res.status(500).json({ error: e.message });
-        }
-    }
     if (req.params.capa === 'subsistema') {
         return res.json(FIXED_SUBSYSTEMS_INDEX);
     }
@@ -1687,14 +1680,6 @@ app.get('/api/bim/:capa/index', async (req, res) => {
 
 // GET /api/bim/:capa/item/:id → metadata del ítem + GUIDs vinculados + estado de montaje
 app.get('/api/bim/:capa/item/:id', async (req, res) => {
-    if (req.params.capa === 'reemplazo') {
-        const id = decodeURIComponent(req.params.id).trim();
-        const mapeo = cargarMapeoReemplazo();
-        const guids = Object.entries(mapeo)
-            .filter(([g, tag]) => String(tag).trim().toLowerCase() === id.toLowerCase())
-            .map(([g]) => g);
-        return res.json({ id, label: id, guids, montado: true, status: 'REEMPLAZO' });
-    }
     if (req.params.capa === 'subsistema') {
         const id = decodeURIComponent(req.params.id).trim();
         try {
@@ -1780,7 +1765,7 @@ async function obtenerElementoInfo(guid) {
     const desc = String(bimRow?.['DESCRIPCIÓN'] || bimRow?.['DESCRIPCION'] || aguaRow?.elemento || '').trim();
     const size = String(bimRow?.['AutoCad Size'] || '').trim();
     const reemplazoMapeo = cargarMapeoReemplazo();
-    const reemplazo = reemplazoMapeo[guidLower] || String(bimRow?.['REEMPLAZO LUKEAPP'] || '').trim();
+    const reemplazo = String(bimRow?.['REEMPLAZO LUKEAPP'] || reemplazoMapeo[guidLower] || '').trim();
 
     // Resolver ID_SPOOL largo a partir de TAG GESTION
     let idSpool = tagG;
@@ -2404,14 +2389,6 @@ app.get('/api/bim/subsistema/:id/por-estado', async (req, res) => {
 
 // GET /api/bim/:capa/statuses → { Montado:[guids], Pendiente:[guids] } para colorear
 app.get('/api/bim/:capa/statuses', async (req, res) => {
-    if (req.params.capa === 'reemplazo') {
-        const mapeo = cargarMapeoReemplazo();
-        const result = { 'REEMPLAZO': [] };
-        Object.entries(mapeo).forEach(([guid, tag]) => {
-            if (tag) result['REEMPLAZO'].push(guid);
-        });
-        return res.json(result);
-    }
     if (req.params.capa === 'subsistema') {
         try {
             const data = await obtenerSubSistemasData();
@@ -2448,20 +2425,6 @@ app.get('/api/bim/:capa/statuses', async (req, res) => {
 
 // POST /api/bim/:capa/vincular → asocia GUIDs a un ítem (ID_VALVULA / ID_Soporte)
 app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => {
-    if (req.params.capa === 'reemplazo') {
-        let elements = req.body.elements;
-        const itemId = String(req.body.item || req.body.spool || req.body.id || '').trim();
-        if (!elements && req.body.guid) elements = [req.body];
-        if (!elements || elements.length === 0 || !itemId) {
-            return res.status(400).json({ error: 'Elementos e ítem de reemplazo son requeridos.' });
-        }
-        const mapeo = cargarMapeoReemplazo();
-        elements.forEach(el => {
-            if (el.guid) mapeo[String(el.guid).trim().toLowerCase()] = itemId;
-        });
-        guardarMapeoReemplazo(mapeo);
-        return res.json({ success: true, count: elements.length });
-    }
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
 
@@ -2529,16 +2492,6 @@ app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => 
 
 // POST /api/bim/:capa/desvincular → limpia la columna de vínculo de los GUIDs
 app.post('/api/bim/:capa/desvincular', requerirPermiso('bim'), async (req, res) => {
-    if (req.params.capa === 'reemplazo') {
-        const elements = req.body.elements;
-        if (!elements || elements.length === 0) return res.status(400).json({ error: 'Elementos son requeridos.' });
-        const mapeo = cargarMapeoReemplazo();
-        elements.forEach(el => {
-            if (el.guid) delete mapeo[String(el.guid).trim().toLowerCase()];
-        });
-        guardarMapeoReemplazo(mapeo);
-        return res.json({ success: true, count: elements.length });
-    }
     const capa = BIM_CAPAS[req.params.capa];
     if (!capa) return res.status(404).json({ error: 'Capa no válida' });
 
