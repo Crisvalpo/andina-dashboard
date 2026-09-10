@@ -959,8 +959,7 @@ app.post('/api/bim/vincular', requerirPermiso('bim'), async (req, res) => {
                     "SPOOL LUKEAPP": finalSpoolTag,
                     "CWP": existingRow["CWP"] || el.cwp || "",
                     "Line Number": existingRow["Line Number"] || el.line_number || el.layer || "",
-                    "TAG": existingRow["TAG"] || el.tag || el.layer || "",
-                    "AutoCad Size": existingRow["AutoCad Size"] || el.autocad_size || ""
+                    "TAG": existingRow["TAG"] || el.tag || el.layer || ""
                 });
             } else {
                 // Si el elemento no existe, lo creamos nuevo
@@ -969,8 +968,7 @@ app.post('/api/bim/vincular', requerirPermiso('bim'), async (req, res) => {
                     "SPOOL LUKEAPP": finalSpoolTag,
                     "CWP": el.cwp || "",
                     "Line Number": el.line_number || el.layer || "",
-                    "TAG": el.tag || el.layer || "",
-                    "AutoCad Size": el.autocad_size || ""
+                    "TAG": el.tag || el.layer || ""
                 });
             }
         }
@@ -1050,8 +1048,7 @@ app.post('/api/bim/desvincular', requerirPermiso('bim'), async (req, res) => {
                     "SPOOL LUKEAPP": "",
                     "CWP": existingRow["CWP"] || "",
                     "Line Number": existingRow["Line Number"] || "",
-                    "TAG": existingRow["TAG"] || "",
-                    "AutoCad Size": existingRow["AutoCad Size"] || ""
+                    "TAG": existingRow["TAG"] || ""
                 });
             }
         }
@@ -1190,7 +1187,7 @@ function estadosMontajeDeCapa(capa, montajeRows) {
 }
 
 const BIM_REAL_COLS = ['Elemento GUID', 'SPOOL LUKEAPP', 'VALVULA LUKEAPP', 'SOPORTE LUKEAPP', 'SUB SISTEMA LUKEAPP', 'REEMPLAZO LUKEAPP',
-    'CWP', 'Line Number', 'TAG', 'AutoCad Size'];
+    'CWP', 'Line Number', 'TAG'];
 
 function bimBuildEditRow(existingRow, colName, valor) {
     const out = {};
@@ -2484,8 +2481,7 @@ app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => 
                     [capa.col]:      itemId,
                     'CWP':           el.cwp || '',
                     'Line Number':   el.line_number || el.layer || '',
-                    'TAG':           el.tag || el.layer || '',
-                    'AutoCad Size':  el.autocad_size || ''
+                    'TAG':           el.tag || el.layer || ''
                 });
             }
         }
