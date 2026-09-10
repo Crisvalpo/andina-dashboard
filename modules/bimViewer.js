@@ -3900,6 +3900,7 @@ export function bimRedlineRenderSection(guidOrGuids, spoolTag, tagLinea, subsist
 
             <!-- Tipo de modificación -->
             <select class="redline-select" id="redline-tipo">
+                <option value="Foto Reemplazo">🔄 Foto Reemplazo (Real vs Modelo)</option>
                 <option value="Red Line">🔴 Red Line</option>
                 <option value="Interferencia">⚠️ Interferencia</option>
                 <option value="Desplazamiento">📐 Desplazamiento</option>
