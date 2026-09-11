@@ -2555,8 +2555,10 @@ app.post('/api/auth/login', (req, res) => {
     if (!permisos.length) {
         return res.status(401).json({ success: false, error: 'Clave incorrecta' });
     }
-    const token = crearToken(permisos);
-    res.json({ success: true, token, permisos, expiraEnHoras: TTL_HORAS });
+    const esDashboardAuth = permisos.includes('cliente_reemplazos') || permisos.includes('acceso_total');
+    const horas = esDashboardAuth ? 8760 : TTL_HORAS;
+    const token = crearToken(permisos, horas);
+    res.json({ success: true, token, permisos, expiraEnHoras: horas });
 });
 
 // Webhook de mensajes entrantes (llamado por el wa-bridge; valida su propio secreto)

@@ -75,7 +75,10 @@
                     <i class="fas fa-sync-alt"></i>
                     <span id="last-update">--:--</span>
                 </div>
-                <button class="refresh-btn" onclick="refreshData()">Actualizar</button>
+                <div style="display:flex; gap:6px; width:100%;">
+                    <button class="refresh-btn" style="flex:1;" onclick="refreshData()">Actualizar</button>
+                    <button class="refresh-btn" style="padding:6px 10px; background:rgba(239,68,68,0.15); border-color:rgba(239,68,68,0.3); color:#fca5a5;" onclick="authCerrarSesionDashboard()" title="Cerrar sesión"><i class="fas fa-sign-out-alt"></i></button>
+                </div>
             </div>
         </aside>
 
@@ -868,6 +871,18 @@
             <!-- Panel lateral de metadata -->
             <!-- capa-spool: color inicial de la sección; bimSetCapa lo reemplaza -->
             <aside class="bim-sidebar glass capa-spool">
+
+                <!-- Encabezado con botón de cerrar sesión -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; padding-bottom:6px; border-bottom:1px solid rgba(255,255,255,0.08);">
+                    <span style="font-size:0.78rem; font-weight:700; color:var(--text-bright); display:flex; align-items:center; gap:6px;">
+                        <i class="fas fa-cube" style="color:var(--primary-light);"></i> Andina 3D
+                    </span>
+                    <button onclick="authCerrarSesionDashboard()" title="Cerrar sesión"
+                            style="background:none; border:none; color:var(--text-dim); font-size:0.75rem; cursor:pointer; display:flex; align-items:center; gap:4px; opacity:0.7; transition:opacity 0.2s;"
+                            onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">
+                        <i class="fas fa-sign-out-alt"></i> <span>Salir</span>
+                    </button>
+                </div>
 
                 <!-- Selector de Modelo 3D Autodesk -->
                 <div class="bim-model-select-wrapper" style="padding: 0 0 10px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.08); margin-bottom: 4px;">

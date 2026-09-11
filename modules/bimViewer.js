@@ -17,7 +17,7 @@
  */
 import { bimState } from './bimState.js';
 import { BIM_STATUS_COLORS, bimColorDeEstado, bimRgbAHex, bimCargarColoresEstados } from './bimColors.js';
-import { authAsegurar, authHeaders, authObtener, authOlvidar } from './auth.js';
+import { authAsegurar, authHeaders, authObtener, authOlvidar, authObtenerSesionDashboard, authCerrarSesionDashboard } from './auth.js';
 
 // =================================================================
 // ============ BIM VIEWER MODULE (APS / Autodesk) =================
@@ -61,6 +61,13 @@ export const BIM_CAPA_UI = {
 /** Cambia la capa activa (Spools / Válvulas / Soportes) y recarga su mapeo+índice. */
 export async function bimSetCapa(capa) {
     if (!BIM_CAPA_UI[capa]) return;
+    const sesion = (typeof authObtenerSesionDashboard === 'function')
+        ? authObtenerSesionDashboard()
+        : (window.authObtenerSesionDashboard ? window.authObtenerSesionDashboard() : null);
+    if (sesion && sesion.rol === 'cliente_reemplazos' && capa !== 'reemplazo') {
+        console.warn('[Acceso Restringido] La sesión de cliente está limitada únicamente a la capa de Reemplazos.');
+        return;
+    }
     bimLiveStop();
     bimState.capa = capa;
 
@@ -317,6 +324,14 @@ export function bimStartViewer() {
                             // Si por algún motivo ya había un filtro activo, refrescar el panel
                             if (bimState.filtroEstados.size > 0) {
                                 bimAplicarFiltroEstados();
+                            }
+
+                            // Si la sesión activa es de cliente_reemplazos, fijar la capa reemplazo
+                            const sesion = (typeof authObtenerSesionDashboard === 'function')
+                                ? authObtenerSesionDashboard()
+                                : (window.authObtenerSesionDashboard ? window.authObtenerSesionDashboard() : null);
+                            if (sesion && sesion.rol === 'cliente_reemplazos') {
+                                setTimeout(() => bimSetCapa('reemplazo'), 100);
                             }
                         }).catch(err => console.error('[BIM] Error precargando datos iniciales:', err));
 

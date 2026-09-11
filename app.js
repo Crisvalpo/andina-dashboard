@@ -27,11 +27,9 @@ import { loadLogistica } from './components/logistica.js';
 import { initBimSplitResizer } from './components/pdfViewer.js';
 import { botInitPanel } from './modules/botHandler.js';
 import { initBimViewer } from './modules/bimViewer.js';
-
-
+import { authObtenerSesionDashboard, authLoginDashboard, authMostrarModalAccesoDashboard } from './modules/auth.js';
 
 // State, charts y Config son importados desde ./modules/state.js
-
 
 // Los plugins de etiquetas viven en ./components/chartPlugins.js
 
@@ -39,25 +37,67 @@ import { initBimViewer } from './modules/bimViewer.js';
 document.addEventListener('DOMContentLoaded', () => {
     setWeekDisplay(state.currentWeek);
 
-    // Auto-navegar a BIM si el QR incluye ?spool= en la URL
-    const urlParams  = new URLSearchParams(window.location.search);
-    const spoolParam = urlParams.get('spool');
-    if (spoolParam) {
-        // Cargar datos del dashboard en background y abrir BIM directamente
-        refreshData();
-        showSection('bim');
-    } else {
-        refreshData();
-    }
-
-    // Precargar datos de la sección Líneas en segundo plano para apertura instantánea
-    loadLineasData().catch(e => console.warn('[Background Load Lineas]', e));
-
     // Inicializar barra divisoria de PDFs
     initBimSplitResizer();
 
     setInterval(updateTime, 60000);
     updateTime();
+
+    // ============ CONTROL DE ACCESO PERSISTENTE AL DASHBOARD ============
+    const urlParams = new URLSearchParams(window.location.search);
+    const keyParam = urlParams.get('key') || urlParams.get('clave');
+    const spoolParam = urlParams.get('spool');
+
+    const iniciarAppConSesion = (sesion) => {
+        const esCliente = sesion && sesion.rol === 'cliente_reemplazos';
+        if (esCliente) {
+            document.body.classList.add('cliente-reemplazos-mode');
+            showSection('bim');
+            // Cargar capa reemplazo directamente
+            setTimeout(() => {
+                if (window.bimSetCapa) {
+                    window.bimSetCapa('reemplazo');
+                }
+            }, 200);
+        } else {
+            document.body.classList.remove('cliente-reemplazos-mode');
+            if (spoolParam) {
+                showSection('bim');
+            }
+            refreshData();
+            loadLineasData().catch(e => console.warn('[Background Load Lineas]', e));
+        }
+    };
+
+    const procesarAutenticacion = async () => {
+        // 1. Si viene clave en la URL: auto-login
+        if (keyParam) {
+            const res = await authLoginDashboard(keyParam);
+            if (res.success) {
+                // Limpiar parámetro de clave de la URL sin recargar
+                urlParams.delete('key');
+                urlParams.delete('clave');
+                const newQuery = urlParams.toString() ? `?${urlParams.toString()}` : '';
+                window.history.replaceState({}, document.title, `${window.location.pathname}${newQuery}`);
+                iniciarAppConSesion(res.sesion);
+                return;
+            }
+        }
+
+        // 2. Verificar sesión guardada en localStorage
+        const sesionGuardada = authObtenerSesionDashboard();
+        if (sesionGuardada) {
+            iniciarAppConSesion(sesionGuardada);
+            return;
+        }
+
+        // 3. Si no hay sesión, mostrar modal de bienvenida pidiendo clave
+        authMostrarModalAccesoDashboard((sesion) => {
+            iniciarAppConSesion(sesion);
+        });
+    };
+
+    procesarAutenticacion();
 });
 
 // ============ UTILS: SEMANA PROYECTO ============
@@ -108,6 +148,12 @@ function toggleWelderHistory() {
 }
 
 function showSection(name) {
+    const sesion = authObtenerSesionDashboard();
+    if (sesion && sesion.rol === 'cliente_reemplazos' && name !== 'bim') {
+        console.warn('[Acceso Restringido] La sesión de cliente está limitada únicamente al visor de Reemplazos.');
+        return;
+    }
+
     document.querySelectorAll('.section-content').forEach(s => s.classList.remove('active'));
     document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
 

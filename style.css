@@ -3569,3 +3569,181 @@ body.sidebar-collapsed #bim-section {
     animation: redlineSpin 0.6s linear infinite;
 }
 
+/* =================================================================
+   AUTENTICACIÓN PERSISTENTE DEL DASHBOARD
+   ================================================================= */
+.dashboard-auth-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: rgba(10, 15, 29, 0.88);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    animation: authFadeIn 0.3s ease-out;
+}
+
+@keyframes authFadeIn {
+    from { opacity: 0; transform: scale(0.98); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.dashboard-auth-card {
+    width: 100%;
+    max-width: 400px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 16px;
+    padding: 32px 28px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 40px rgba(99, 102, 241, 0.15);
+    text-align: center;
+}
+
+.dashboard-auth-header {
+    margin-bottom: 24px;
+}
+
+.dashboard-auth-logo {
+    height: 48px;
+    margin-bottom: 12px;
+    object-fit: contain;
+}
+
+.dashboard-auth-header h2 {
+    font-size: 1.35rem;
+    font-weight: 800;
+    color: #f8fafc;
+    margin: 0 0 4px 0;
+    letter-spacing: -0.02em;
+}
+
+.dashboard-auth-header p {
+    font-size: 0.82rem;
+    color: var(--text-dim, #94a3b8);
+    margin: 0;
+}
+
+.dashboard-auth-card form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    text-align: left;
+}
+
+.dashboard-auth-card label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #cbd5e1;
+    margin-left: 2px;
+}
+
+.dashboard-auth-input-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.dashboard-auth-input-wrap i {
+    position: absolute;
+    left: 14px;
+    color: #64748b;
+    font-size: 0.9rem;
+    pointer-events: none;
+}
+
+.dashboard-auth-input-wrap input {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(10, 15, 29, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 10px;
+    padding: 12px 14px 12px 40px;
+    color: #fff;
+    font-size: 0.92rem;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.dashboard-auth-input-wrap input:focus {
+    border-color: #6366f1;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+}
+
+.dashboard-auth-error {
+    font-size: 0.78rem;
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    border-radius: 8px;
+    padding: 8px 12px;
+    text-align: center;
+}
+
+.dashboard-auth-btn {
+    background: linear-gradient(135deg, #6366f1, #4f46e5);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 12px;
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s;
+    box-shadow: 0 4px 15px rgba(99, 102, 241, 0.35);
+    margin-top: 4px;
+}
+
+.dashboard-auth-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(99, 102, 241, 0.45);
+}
+
+.dashboard-auth-footer {
+    margin-top: 20px;
+    font-size: 0.72rem;
+    color: #64748b;
+}
+
+/* =================================================================
+   MODO CLIENTE: REEMPLAZOS EXCLUSIVO
+   ================================================================= */
+body.cliente-reemplazos-mode aside.sidebar {
+    display: none !important;
+}
+
+body.cliente-reemplazos-mode .main-content {
+    margin-left: 0 !important;
+    width: 100vw !important;
+    max-width: 100vw !important;
+    height: 100vh !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+body.cliente-reemplazos-mode .top-bar {
+    display: none !important;
+}
+
+body.cliente-reemplazos-mode .bim-capa-toggle button:not(#bim-capa-reemplazo) {
+    display: none !important;
+}
+
+body.cliente-reemplazos-mode .bim-capa-toggle {
+    display: flex !important;
+    justify-content: stretch;
+}
+
+body.cliente-reemplazos-mode #bim-capa-reemplazo {
+    width: 100% !important;
+    text-align: center !important;
+    pointer-events: none !important;
+}
+
+
