@@ -1054,9 +1054,11 @@ export const BIM_ORDEN_FLUJO = ['EN FABRICACIÓN', 'QAQC', 'EN PINT/REVEST.', 'R
 
 /** Unidad de la capa activa (para etiquetas de conteo). */
 export function bimUnidadCapa() {
-    if (bimState.capa === 'spool' || bimState.capa === 'subsistema') return 'spools';
+    if (bimState.capa === 'spool' || bimState.capa === 'subsistema' || bimState.capa === 'reemplazo') return 'spools';
     if (bimState.capa === 'valvula') return 'válvulas';
-    return 'soportes';
+    if (bimState.capa === 'linea') return 'líneas';
+    if (bimState.capa === 'soporte') return 'soportes';
+    return 'elementos';
 }
 
 /**
@@ -1830,7 +1832,7 @@ export function bimLiveChipUpdate() {
     let sinVinculo = 0;
     Object.values(bimState.liveSets || {}).forEach(set => {
         set.forEach(g => {
-            const t = mapeo[g];
+            const t = mapeo[g] || mapeo[String(g).toLowerCase()];
             if (t) tags.add(String(t).toLowerCase());
             else sinVinculo++;
         });
