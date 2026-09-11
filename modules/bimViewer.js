@@ -405,7 +405,8 @@ export function bimStartViewer() {
                                              // Capa válvulas/soportes/subsistemas/reemplazo: flujo simple
                                             if (bimState.capa !== 'spool') {
                                                 bimRenderCapaSelection(bimState.capa, selectedList, uniqueLayers, bimState.isProgrammaticSelection);
-                                                if (panel) panel.style.display = 'flex';
+                                                const tieneClave = !!authObtener('bim');
+                                                if (panel) panel.style.display = tieneClave ? 'flex' : 'none';
                                                 return;
                                             }
 
@@ -1263,7 +1264,8 @@ export async function bimBuscarReemplazoTag(tag) {
         ${bimRedlineRenderSection(guids, tag, tag, 'REEMPLAZO')}`);
 
     setTimeout(() => {
-        bimRedlineCargarHistorial(guids[0]);
+        bimRedlineCargarHistorial(guids[0] || guids);
+        bimSincronizarFotoReemplazo(tag, guids);
         setTimeout(() => { bimState.isProgrammaticSelection = false; }, 400);
     }, 100);
 }
@@ -3989,14 +3991,9 @@ export function bimRedlineRenderSection(guidOrGuids, spoolTag, tagLinea, subsist
         ? `Subir Foto Red Line (${guidsList.length} elem. seleccionados)`
         : 'Subir Foto Red Line';
 
-    return `
-    <div class="redline-section">
-        <div class="redline-header">
-            <i class="fas fa-camera-retro"></i>
-            <span>REGISTRO RED LINE</span>
-            <span class="redline-badge">TERRENO</span>
-        </div>
+    const tieneClave = !!authObtener('bim');
 
+    const formHtml = tieneClave ? `
         <div class="redline-upload-form" id="redline-form">
             <!-- Dropzone / Preview -->
             <div id="redline-dropzone" class="redline-dropzone">
@@ -4031,8 +4028,25 @@ export function bimRedlineRenderSection(guidOrGuids, spoolTag, tagLinea, subsist
                     onclick="bimRedlineSubir('${guidsAttr}', '${(spoolTag || '').replace(/'/g, '')}', '${(tagLinea || '').replace(/'/g, '')}', '${(subsistema || '').replace(/'/g, '')}')">
                 <i class="fas fa-cloud-upload-alt"></i> ${btnLabel}
             </button>
-        </div>
+        </div>` : `
+        <div style="background: rgba(15,23,42,0.55); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px; margin-bottom: 12px; text-align: center;">
+            <div style="font-size: 0.76rem; color: var(--text-dim); margin-bottom: 8px;">
+                <i class="fas fa-lock" style="color: #f59e0b;"></i> Modo Solo Lectura. Para subir fotos o registrar modificaciones, debes identificarte como Editor BIM.
+            </div>
+            <button onclick="authAsegurar('bim').then(ok => { if(ok) bimActualizarPermisosUI(); })"
+                    class="bim-scan-btn" style="background: rgba(99,102,241,0.2); border-color: rgba(99,102,241,0.4); color: var(--primary-light); font-size: 0.74rem; padding: 4px 10px; margin: 0 auto; justify-content: center;">
+                <i class="fas fa-key"></i> Ingresar Clave Editor BIM
+            </button>
+        </div>`;
 
+    return `
+    <div class="redline-section">
+        <div class="redline-header">
+            <i class="fas fa-camera-retro"></i>
+            <span>REGISTRO RED LINE</span>
+            <span class="redline-badge">${tieneClave ? 'TERRENO' : 'SOLO LECTURA'}</span>
+        </div>
+        ${formHtml}
         <!-- Galería de fotos existentes -->
         <div id="redline-gallery-container">
             <div class="redline-uploading"><div class="redline-spinner"></div> Cargando historial...</div>
@@ -4364,6 +4378,311 @@ export function closeRedlineModal() {
     if (img) img.src = '';
 }
 
+// =================================================================
+// FOTO REEMPLAZO — Sincronización Split Panel y Carga Directa
+// =================================================================
+
+let _splitBase64 = null;
+let _splitFileName = null;
+
+/** Sincroniza el panel split derecho con las fotos de reemplazo del spool o muestra el formulario para subir una. */
+export async function bimSincronizarFotoReemplazo(tag, guids) {
+    if (!tag) return;
+    const splitPanel = document.getElementById('bim-pdf-split-panel');
+    const splitIframe = document.getElementById('bim-pdf-split-iframe');
+    const splitImgContainer = document.getElementById('bim-pdf-split-img-container');
+    const splitImg = document.getElementById('bim-pdf-split-img');
+    const splitTitle = document.getElementById('bim-pdf-split-title');
+    const splitInfo = document.getElementById('bim-pdf-split-info');
+    const resizeBar = document.getElementById('bim-pdf-resize-bar');
+
+    if (!splitPanel || !splitImgContainer) return;
+
+    if (splitIframe) splitIframe.style.display = 'none';
+    splitImgContainer.style.display = 'flex';
+    splitPanel.style.display = 'flex';
+    if (resizeBar) resizeBar.style.display = 'flex';
+
+    if (splitTitle) {
+        splitTitle.innerHTML = `<i class="fas fa-camera" style="color:#ec4899;"></i> Foto Reemplazo — Spool ${tag}`;
+    }
+
+    if (bimState.viewer) {
+        setTimeout(() => { bimState.viewer.resize(); }, 150);
+    }
+
+    // Normalizar guids
+    const guidsList = Array.isArray(guids) ? guids.filter(Boolean) : (guids ? [String(guids)] : []);
+    const guidParam = guidsList.length ? guidsList.join(',') : 'all';
+
+    // Mostrar estado cargando en el contenedor
+    if (splitImg) splitImg.style.display = 'none';
+    if (splitInfo) {
+        splitInfo.innerHTML = `
+            <div style="display:flex; flex-direction:column; align-items:center; gap:8px; padding:30px;">
+                <div class="redline-spinner" style="border-top-color:#ec4899; width:28px; height:28px;"></div>
+                <span style="font-size:0.85rem; color:#f472b6;">Consultando fotos de terreno para Spool ${tag}...</span>
+            </div>`;
+    }
+
+    try {
+        const resp = await fetch(`/api/bim/redline/${encodeURIComponent(guidParam)}`);
+        const data = await resp.json();
+        const registros = data.registros || [];
+
+        // Filtrar registros que pertenezcan a este spool o a los guids
+        const fotosReemplazo = registros.filter(r => {
+            const matchSpool = r.spool_tag && String(r.spool_tag).trim().toLowerCase() === String(tag).trim().toLowerCase();
+            const matchGuid = guidsList.some(g => (r.guids && r.guids.includes(g)) || r.guid === g);
+            return matchSpool || matchGuid;
+        });
+
+        const listaFotos = fotosReemplazo.length > 0 ? fotosReemplazo : registros;
+
+        if (listaFotos.length > 0) {
+            bimRenderSplitFotoReemplazo(tag, guidsList, listaFotos, 0);
+        } else {
+            bimRenderSplitSubirReemplazo(tag, guidsList);
+        }
+    } catch (e) {
+        console.error('[BIM Sincronizar Foto Reemplazo Error]', e);
+        if (splitInfo) {
+            splitInfo.innerHTML = `<div style="color:#ef4444; font-size:0.85rem;"><i class="fas fa-exclamation-triangle"></i> Error al consultar fotos: ${e.message}</div>`;
+        }
+    }
+}
+
+/** Renderiza la foto activa en el panel Split con soporte para múltiples fotos y botón de subir nueva */
+export function bimRenderSplitFotoReemplazo(tag, guidsList, fotos, indexActivo = 0) {
+    const splitImg = document.getElementById('bim-pdf-split-img');
+    const splitInfo = document.getElementById('bim-pdf-split-info');
+    if (!splitImg || !splitInfo) return;
+
+    const r = fotos[indexActivo] || fotos[0];
+    splitImg.src = r.foto_url;
+    splitImg.style.display = 'block';
+
+    const formatDate = (iso) => {
+        try {
+            const d = new Date(iso);
+            return d.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                + ' ' + d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+        } catch { return iso; }
+    };
+
+    const guidsFoto = (Array.isArray(r.guids) && r.guids.length) ? r.guids : [r.guid].filter(Boolean);
+
+    // Miniaturas si hay más de 1 foto
+    let miniaturasHtml = '';
+    if (fotos.length > 1) {
+        miniaturasHtml = `
+            <div style="display:flex; gap:6px; overflow-x:auto; max-width:100%; padding:6px 0; margin-top:8px; justify-content:center;">
+                ${fotos.map((f, idx) => `
+                    <img src="${f.foto_url}" onclick="bimRenderSplitFotoReemplazo('${tag}', ${JSON.stringify(guidsList).replace(/"/g, '&quot;')}, ${JSON.stringify(fotos).replace(/"/g, '&quot;')}, ${idx})"
+                         style="width:50px; height:50px; object-fit:cover; border-radius:6px; cursor:pointer; border:2px solid ${idx === indexActivo ? '#ec4899' : 'rgba(255,255,255,0.2)'}; opacity:${idx === indexActivo ? '1' : '0.6'}; transition:all 0.2s;" title="${f.tipo_modificacion || 'Foto'}">
+                `).join('')}
+            </div>`;
+    }
+
+    splitInfo.innerHTML = `
+        <div style="font-weight:700; color:#f472b6; font-size:0.95rem;">${r.tipo_modificacion || 'Foto Reemplazo'} (Spool ${tag})</div>
+        ${r.observacion ? `<div style="opacity:0.95; margin:4px 0; max-width:550px; word-break:break-word; font-size:0.82rem; color:#e2e8f0;">${r.observacion}</div>` : ''}
+        <div style="font-size:0.75rem; opacity:0.7; margin-top:2px; display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;">
+            <span><i class="fas fa-user"></i> ${r.usuario || 'Desconocido'}</span>
+            <span>•</span>
+            <span><i class="fas fa-clock"></i> ${formatDate(r.created_at)}</span>
+            ${guidsFoto.length ? `<span>•</span><span><i class="fas fa-link"></i> ${guidsFoto.length} elem. vinculados</span>` : ''}
+        </div>
+        ${miniaturasHtml}
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; justify-content:center;">
+            ${guidsFoto.length ? `
+                <button onclick="bimFocoElementoRedline(${JSON.stringify(guidsFoto).replace(/"/g, '&quot;')});"
+                        class="bim-scan-btn" style="background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; font-size:0.78rem; padding:4px 10px;">
+                    <i class="fas fa-crosshairs"></i> Enfocar/Aislar ${guidsFoto.length} elem. en 3D
+                </button>` : ''}
+            <button onclick="authAsegurar('bim').then(ok => { if(ok) { bimActualizarPermisosUI(); bimRenderSplitSubirReemplazo('${tag}', ${JSON.stringify(guidsList).replace(/"/g, '&quot;')}); } })"
+                    class="bim-scan-btn" style="background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light); font-size:0.78rem; padding:4px 10px;">
+                <i class="fas fa-camera"></i> Subir otra foto para este Spool
+            </button>
+        </div>`;
+}
+
+/** Renderiza el formulario de carga directa de foto en el Split Panel cuando el Spool no tiene foto o se quiere subir otra */
+export function bimRenderSplitSubirReemplazo(tag, guidsList) {
+    const splitImg = document.getElementById('bim-pdf-split-img');
+    const splitInfo = document.getElementById('bim-pdf-split-info');
+    if (!splitInfo) return;
+
+    _splitBase64 = null;
+    _splitFileName = null;
+    if (splitImg) splitImg.style.display = 'none';
+
+    const tieneClave = !!authObtener('bim');
+
+    if (!tieneClave) {
+        splitInfo.innerHTML = `
+            <div style="width:100%; max-width:440px; background:rgba(30,41,59,0.75); border:1px dashed rgba(236,72,153,0.35); border-radius:12px; padding:24px 20px; text-align:center; box-sizing:border-box;">
+                <div style="font-size:2.2rem; color:rgba(236,72,153,0.6); margin-bottom:8px;"><i class="fas fa-camera-retro"></i></div>
+                <h4 style="color:#f472b6; margin:0 0 4px 0; font-size:1.05rem; font-weight:700;">Sin Foto de Reemplazo</h4>
+                <p style="color:var(--text-dim,#94a3b8); font-size:0.82rem; margin:0 0 16px 0;">El Spool <strong>${tag}</strong> aún no cuenta con un registro fotográfico de terreno.</p>
+                <div style="background:rgba(15,23,42,0.6); border:1px solid rgba(255,255,255,0.08); border-radius:8px; padding:12px; margin-bottom:16px; font-size:0.78rem; color:var(--text-dim); line-height:1.4;">
+                    <i class="fas fa-lock" style="color:#f59e0b; margin-right:4px;"></i> Estás en <strong>Modo Solo Lectura</strong>.<br>Para capturar y subir fotos de terreno o vincular spools a reemplazar, debes identificarte como <strong>Editor BIM</strong>.
+                </div>
+                <button onclick="authAsegurar('bim').then(ok => { if(ok) { bimActualizarPermisosUI(); bimRenderSplitSubirReemplazo('${tag}', ${JSON.stringify(guidsList).replace(/"/g, '&quot;')}); } })"
+                        class="bim-scan-btn" style="background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.45); color:#f472b6; width:100%; justify-content:center; padding:10px; font-size:0.84rem; font-weight:700;">
+                    <i class="fas fa-key"></i> Ingresar Clave de Editor BIM
+                </button>
+            </div>`;
+        return;
+    }
+
+    splitInfo.innerHTML = `
+        <div style="width:100%; max-width:440px; background:rgba(30,41,59,0.75); border:1px dashed rgba(236,72,153,0.5); border-radius:12px; padding:22px; text-align:center; box-sizing:border-box;">
+            <div style="font-size:2.2rem; color:#ec4899; margin-bottom:6px;"><i class="fas fa-camera-retro"></i></div>
+            <h4 style="color:#f472b6; margin:0 0 4px 0; font-size:1.05rem; font-weight:700;">Foto de Reemplazo</h4>
+            <p style="color:var(--text-dim,#94a3b8); font-size:0.8rem; margin:0 0 14px 0;">Spool <strong>${tag}</strong> (${guidsList.length} elementos 3D)</p>
+
+            <div id="split-dropzone" onclick="document.getElementById('split-file-input').click()"
+                 style="cursor:pointer; border:2px dashed rgba(236,72,153,0.45); background:rgba(236,72,153,0.06); border-radius:8px; padding:20px 12px; margin-bottom:12px; transition:all 0.2s;">
+                <i class="fas fa-cloud-upload-alt" style="font-size:1.8rem; color:#f472b6; margin-bottom:6px;"></i>
+                <div style="font-size:0.84rem; color:#fce7f3; font-weight:600;">Haz clic aquí para tomar o subir foto</div>
+                <div style="font-size:0.72rem; color:#fbcfe8; opacity:0.8; margin-top:2px;">Cámara del celular o archivo de imagen</div>
+                <input type="file" id="split-file-input" accept="image/*" capture="environment" style="display:none;"
+                       onchange="bimSplitOnFile(event)">
+            </div>
+
+            <div id="split-preview-wrap" style="display:none; margin-bottom:12px; position:relative;">
+                <img id="split-preview-img" src="" style="max-height:220px; max-width:100%; border-radius:8px; border:1px solid rgba(236,72,153,0.5); object-fit:contain;">
+                <button type="button" onclick="bimSplitLimpiarPreview()" style="position:absolute; top:6px; right:6px; background:rgba(0,0,0,0.75); color:#fff; border:none; border-radius:50%; width:26px; height:26px; cursor:pointer; display:flex; align-items:center; justify-content:center;" title="Quitar foto">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <textarea id="split-obs" rows="2" placeholder="Observación (opcional, ej: interferencia con soporte o viga)"
+                      style="width:100%; box-sizing:border-box; background:rgba(15,23,42,0.7); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px; color:#fff; font-size:0.8rem; margin-bottom:8px; resize:none;"></textarea>
+
+            <input type="text" id="split-usuario" placeholder="Tu nombre"
+                   style="width:100%; box-sizing:border-box; background:rgba(15,23,42,0.7); border:1px solid rgba(255,255,255,0.15); border-radius:6px; padding:8px; color:#fff; font-size:0.8rem; margin-bottom:12px;">
+
+            <button id="split-upload-btn" disabled
+                    onclick="bimSplitSubirFoto('${tag}', ${JSON.stringify(guidsList).replace(/"/g, '&quot;')})"
+                    style="width:100%; background:#ec4899; color:#fff; border:none; border-radius:6px; padding:10px; font-weight:700; font-size:0.85rem; cursor:pointer; opacity:0.5; transition:opacity 0.2s;">
+                <i class="fas fa-cloud-upload-alt"></i> Subir Foto de Reemplazo
+            </button>
+        </div>`;
+}
+
+/** Maneja la selección de foto en el split panel */
+export function bimSplitOnFile(event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    _splitFileName = file.name;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        _splitBase64 = e.target.result;
+        const dropzone = document.getElementById('split-dropzone');
+        const previewWrap = document.getElementById('split-preview-wrap');
+        const previewImg = document.getElementById('split-preview-img');
+        const btn = document.getElementById('split-upload-btn');
+
+        if (dropzone) dropzone.style.display = 'none';
+        if (previewWrap && previewImg) {
+            previewImg.src = _splitBase64;
+            previewWrap.style.display = 'block';
+        }
+        if (btn) {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+        }
+    };
+    reader.readAsDataURL(file);
+}
+
+/** Limpia la vista previa del split panel */
+export function bimSplitLimpiarPreview() {
+    _splitBase64 = null;
+    _splitFileName = null;
+    const dropzone = document.getElementById('split-dropzone');
+    const previewWrap = document.getElementById('split-preview-wrap');
+    const previewImg = document.getElementById('split-preview-img');
+    const btn = document.getElementById('split-upload-btn');
+    const fileInput = document.getElementById('split-file-input');
+
+    if (dropzone) dropzone.style.display = 'block';
+    if (previewWrap) previewWrap.style.display = 'none';
+    if (previewImg) previewImg.src = '';
+    if (btn) {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+    }
+    if (fileInput) fileInput.value = '';
+}
+
+/** Sube la foto de reemplazo desde el split panel */
+export async function bimSplitSubirFoto(tag, guidsList) {
+    if (!_splitBase64) return;
+
+    if (!guidsList || !guidsList.length) {
+        alert('⚠️ No se identificaron elementos 3D asociados para este Spool.');
+        return;
+    }
+
+    const desbloqueado = await authAsegurar('bim');
+    if (!desbloqueado) return;
+
+    const btn = document.getElementById('split-upload-btn');
+    const originalHtml = btn?.innerHTML;
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<div class="redline-spinner" style="border-top-color:#fff; width:16px; height:16px; display:inline-block; vertical-align:middle; margin-right:6px;"></div> Subiendo foto...';
+    }
+
+    try {
+        const obs = document.getElementById('split-obs')?.value || '';
+        const usuario = document.getElementById('split-usuario')?.value || 'Desconocido';
+
+        const resp = await fetch('/api/bim/redline/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+            body: JSON.stringify({
+                guids: guidsList,
+                spool_tag: tag,
+                tag_linea: tag,
+                subsistema: 'REEMPLAZO',
+                foto_base64: _splitBase64,
+                observacion: obs,
+                tipo_modificacion: 'Foto Reemplazo',
+                usuario
+            })
+        });
+
+        if (resp.status === 401) {
+            authOlvidar('bim');
+            alert('🔒 Clave BIM incorrecta o expirada.');
+            return;
+        }
+
+        const data = await resp.json();
+        if (!data.success) throw new Error(data.error || 'Error al subir');
+
+        _splitBase64 = null;
+        _splitFileName = null;
+
+        // Recargar en el visor split y en la barra lateral
+        await bimSincronizarFotoReemplazo(tag, guidsList);
+        await bimRedlineCargarHistorial(guidsList);
+
+    } catch (e) {
+        console.error('[Split Subir Foto Error]', e);
+        alert('Error al subir foto: ' + e.message);
+        if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        }
+    }
+}
+
 /** Renderiza la tarjeta resumen para múltiple selección de elementos 3D. */
 export function bimRenderMultiElementoMeta(count, tags, spools, subs, elems) {
     const renderList = (arr) => arr.length ? arr.map(x => `<span class="status-pill" style="font-size:0.7rem;background:rgba(255,255,255,0.08);">${x}</span>`).join(' ') : '<span style="opacity:0.5;">N/A</span>';
@@ -4399,6 +4718,36 @@ export function bimRenderMultiElementoMeta(count, tags, spools, subs, elems) {
 /** Renderiza la ficha (metadata + estado montaje) de una válvula/soporte/línea. */
 export async function bimRenderCapaMeta(capa, id, lineData = null) {
     if (capa === 'subsistema') return;
+    if (capa === 'reemplazo') {
+        const mapeo = bimState.capaMapeo['reemplazo'] || {};
+        const guidsDelSpool = Object.entries(mapeo)
+            .filter(([g, t]) => String(t).trim().toLowerCase() === String(id).trim().toLowerCase())
+            .map(([g]) => g);
+
+        const count = guidsDelSpool.length || 1;
+        const firstGuid = guidsDelSpool[0] || '';
+
+        bimSetMeta(`
+            <div class="bim-meta-header" style="background: rgba(236,72,153,0.2); border-color: rgba(236,72,153,0.4);">
+                <i class="fas fa-arrows-rotate" style="color: #f472b6;"></i>
+                <span style="font-weight:700;">Spool a Reemplazar: ${id}</span>
+                <span class="bim-badge" style="background:#ec4899;">${count} elem.</span>
+            </div>
+            <div class="bim-meta-card" style="background: rgba(236,72,153,0.12); border: 1px solid rgba(236,72,153,0.3); border-left: 4px solid #ec4899; margin-bottom:10px;">
+                <div style="font-size:0.8rem; color:#f472b6; font-weight:600; margin-bottom:4px;">TAG Reemplazo: Spool ${id}</div>
+                <div style="font-size:0.75rem; color:var(--text-dim);">${count} elemento(s) 3D asignados a este tramo a reemplazar.</div>
+                <button onclick="bimRenderReemplazosList()" class="bim-scan-btn" style="margin-top:8px; padding:3px 8px; font-size:0.72rem; background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.15); color:var(--text-bright); width:100%; justify-content:center;">
+                    <i class="fas fa-arrow-left"></i> Volver a la lista de tramos
+                </button>
+            </div>
+            ${bimRedlineRenderSection(guidsDelSpool.length ? guidsDelSpool : [firstGuid], id, id, 'REEMPLAZO')}`);
+
+        setTimeout(() => {
+            bimRedlineCargarHistorial(guidsDelSpool.length ? guidsDelSpool : [firstGuid]);
+            bimSincronizarFotoReemplazo(id, guidsDelSpool.length ? guidsDelSpool : [firstGuid]);
+        }, 100);
+        return;
+    }
     if (capa === 'linea') {
         const l = lineData?.meta || {};
         const label = lineData?.label || id;
@@ -5091,6 +5440,12 @@ if (typeof window !== 'undefined') {
     window.bimRedlineEliminar       = bimRedlineEliminar;
     window.bimRedlineLightbox       = bimRedlineLightbox;
     window.closeRedlineModal        = closeRedlineModal;
+    window.bimSincronizarFotoReemplazo = bimSincronizarFotoReemplazo;
+    window.bimRenderSplitFotoReemplazo = bimRenderSplitFotoReemplazo;
+    window.bimRenderSplitSubirReemplazo = bimRenderSplitSubirReemplazo;
+    window.bimSplitOnFile           = bimSplitOnFile;
+    window.bimSplitLimpiarPreview   = bimSplitLimpiarPreview;
+    window.bimSplitSubirFoto        = bimSplitSubirFoto;
     window.bimFocoElementoRedline   = bimFocoElementoRedline;
     window.bimObtenerGuidsSeleccionActual = bimObtenerGuidsSeleccionActual;
     window.bimRedlineVincularSeleccionActual = bimRedlineVincularSeleccionActual;
