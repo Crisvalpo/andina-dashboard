@@ -2090,9 +2090,9 @@ export function bimTrozoBajoRayo(ev) {
 
 export function bimTrozoPointerUp(ev) {
     if (divState.activo || !divState._downSel) return;
-    // Los trozos se pueden vincular en capa spool o subsistema.
+    // Los trozos se pueden vincular en capa spool, subsistema o reemplazo.
     // En válvulas/soportes no tiene sentido → dejar pasar el clic al visor.
-    if (bimState.capa !== 'spool' && bimState.capa !== 'subsistema') { divState._downSel = null; return; }
+    if (bimState.capa !== 'spool' && bimState.capa !== 'subsistema' && bimState.capa !== 'reemplazo') { divState._downSel = null; return; }
     const dx = Math.abs(ev.clientX - divState._downSel.x);
     const dy = Math.abs(ev.clientY - divState._downSel.y);
     divState._downSel = null;
@@ -2135,51 +2135,55 @@ export function bimTrozoSeleccionar(mesh) {
     bimTrozoRenderPanel(mesh);
 }
 
-/** Panel del trozo: spool/subsistema asignado, estado y asignación/desvinculación. */
+/** Panel del trozo: spool/subsistema/reemplazo asignado, estado y asignación/desvinculación. */
 export function bimTrozoRenderPanel(mesh) {
     const { guid, idx, a, b, key } = mesh.userData;
     const pct = Math.round((b - a) * 100);
     const esSub = bimState.capa === 'subsistema';
+    const esReemplazo = bimState.capa === 'reemplazo';
     const tagAsignado = bimState.mapeoSpools ? bimState.mapeoSpools[key] : null;
     const subAsignado = (bimState.capaMapeo['subsistema'] || {})[key] || null;
+    const reemplazoAsignado = (bimState.capaMapeo['reemplazo'] || {})[key.toLowerCase()] || null;
     const info = tagAsignado && bimState.spoolIndex ? bimState.spoolIndex[String(tagAsignado).toLowerCase()] : null;
 
     // Estado actual (desde el caché de estados, que ya incluye los trozos)
     let status = null;
-    if (bimState.statusesCache) {
+    if (esReemplazo) {
+        status = reemplazoAsignado ? 'REEMPLAZO' : null;
+    } else if (bimState.statusesCache) {
         for (const [st, guids] of Object.entries(bimState.statusesCache)) {
             if (Array.isArray(guids) && guids.some(g => String(g).toLowerCase() === key)) { status = st; break; }
         }
     }
 
     // Determinar qué vínculo mostrar según la capa activa
-    const vinculoActivo = esSub ? subAsignado : tagAsignado;
-    const vinculoLabel = esSub ? 'Sub-sistema' : 'Spool';
-    const vinculoColor = esSub ? '#c4b5fd' : '#6ee7b7';
-    const vinculoBg = esSub ? 'rgba(139,92,246,0.08)' : 'rgba(16,185,129,0.08)';
-    const vinculoBorder = esSub ? 'rgba(139,92,246,0.25)' : 'rgba(16,185,129,0.25)';
+    const vinculoActivo = esSub ? subAsignado : (esReemplazo ? reemplazoAsignado : tagAsignado);
+    const vinculoLabel = esSub ? 'Sub-sistema' : (esReemplazo ? 'Spool a Reemplazar' : 'Spool');
+    const vinculoColor = esSub ? '#c4b5fd' : (esReemplazo ? '#f472b6' : '#6ee7b7');
+    const vinculoBg = esSub ? 'rgba(139,92,246,0.08)' : (esReemplazo ? 'rgba(236,72,153,0.08)' : 'rgba(16,185,129,0.08)');
+    const vinculoBorder = esSub ? 'rgba(139,92,246,0.25)' : (esReemplazo ? 'rgba(236,72,153,0.25)' : 'rgba(16,185,129,0.25)');
 
     if (esSub) bimPopulateDatalist('subsistema');
 
     bimSetMeta(`
-        <div class="bim-meta-header" style="background:rgba(96,165,250,0.15);border-color:rgba(96,165,250,0.35);">
-            <i class="fas fa-puzzle-piece"></i><span>Trozo ${idx + 1}</span>
-            <span class="bim-badge">${pct}% del tramo</span>
+        <div class="bim-meta-header" style="background:${esReemplazo ? 'rgba(236,72,153,0.2)' : 'rgba(96,165,250,0.15)'};border-color:${esReemplazo ? 'rgba(236,72,153,0.4)' : 'rgba(96,165,250,0.35)'};">
+            <i class="fas fa-puzzle-piece" style="${esReemplazo ? 'color:#f472b6;' : ''}"></i><span>Trozo ${idx + 1}</span>
+            <span class="bim-badge" style="${esReemplazo ? 'background:#ec4899;' : ''}">${pct}% del tramo</span>
         </div>
         ${vinculoActivo ? `
         <div style="padding:10px;border-radius:8px;background:${vinculoBg};border:1px solid ${vinculoBorder};margin-bottom:10px;">
             <div style="display:flex;justify-content:space-between;font-size:0.85rem;"><span style="opacity:0.7;">${vinculoLabel}:</span><strong style="color:${vinculoColor};">${vinculoActivo}</strong></div>
-            ${!esSub && info ? `<div style="font-family:monospace;font-size:0.68rem;opacity:0.7;word-break:break-all;margin-top:3px;">${info.id_spool}</div>` : ''}
-            ${status ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-top:4px;"><span style="opacity:0.7;">Estado:</span><strong>${status}</strong></div>` : ''}
+            ${!esSub && !esReemplazo && info ? `<div style="font-family:monospace;font-size:0.68rem;opacity:0.7;word-break:break-all;margin-top:3px;">${info.id_spool}</div>` : ''}
+            ${status ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-top:4px;"><span style="opacity:0.7;">Estado:</span><strong style="${esReemplazo ? 'color:#f472b6;' : ''}">${status}</strong></div>` : ''}
         </div>
         <button class="bim-scan-btn" onclick="bimTrozoDesvincular('${key}')" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;justify-content:center;width:100%;margin-bottom:8px;">
             <i class="fas fa-unlink"></i> Desvincular de ${vinculoActivo}</button>`
         : `<p style="font-size:0.8rem;opacity:0.7;margin-bottom:10px;">Este trozo aún no tiene ${vinculoLabel.toLowerCase()} asignado.</p>`}
         <div class="bim-link-field" style="margin-bottom:8px;">
-            <label style="font-size:0.75rem;opacity:0.8;">${esSub ? 'Sub-sistema para este trozo:' : 'TAG del spool para este trozo:'}</label>
-            <input type="text" id="trozo-spool-input" class="bim-search-input" placeholder="${esSub ? 'Ej: 03350-02-06' : 'Ej: 511'}" value="${vinculoActivo || ''}" style="width:100%;margin-top:4px;"${esSub ? ' list="bim-link-datalist"' : ''}>
+            <label style="font-size:0.75rem;opacity:0.8;">${esSub ? 'Sub-sistema para este trozo:' : (esReemplazo ? 'TAG del spool a reemplazar para este trozo:' : 'TAG del spool para este trozo:')}</label>
+            <input type="text" id="trozo-spool-input" class="bim-search-input" placeholder="${esSub ? 'Ej: 03350-02-06' : (esReemplazo ? 'Ej: 412' : 'Ej: 511')}" value="${vinculoActivo || ''}" style="width:100%;margin-top:4px;"${esSub ? ' list="bim-link-datalist"' : ''}>
         </div>
-        <button id="trozo-vincular-btn" class="bim-scan-btn" onclick="bimTrozoVincular('${key}')" style="background:rgba(99,102,241,0.15);border-color:rgba(99,102,241,0.3);color:var(--primary-light);justify-content:center;width:100%;">
+        <button id="trozo-vincular-btn" class="bim-scan-btn" onclick="bimTrozoVincular('${key}')" style="background:${esReemplazo ? 'rgba(236,72,153,0.2)' : 'rgba(99,102,241,0.15)'};border-color:${esReemplazo ? 'rgba(236,72,153,0.4)' : 'rgba(99,102,241,0.3)'};color:${esReemplazo ? '#f472b6' : 'var(--primary-light)'};justify-content:center;width:100%;">
             <i class="fas fa-link"></i> Vincular trozo a ${vinculoLabel.toLowerCase()}</button>
         <div style="display:flex;gap:6px;margin-top:10px;">
             <button class="bim-scan-btn" onclick="bimTrozoEditarDivision('${key}')" style="flex:1;justify-content:center;background:rgba(245,158,11,0.12);border-color:rgba(245,158,11,0.3);color:#fcd34d;">
@@ -2259,19 +2263,20 @@ export async function bimTrozoEliminarDivision(key) {
 
 export async function bimTrozoVincular(key) {
     const esSub = bimState.capa === 'subsistema';
-    const labelCapa = esSub ? 'sub-sistema' : 'spool';
+    const esReemplazo = bimState.capa === 'reemplazo';
+    const labelCapa = esSub ? 'sub-sistema' : (esReemplazo ? 'reemplazo' : 'spool');
     console.log(`[Trozo] Vincular ${labelCapa} solicitado:`, key);
 
-    // Solo se permite vincular trozos en capa spool o subsistema
-    if (bimState.capa !== 'spool' && bimState.capa !== 'subsistema') {
-        alert('Los trozos solo se asignan a spools o sub-sistemas.');
+    // Solo se permite vincular trozos en capa spool, subsistema o reemplazo
+    if (bimState.capa !== 'spool' && bimState.capa !== 'subsistema' && bimState.capa !== 'reemplazo') {
+        alert('Los trozos solo se asignan a spools, sub-sistemas o reemplazos.');
         return;
     }
     const mesh = divState.trozoMeshes[key];
     const input = document.getElementById('trozo-spool-input');
     const tag = input ? input.value.trim() : '';
     if (!mesh) { alert('No encontré el trozo en memoria. Recarga la página e intenta de nuevo.'); return; }
-    if (!tag) { alert(`Ingresa el ${esSub ? 'código del sub-sistema' : 'TAG del spool'}.`); if (input) input.focus(); return; }
+    if (!tag) { alert(`Ingresa el ${esSub ? 'código del sub-sistema' : (esReemplazo ? 'TAG del spool a reemplazar' : 'TAG del spool')}.`); if (input) input.focus(); return; }
 
     // Feedback visible en el botón
     const btn = document.getElementById('trozo-vincular-btn');
@@ -2288,6 +2293,13 @@ export async function bimTrozoVincular(key) {
         if (esSub) {
             // Sub-sistema: POST /api/bim/subsistema/vincular
             resp = await fetch('/api/bim/subsistema/vincular', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+                body: JSON.stringify({ item: targetItem, elements: [{ guid: key, cwp: '', line_number: '', tag: '', autocad_size: '' }] })
+            });
+        } else if (esReemplazo) {
+            // Reemplazo: POST /api/bim/reemplazo/vincular
+            resp = await fetch('/api/bim/reemplazo/vincular', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
                 body: JSON.stringify({ item: targetItem, elements: [{ guid: key, cwp: '', line_number: '', tag: '', autocad_size: '' }] })
@@ -2309,11 +2321,19 @@ export async function bimTrozoVincular(key) {
             // Actualizar mapeo local de subsistemas
             if (!bimState.capaMapeo['subsistema']) bimState.capaMapeo['subsistema'] = {};
             bimState.capaMapeo['subsistema'][key] = targetItem;
+        } else if (esReemplazo) {
+            if (!bimState.capaMapeo['reemplazo']) bimState.capaMapeo['reemplazo'] = {};
+            bimState.capaMapeo['reemplazo'][key.toLowerCase()] = targetItem;
+            if (!bimState.capaStatuses) bimState.capaStatuses = { 'REEMPLAZO': [] };
+            if (!bimState.capaStatuses['REEMPLAZO']) bimState.capaStatuses['REEMPLAZO'] = [];
+            if (!bimState.capaStatuses['REEMPLAZO'].some(g => String(g).toLowerCase() === key.toLowerCase())) {
+                bimState.capaStatuses['REEMPLAZO'].push(key);
+            }
         } else {
             if (bimState.mapeoSpools) bimState.mapeoSpools[key] = tag;
         }
 
-        if (!esSub) {
+        if (!esSub && !esReemplazo) {
             // Estado del spool desde su ficha
             let estadoSpool = null;
             try {
@@ -2334,6 +2354,9 @@ export async function bimTrozoVincular(key) {
         // Color/visibilidad
         bimDivColorearTrozos();
         bimTrozoRenderPanel(mesh);
+        if (esReemplazo) {
+            bimRenderStatusChips();
+        }
     } catch (e) {
         console.error(`[Trozo] Error al vincular (${labelCapa}):`, e);
         setBtn(`<i class="fas fa-link"></i> Vincular trozo a ${labelCapa}`, false);
@@ -2345,6 +2368,7 @@ export async function bimTrozoDesvincular(key) {
     const mesh = divState.trozoMeshes[key];
     if (!mesh) return;
     const esSub = bimState.capa === 'subsistema';
+    const esReemplazo = bimState.capa === 'reemplazo';
     const desbloqueado = await authAsegurar('bim');
     if (!desbloqueado) return;
     try {
@@ -2352,6 +2376,13 @@ export async function bimTrozoDesvincular(key) {
         if (esSub) {
             // Desvincular sub-sistema: usa el endpoint genérico de capa
             resp = await fetch('/api/bim/subsistema/desvincular', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
+                body: JSON.stringify({ elements: [{ guid: key }] })
+            });
+        } else if (esReemplazo) {
+            // Desvincular reemplazo: usa endpoint genérico de capa
+            resp = await fetch('/api/bim/reemplazo/desvincular', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...authHeaders('bim') },
                 body: JSON.stringify({ elements: [{ guid: key }] })
@@ -2367,6 +2398,12 @@ export async function bimTrozoDesvincular(key) {
 
         if (esSub) {
             if (bimState.capaMapeo['subsistema']) delete bimState.capaMapeo['subsistema'][key];
+        } else if (esReemplazo) {
+            if (bimState.capaMapeo['reemplazo']) delete bimState.capaMapeo['reemplazo'][key.toLowerCase()];
+            if (bimState.capaStatuses && bimState.capaStatuses['REEMPLAZO']) {
+                const i = bimState.capaStatuses['REEMPLAZO'].findIndex(g => String(g).toLowerCase() === key.toLowerCase());
+                if (i !== -1) bimState.capaStatuses['REEMPLAZO'].splice(i, 1);
+            }
         } else {
             if (bimState.mapeoSpools) delete bimState.mapeoSpools[key];
         }
@@ -2380,6 +2417,9 @@ export async function bimTrozoDesvincular(key) {
         }
         bimDivColorearTrozos();
         bimTrozoRenderPanel(mesh);
+        if (esReemplazo) {
+            bimRenderStatusChips();
+        }
     } catch (e) {
         alert('No se pudo desvincular: ' + e.message);
     }
@@ -3012,8 +3052,9 @@ export function bimDivRegistrarTrozo(mesh, guid, id) {
 // Mapa inverso guid→estado a partir del caché de estados del visor.
 export function bimStatusPorGuid() {
     const m = {};
-    if (bimState.statusesCache) {
-        for (const [st, gs] of Object.entries(bimState.statusesCache)) {
+    const statuses = (bimState.capa === 'spool' || !bimState.capaStatuses) ? bimState.statusesCache : bimState.capaStatuses;
+    if (statuses) {
+        for (const [st, gs] of Object.entries(statuses)) {
             if (!Array.isArray(gs)) continue;
             gs.forEach(g => { m[String(g).toLowerCase()] = st; });
         }
@@ -3045,6 +3086,7 @@ export function bimSubCoincide(subLabel, target) {
 export function bimDivFiltrarTrozos(seleccionSet) {
     const statusDe = bimStatusPorGuid();
     const subMapeo = bimState.capaMapeo['subsistema'] || {};
+    const rMapeo = bimState.capaMapeo['reemplazo'] || {};
 
     for (const [key, mesh] of Object.entries(divState.trozoMeshes)) {
         const parentGuid = String(mesh?.userData?.guid || '').toLowerCase();
@@ -3055,6 +3097,9 @@ export function bimDivFiltrarTrozos(seleccionSet) {
             if (bimState.capa === 'subsistema') {
                 const subLabel = subMapeo[keyLower] || subMapeo[parentGuid] || 'SIN SUBSISTEMA';
                 mesh.visible = Array.from(seleccionSet).some(sel => bimSubCoincide(subLabel, sel));
+            } else if (bimState.capa === 'reemplazo') {
+                const rTag = rMapeo[keyLower] || rMapeo[parentGuid];
+                mesh.visible = seleccionSet.has('REEMPLAZO') ? !!rTag : false;
             } else {
                 mesh.visible = seleccionSet.has(st);
             }
@@ -3895,13 +3940,30 @@ export function bimFocoElementoRedline(guids) {
     list = list.map(g => String(g).trim().toLowerCase()).filter(Boolean);
     if (!list.length) return;
 
-    bimGuidsToDbIds(list, (dbIds) => {
+    // Separar elementos reales de trozos (guid#pN)
+    const guidsParaAislar = [];
+    list.forEach(g => {
+        if (g.includes('#p')) {
+            const mesh = divState.trozoMeshes ? divState.trozoMeshes[g] : null;
+            if (mesh?.userData?.guid) {
+                guidsParaAislar.push(mesh.userData.guid);
+            } else {
+                const baseGuid = g.split('#p')[0];
+                if (baseGuid) guidsParaAislar.push(baseGuid);
+            }
+        } else {
+            guidsParaAislar.push(g);
+        }
+    });
+
+    bimGuidsToDbIds(guidsParaAislar.length ? guidsParaAislar : list, (dbIds) => {
         if (dbIds && dbIds.length > 0) {
             bimState.dbIds = dbIds;
             bimState.currentGuids = list;
             bimState.viewer.select(dbIds);
             bimState.viewer.isolate(dbIds);
             bimState.viewer.fitToView(dbIds);
+            if (typeof bimDivReocultarOriginales === 'function') bimDivReocultarOriginales();
             const actionsEl = document.getElementById('bim-actions');
             if (actionsEl) actionsEl.style.display = 'flex';
             console.log(`[Red Line Foco] Enfocados ${dbIds.length} objeto(s) en modelo 3D para GUIDs:`, list);
@@ -3909,6 +3971,11 @@ export function bimFocoElementoRedline(guids) {
             console.warn('[Red Line Foco] No se encontraron objetos 3D para:', list);
         }
     });
+
+    // Trozos: mantener sólidos los trozos de la lista y el resto en x-ray/ocultos si aplica
+    if (typeof bimDivGhostPorSpool === 'function') {
+        bimDivGhostPorSpool(list);
+    }
 }
 
 /** Obtiene la lista limpia de GUIDs de los elementos 3D actualmente seleccionados en el visor en tiempo real. */
