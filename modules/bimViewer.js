@@ -1298,22 +1298,19 @@ function bimPintarReemplazosHtml(data) {
         return;
     }
 
-    const accordionsHtml = data.lineas.map(l => {
-        const escLinea = (l.linea || 'Sin Línea').replace(/'/g, "\\'");
+    const accordionsHtml = data.lineas.map((l, lIdx) => {
         const attrLinea = (l.linea || 'Sin Línea').replace(/"/g, '&quot;');
 
         // Subgrupos de Isométricos (vienen colapsados sin atributo open)
-        const isosHtml = (l.isos || []).map(iso => {
-            const escIso = (iso.idIso || '').replace(/'/g, "\\'");
+        const isosHtml = (l.isos || []).map((iso, isoIdx) => {
             const attrIso = (iso.idIso || '').replace(/"/g, '&quot;');
-            const spoolsHtml = iso.spools.map(sp => {
-                const escTag = String(sp.tag).replace(/'/g, "\\'");
+            const spoolsHtml = iso.spools.map((sp, spIdx) => {
                 const rawIdSpool = String(sp.idSpool || '').trim();
                 // Abreviar ID_SPOOL a sus últimos 4 caracteres (ej: ..._SP01 -> SP01)
                 const spoolAbrev = rawIdSpool ? (rawIdSpool.length > 4 ? rawIdSpool.slice(-4) : rawIdSpool) : '';
 
                 return `
-                <div class="bim-reemplazo-spool-card" data-spool="${sp.tag}" data-idspool="${rawIdSpool}" style="background: rgba(236,72,153,0.06); border: 1px solid rgba(236,72,153,0.22); border-left: 3px solid #ec4899; border-radius: 5px; padding: 7px 8px; margin-bottom: 5px;">
+                <div class="bim-reemplazo-spool-card" data-spool="${sp.tag}" data-idspool="${rawIdSpool.replace(/"/g, '&quot;')}" style="background: rgba(236,72,153,0.06); border: 1px solid rgba(236,72,153,0.22); border-left: 3px solid #ec4899; border-radius: 5px; padding: 7px 8px; margin-bottom: 5px;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <span style="font-weight:700; color:#f472b6; font-size:0.84rem;">
                             <i class="fas fa-arrows-rotate" style="font-size:0.7rem; margin-right:4px;"></i>Spool ${sp.tag}
@@ -1323,12 +1320,12 @@ function bimPintarReemplazosHtml(data) {
                             <span class="bim-badge" style="background:rgba(255,255,255,0.07); color:var(--text-dim); font-size:0.63rem; padding:1px 5px;">${sp.guids.length} el.</span>
                         </div>
                     </div>
-                    ${spoolAbrev ? `<div style="font-size:0.68rem; color:#93c5fd; font-family:monospace; margin-top:2px; font-weight:600; display:flex; align-items:center; gap:4px;" title="${rawIdSpool}"><i class="fas fa-barcode" style="font-size:0.6rem; opacity:0.8;"></i>${spoolAbrev}</div>` : ''}
+                    ${spoolAbrev ? `<div style="font-size:0.68rem; color:#93c5fd; font-family:monospace; margin-top:2px; font-weight:600; display:flex; align-items:center; gap:4px;" title="${rawIdSpool.replace(/"/g, '&quot;')}"><i class="fas fa-barcode" style="font-size:0.6rem; opacity:0.8;"></i>${spoolAbrev}</div>` : ''}
                     <div style="display:flex; gap:5px; margin-top:6px;">
-                        <button onclick="bimFocoElementoRedline(${JSON.stringify(sp.guids).replace(/"/g, '&quot;')})" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; flex:1; justify-content:center;">
+                        <button onclick="bimFocoSpoolPorIndice(${lIdx}, ${isoIdx}, ${spIdx})" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; flex:1; justify-content:center;">
                             <i class="fas fa-eye"></i> Ver 3D
                         </button>
-                        <button onclick="bimBuscarReemplazoTag('${escTag}', '${escLinea}', '${escIso}')" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light); flex:1; justify-content:center;">
+                        <button onclick="bimBuscarReemplazoPorIndice(${lIdx}, ${isoIdx}, ${spIdx})" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light); flex:1; justify-content:center;">
                             <i class="fas fa-camera"></i> Ficha
                         </button>
                     </div>
@@ -1348,7 +1345,7 @@ function bimPintarReemplazosHtml(data) {
                             (${iso.totalSpools} spools)
                         </span>
                     </div>
-                    <button onclick="event.stopPropagation(); bimFocoElementoRedline(${JSON.stringify(iso.guids).replace(/"/g, '&quot;')})" title="Aislar y enfocar isométrico completo en 3D" class="bim-scan-btn" style="padding: 2px 7px; font-size: 0.65rem; background: rgba(56,189,248,0.22); border: 1px solid rgba(56,189,248,0.45); color: #bae6fd; flex-shrink: 0; white-space: nowrap; display: flex; align-items: center; gap: 3px;">
+                    <button onclick="event.stopPropagation(); bimAislarIsoPorIndice(${lIdx}, ${isoIdx})" title="Aislar y enfocar isométrico completo en 3D" class="bim-scan-btn" style="padding: 2px 7px; font-size: 0.65rem; background: rgba(56,189,248,0.22); border: 1px solid rgba(56,189,248,0.45); color: #bae6fd; flex-shrink: 0; white-space: nowrap; display: flex; align-items: center; gap: 3px;">
                         <i class="fas fa-eye"></i> ISO 3D
                     </button>
                 </summary>
@@ -1366,7 +1363,7 @@ function bimPintarReemplazosHtml(data) {
                 <div style="display: flex; align-items: flex-start; gap: 6px; width: 100%;">
                     <i class="fas fa-chevron-right bim-linea-chevron" style="font-size:0.68rem; color:#f472b6; margin-top:3px; transition: transform 0.2s; flex-shrink:0;"></i>
                     <i class="fas fa-grip-lines" style="font-size:0.74rem; color:#f472b6; margin-top:3px; flex-shrink:0;"></i>
-                    <span title="${l.linea}" style="font-weight: 700; color: #fbcfe8; font-size: 0.8rem; font-family: monospace; word-break: break-all; line-height: 1.25; flex: 1;">
+                    <span title="${attrLinea}" style="font-weight: 700; color: #fbcfe8; font-size: 0.8rem; font-family: monospace; word-break: break-all; line-height: 1.25; flex: 1;">
                         ${l.linea}
                     </span>
                 </div>
@@ -1383,7 +1380,7 @@ function bimPintarReemplazosHtml(data) {
                             ${l.totalElementos} el.
                         </span>
                     </div>
-                    <button onclick="event.stopPropagation(); bimAislarLineaConReemplazos('${escLinea}', ${JSON.stringify(l.guids).replace(/"/g, '&quot;')}, ${JSON.stringify(l.guidsLineaTotales || []).replace(/"/g, '&quot;')}, ${JSON.stringify(l.guidsLineaNormales || []).replace(/"/g, '&quot;')})" 
+                    <button onclick="event.stopPropagation(); bimAislarLineaPorIndice(${lIdx})" 
                             title="Aislar línea completa: Spools normales en amarillo y a reemplazar en rosa" 
                             class="bim-scan-btn" 
                             style="padding: 2px 8px; font-size: 0.67rem; background: rgba(236,72,153,0.28); border: 1px solid rgba(236,72,153,0.55); color: #fff; border-radius: 5px; white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; gap: 4px;">
@@ -1570,6 +1567,37 @@ export async function bimAislarLineaConReemplazos(lineaId, guidsReemplazo = [], 
     } catch (err) {
         console.error('[BIM Aislar Línea con Reemplazos]', err);
     }
+}
+
+/** Aísla la línea usando su índice en la caché (100% inmune a nombres con comillas dobles o caracteres especiales) */
+export function bimAislarLineaPorIndice(lineaIdx) {
+    const lineas = bimState.reemplazoLineasCache?.lineas;
+    if (!lineas || !lineas[lineaIdx]) return;
+    const l = lineas[lineaIdx];
+    bimAislarLineaConReemplazos(l.linea, l.guids, l.guidsLineaTotales, l.guidsLineaNormales);
+}
+
+/** Aísla el isométrico/hoja por índice */
+export function bimAislarIsoPorIndice(lineaIdx, isoIdx) {
+    const iso = bimState.reemplazoLineasCache?.lineas?.[lineaIdx]?.isos?.[isoIdx];
+    if (!iso || !iso.guids) return;
+    bimFocoElementoRedline(iso.guids);
+}
+
+/** Enfoca el spool en 3D por índice */
+export function bimFocoSpoolPorIndice(lineaIdx, isoIdx, spIdx) {
+    const sp = bimState.reemplazoLineasCache?.lineas?.[lineaIdx]?.isos?.[isoIdx]?.spools?.[spIdx];
+    if (!sp || !sp.guids) return;
+    bimFocoElementoRedline(sp.guids);
+}
+
+/** Abre la ficha de fotos y redline del spool por índice */
+export function bimBuscarReemplazoPorIndice(lineaIdx, isoIdx, spIdx) {
+    const l = bimState.reemplazoLineasCache?.lineas?.[lineaIdx];
+    const iso = l?.isos?.[isoIdx];
+    const sp = iso?.spools?.[spIdx];
+    if (!sp) return;
+    bimBuscarReemplazoTag(sp.tag, l.linea, iso.idIso);
 }
 
 /** Despliega la vista detallada de un spool a reemplazar con su ficha de fotos y referencias. */
@@ -5847,6 +5875,10 @@ if (typeof window !== 'undefined') {
     window.bimFiltrarReemplazosUI   = bimFiltrarReemplazosUI;
     window.bimToggleTodasLineas     = bimToggleTodasLineas;
     window.bimAislarLineaConReemplazos = bimAislarLineaConReemplazos;
+    window.bimAislarLineaPorIndice = bimAislarLineaPorIndice;
+    window.bimAislarIsoPorIndice   = bimAislarIsoPorIndice;
+    window.bimFocoSpoolPorIndice   = bimFocoSpoolPorIndice;
+    window.bimBuscarReemplazoPorIndice = bimBuscarReemplazoPorIndice;
     window.bimToggleElementsList    = bimToggleElementsList;
     window.bimToggleMetaExtra       = bimToggleMetaExtra;
     window.bimToggleSidebar         = bimToggleSidebar;
