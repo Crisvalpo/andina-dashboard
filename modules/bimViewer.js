@@ -1281,7 +1281,7 @@ export async function bimBuscarReemplazoTag(tag) {
         ${bimRedlineRenderSection(guids, tag, tag, 'REEMPLAZO')}`);
 
     setTimeout(() => {
-        bimRedlineCargarHistorial(guids[0] || guids);
+        bimRedlineCargarHistorial(guids, 'REEMPLAZO', tag);
         bimSincronizarFotoReemplazo(tag, guids);
         setTimeout(() => { bimState.isProgrammaticSelection = false; }, 400);
     }, 100);
@@ -2132,6 +2132,10 @@ export function bimTrozoSeleccionar(mesh) {
     if (mesh.material && mesh.material.emissive) mesh.material.emissive.setHex(0x3b5bdb); // glow azul = seleccionado
     bimState.viewer.impl.invalidate(false, false, true);
     bimBeep();
+    if (mesh?.userData?.key) {
+        bimState.currentGuids = [mesh.userData.key];
+        bimState.selectedGuid = mesh.userData.key;
+    }
     bimTrozoRenderPanel(mesh);
 }
 
@@ -2191,7 +2195,15 @@ export function bimTrozoRenderPanel(mesh) {
             <button class="bim-scan-btn" onclick="bimTrozoEliminarDivision('${key}')" style="flex:1;justify-content:center;background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;">
                 <i class="fas fa-trash-arrow-up"></i> Deshacer división</button>
         </div>
-        <div style="font-size:0.68rem;opacity:0.5;margin-top:8px;word-break:break-all;">ID interno: ${key}</div>`);
+        <div style="font-size:0.68rem;opacity:0.5;margin-top:8px;word-break:break-all;margin-bottom:12px;">ID interno: ${key}</div>
+        ${bimRedlineRenderSection([key], vinculoActivo || '', vinculoActivo || '', esReemplazo ? 'REEMPLAZO' : (esSub ? 'SUBSISTEMA' : ''))}`);
+
+    setTimeout(() => {
+        bimRedlineCargarHistorial([key], esReemplazo ? 'REEMPLAZO' : '', vinculoActivo || '');
+        if (esReemplazo && vinculoActivo) {
+            bimSincronizarFotoReemplazo(vinculoActivo, [key]);
+        }
+    }, 100);
 }
 
 /** Reabre la edición (manillas) de la división a la que pertenece este trozo. */
@@ -3982,6 +3994,9 @@ export function bimFocoElementoRedline(guids) {
 export async function bimObtenerGuidsSeleccionActual() {
     if (!bimState.viewer) return [];
     const dbIds = bimState.viewer.getSelection();
+    if ((!dbIds || !dbIds.length) && divState._trozoSel?.userData?.key) {
+        return [divState._trozoSel.userData.key.toLowerCase()];
+    }
     if (!dbIds || !dbIds.length) return [];
 
     return new Promise(resolve => {
@@ -4197,6 +4212,8 @@ export async function bimRedlineSubir(guidsAttr, spoolTag, tagLinea, subsistema)
         guidsList = [...new Set([...guidsList, ...activeGuids])];
     } else if (!guidsList.length && bimState.currentGuids && bimState.currentGuids.length) {
         guidsList = [...bimState.currentGuids];
+    } else if (!guidsList.length && divState._trozoSel?.userData?.key) {
+        guidsList = [divState._trozoSel.userData.key.toLowerCase()];
     }
 
     if (!guidsList.length) {
@@ -4246,7 +4263,7 @@ export async function bimRedlineSubir(guidsAttr, spoolTag, tagLinea, subsistema)
         // Limpiar form y recargar galería
         bimRedlineLimpiar();
         if (document.getElementById('redline-obs')) document.getElementById('redline-obs').value = '';
-        await bimRedlineCargarHistorial(guidsList.length ? guidsList : 'all');
+        await bimRedlineCargarHistorial(guidsList.length ? guidsList : 'all', subsistema || '', spoolTag || '');
 
     } catch (e) {
         console.error('[Red Line Subir Error]', e);
@@ -4260,7 +4277,7 @@ export async function bimRedlineSubir(guidsAttr, spoolTag, tagLinea, subsistema)
 }
 
 /** Carga y renderiza la galería de fotos Red Line existentes para un GUID o lista de GUIDs. */
-export async function bimRedlineCargarHistorial(guidOrGuids, subsistemaContext = '') {
+export async function bimRedlineCargarHistorial(guidOrGuids, subsistemaContext = '', spoolTag = '') {
     const container = document.getElementById('redline-gallery-container');
     if (!container) return;
 
@@ -4275,8 +4292,15 @@ export async function bimRedlineCargarHistorial(guidOrGuids, subsistemaContext =
 
     try {
         let url = `/api/bim/redline/${encodeURIComponent(guidParam || 'all')}`;
+        const queryParts = [];
         if (subsistemaContext) {
-            url += `?subsistema=${encodeURIComponent(subsistemaContext)}`;
+            queryParts.push(`subsistema=${encodeURIComponent(subsistemaContext)}`);
+        }
+        if (spoolTag) {
+            queryParts.push(`spool=${encodeURIComponent(spoolTag)}`);
+        }
+        if (queryParts.length) {
+            url += `?${queryParts.join('&')}`;
         }
 
         const resp = await fetch(url);
@@ -4827,7 +4851,7 @@ export async function bimRenderCapaMeta(capa, id, lineData = null) {
             ${bimRedlineRenderSection(guidsDelSpool.length ? guidsDelSpool : [firstGuid], id, id, 'REEMPLAZO')}`);
 
         setTimeout(() => {
-            bimRedlineCargarHistorial(guidsDelSpool.length ? guidsDelSpool : [firstGuid]);
+            bimRedlineCargarHistorial(guidsDelSpool.length ? guidsDelSpool : [firstGuid], 'REEMPLAZO', id);
             bimSincronizarFotoReemplazo(id, guidsDelSpool.length ? guidsDelSpool : [firstGuid]);
         }, 100);
         return;

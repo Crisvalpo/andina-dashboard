@@ -3288,7 +3288,8 @@ app.post('/api/bim/redline/upload', requerirPermiso('bim'), async (req, res) => 
 
         const buffer = Buffer.from(rawBase64, 'base64');
         const timestamp = Date.now();
-        const filePath = `${primaryGuid}/${timestamp}.${ext}`;
+        const safeFolder = primaryGuid.replace(/#/g, '_');
+        const filePath = `${safeFolder}/${timestamp}.${ext}`;
 
         // Subir a Supabase Storage
         const { error: uploadError } = await supabase.storage
@@ -3341,6 +3342,7 @@ app.post('/api/bim/redline/upload', requerirPermiso('bim'), async (req, res) => 
 app.get('/api/bim/redline/:guid', async (req, res) => {
     const paramGuid = (req.params.guid || '').trim().toLowerCase();
     const subsistemaQuery = (req.query.subsistema || '').trim();
+    const spoolQuery = (req.query.spool || req.query.tag || '').trim();
 
     try {
         const supabase = getSupabase();
@@ -3350,14 +3352,22 @@ app.get('/api/bim/redline/:guid', async (req, res) => {
             query = query.eq('subsistema', subsistemaQuery);
         } else if (paramGuid && paramGuid !== 'all') {
             const list = paramGuid.split(',').map(g => g.trim()).filter(Boolean);
-            if (list.length === 1) {
-                const targetG = list[0];
-                query = query.or(`guid.eq.${targetG},guids.cs.["${targetG}"]`);
-            } else {
-                // Múltiples GUIDs
-                const orConditions = list.map(g => `guid.eq.${g},guids.cs.["${g}"]`).join(',');
-                query = query.or(orConditions);
+            const targets = [];
+            list.forEach(g => {
+                targets.push(g);
+                if (g.includes('#p')) {
+                    const parent = g.split('#p')[0];
+                    if (parent) targets.push(parent);
+                }
+            });
+            const uniqueTargets = [...new Set(targets)];
+            const conditions = uniqueTargets.map(g => `guid.eq.${g},guids.cs.["${g}"]`);
+            if (spoolQuery) {
+                conditions.push(`spool_tag.eq.${spoolQuery}`);
             }
+            query = query.or(conditions.join(','));
+        } else if (spoolQuery) {
+            query = query.eq('spool_tag', spoolQuery);
         } else if (subsistemaQuery) {
             query = query.eq('subsistema', subsistemaQuery);
         }
