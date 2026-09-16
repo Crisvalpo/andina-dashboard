@@ -1195,39 +1195,53 @@ export function bimFiltrarReemplazosUI(filtro) {
     let visiblesCount = 0;
 
     lineaDetailsList.forEach(lineaDet => {
-        const lineaText = (lineaDet.getAttribute('data-linea') || '').toLowerCase();
+        // Buscar en data-linea y en todo el texto visible del summary de la línea
+        const summaryLineaText = lineaDet.querySelector('summary')?.textContent || '';
+        const dataLinea = lineaDet.getAttribute('data-linea') || '';
+        const lineaText = (dataLinea + ' ' + summaryLineaText).toLowerCase();
+        const coincideLinea = q && lineaText.includes(q);
+
         const isoDetailsList = lineaDet.querySelectorAll('.bim-iso-accordion');
         let algunIsoCoincide = false;
 
         isoDetailsList.forEach(isoDet => {
-            const isoText = (isoDet.getAttribute('data-iso') || '').toLowerCase();
-            const isoSheet = (isoDet.getAttribute('data-sheet') || '').toLowerCase();
+            const summaryIsoText = isoDet.querySelector('summary')?.textContent || '';
+            const dataIso = isoDet.getAttribute('data-iso') || '';
+            const dataSheet = isoDet.getAttribute('data-sheet') || '';
+            const isoText = (dataIso + ' ' + dataSheet + ' ' + summaryIsoText).toLowerCase();
+            const coincideIso = q && (isoText.includes(q) || coincideLinea);
+
             const spoolCards = isoDet.querySelectorAll('.bim-reemplazo-spool-card');
             let algunSpoolCoincide = false;
 
             spoolCards.forEach(card => {
                 const spTag = (card.getAttribute('data-spool') || '').toLowerCase();
                 const spId = (card.getAttribute('data-idspool') || '').toLowerCase();
-                const coincideSpool = !q || spTag.includes(q) || spId.includes(q) || isoText.includes(q) || isoSheet.includes(q) || lineaText.includes(q);
+                const cardText = (card.textContent || '').toLowerCase();
+                const coincideSpool = !q || coincideLinea || coincideIso || spTag.includes(q) || spId.includes(q) || cardText.includes(q);
                 card.style.display = coincideSpool ? '' : 'none';
                 if (coincideSpool) algunSpoolCoincide = true;
             });
 
-            const coincideIso = !q || isoText.includes(q) || isoSheet.includes(q) || lineaText.includes(q);
-            if (coincideIso || algunSpoolCoincide) {
+            if (!q) {
                 isoDet.style.display = '';
+                isoDet.open = false;
+            } else if (coincideLinea || coincideIso || algunSpoolCoincide) {
+                isoDet.style.display = '';
+                isoDet.open = true; // Auto-abrir isométrico que coincide
                 algunIsoCoincide = true;
-                if (q) isoDet.open = true;
             } else {
                 isoDet.style.display = 'none';
             }
         });
 
-        const coincideLinea = !q || lineaText.includes(q);
-        if (coincideLinea || algunIsoCoincide) {
+        if (!q) {
             lineaDet.style.display = '';
+            lineaDet.open = false; // Vuelven colapsadas al borrar el buscador
+        } else if (coincideLinea || algunIsoCoincide) {
+            lineaDet.style.display = '';
+            lineaDet.open = true; // Auto-abrir línea encontrada
             visiblesCount++;
-            if (q) lineaDet.open = true;
         } else {
             lineaDet.style.display = 'none';
         }
@@ -1268,10 +1282,12 @@ export async function bimRenderReemplazosList() {
 
         const accordionsHtml = data.lineas.map(l => {
             const escLinea = (l.linea || 'Sin Línea').replace(/'/g, "\\'");
+            const attrLinea = (l.linea || 'Sin Línea').replace(/"/g, '&quot;');
 
-            // Subgrupos de Isométricos
+            // Subgrupos de Isométricos (vienen colapsados sin atributo open)
             const isosHtml = (l.isos || []).map(iso => {
                 const escIso = (iso.idIso || '').replace(/'/g, "\\'");
+                const attrIso = (iso.idIso || '').replace(/"/g, '&quot;');
                 const spoolsHtml = iso.spools.map(sp => {
                     const escTag = String(sp.tag).replace(/'/g, "\\'");
                     const infoExtra = [sp.area ? `Área: ${sp.area}` : '', sp.subsistema ? `Sub: ${sp.subsistema}` : ''].filter(Boolean).join(' • ');
@@ -1300,17 +1316,19 @@ export async function bimRenderReemplazosList() {
                 }).join('');
 
                 return `
-                <details class="bim-iso-accordion" data-iso="${iso.idIso}" data-sheet="${iso.sheet || ''}" open style="margin-bottom: 6px; background: rgba(0,0,0,0.2); border: 1px solid rgba(56,189,248,0.25); border-radius: 5px; overflow: hidden;">
-                    <summary style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: rgba(56,189,248,0.08); cursor: pointer; gap: 6px;">
-                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
-                            <i class="fas fa-chevron-right bim-sub-chevron" style="font-size:0.62rem; color:#38bdf8; transition: transform 0.2s; flex-shrink:0;"></i>
-                            <i class="fas fa-file-lines" style="font-size:0.72rem; color:#38bdf8; flex-shrink:0;"></i>
-                            <span title="${iso.idIso}" style="font-weight: 700; color: #bae6fd; font-size: 0.76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-                                ${iso.label}
+                <details class="bim-iso-accordion" data-iso="${attrIso}" data-sheet="${iso.sheet || ''}" style="margin-bottom: 7px; background: rgba(0,0,0,0.25); border: 1px solid rgba(56,189,248,0.28); border-radius: 6px; overflow: hidden;">
+                    <summary style="display: flex; align-items: center; justify-content: space-between; padding: 6px 9px; background: rgba(56,189,248,0.12); cursor: pointer; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                            <i class="fas fa-chevron-right bim-sub-chevron" style="font-size:0.62rem; color:#38bdf8; transition: transform 0.2s;"></i>
+                            <i class="fas fa-file-lines" style="font-size:0.75rem; color:#38bdf8;"></i>
+                            <strong style="color: #38bdf8; font-size: 0.8rem; letter-spacing: 0.5px; font-family: monospace; white-space: nowrap;">
+                                ${iso.label || ('HOJA ' + (iso.sheet || '1'))}
+                            </strong>
+                            <span style="font-size: 0.65rem; color: #94a3b8; white-space: nowrap;">
+                                (${iso.totalSpools} spools)
                             </span>
-                            <span style="font-size: 0.65rem; color: var(--text-dim); flex-shrink: 0;">(${iso.totalSpools} spools)</span>
                         </div>
-                        <button onclick="event.stopPropagation(); bimFocoElementoRedline(${JSON.stringify(iso.guids).replace(/"/g, '&quot;')})" title="Aislar y enfocar isométrico completo en 3D" class="bim-scan-btn" style="padding: 2px 6px; font-size: 0.65rem; background: rgba(56,189,248,0.2); border-color: rgba(56,189,248,0.4); color: #bae6fd; flex-shrink: 0;">
+                        <button onclick="event.stopPropagation(); bimFocoElementoRedline(${JSON.stringify(iso.guids).replace(/"/g, '&quot;')})" title="Aislar y enfocar isométrico completo en 3D" class="bim-scan-btn" style="padding: 2px 7px; font-size: 0.65rem; background: rgba(56,189,248,0.22); border: 1px solid rgba(56,189,248,0.45); color: #bae6fd; flex-shrink: 0; white-space: nowrap; display: flex; align-items: center; gap: 3px;">
                             <i class="fas fa-eye"></i> ISO 3D
                         </button>
                     </summary>
@@ -1320,30 +1338,35 @@ export async function bimRenderReemplazosList() {
                 </details>`;
             }).join('');
 
+            // Líneas principales (vienen colapsadas sin atributo open)
             return `
-            <details class="bim-linea-accordion" data-linea="${l.linea}" open style="margin-bottom: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(236,72,153,0.3); border-radius: 6px; overflow: hidden;">
-                <summary style="display: flex; flex-direction: column; padding: 8px 10px; background: rgba(236,72,153,0.14); cursor: pointer; gap: 5px;">
+            <details class="bim-linea-accordion" data-linea="${attrLinea}" style="margin-bottom: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(236,72,153,0.3); border-radius: 8px; overflow: hidden;">
+                <summary style="display: flex; flex-direction: column; padding: 9px 10px; background: linear-gradient(135deg, rgba(236,72,153,0.14), rgba(30,27,75,0.35)); cursor: pointer; gap: 6px;">
                     <!-- Fila 1: Nombre completo de la línea -->
-                    <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
-                        <i class="fas fa-chevron-right bim-linea-chevron" style="font-size:0.68rem; color:#f472b6; transition: transform 0.2s; flex-shrink:0;"></i>
-                        <span title="${l.linea}" style="font-weight: 700; color: #fbcfe8; font-size: 0.78rem; font-family: monospace; word-break: break-all; line-height: 1.25; flex: 1;">
+                    <div style="display: flex; align-items: flex-start; gap: 6px; width: 100%;">
+                        <i class="fas fa-chevron-right bim-linea-chevron" style="font-size:0.68rem; color:#f472b6; margin-top:3px; transition: transform 0.2s; flex-shrink:0;"></i>
+                        <i class="fas fa-grip-lines" style="font-size:0.74rem; color:#f472b6; margin-top:3px; flex-shrink:0;"></i>
+                        <span title="${l.linea}" style="font-weight: 700; color: #fbcfe8; font-size: 0.8rem; font-family: monospace; word-break: break-all; line-height: 1.25; flex: 1;">
                             ${l.linea}
                         </span>
                     </div>
-                    <!-- Fila 2: Métricas ordenadas y botón 3D -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-left: 14px; box-sizing: border-box;">
-                        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
-                            <span class="bim-badge" style="background: rgba(56,189,248,0.18); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.3); font-size: 0.62rem; padding: 1px 5px;">
-                                <i class="fas fa-layer-group"></i> ${l.totalIsos} hojas
+                    <!-- Fila 2: Chips horizontales alineados (sin wrap) + Botón Línea 3D -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-left: 14px; box-sizing: border-box; gap: 6px;">
+                        <div style="display: flex; align-items: center; gap: 4px; overflow: hidden; white-space: nowrap;">
+                            <span style="display: inline-flex; align-items: center; gap: 3px; background: rgba(56,189,248,0.18); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.35); font-size: 0.62rem; padding: 1px 6px; border-radius: 10px; font-weight: 600; white-space: nowrap; flex-shrink: 0;">
+                                <i class="fas fa-layer-group" style="font-size:0.56rem;"></i> ${l.totalIsos} hojas
                             </span>
-                            <span class="bim-badge" style="background: rgba(236,72,153,0.22); color: #fbcfe8; font-size: 0.62rem; padding: 1px 5px;">
-                                ${l.totalSpools} spools
+                            <span style="display: inline-flex; align-items: center; gap: 3px; background: rgba(236,72,153,0.2); color: #fbcfe8; border: 1px solid rgba(236,72,153,0.35); font-size: 0.62rem; padding: 1px 6px; border-radius: 10px; font-weight: 600; white-space: nowrap; flex-shrink: 0;">
+                                <i class="fas fa-arrows-rotate" style="font-size:0.56rem;"></i> ${l.totalSpools} spools
                             </span>
-                            <span class="bim-badge" style="background: rgba(255,255,255,0.08); color: var(--text-dim); font-size: 0.62rem; padding: 1px 5px;">
+                            <span style="display: inline-flex; align-items: center; background: rgba(255,255,255,0.07); color: var(--text-dim); font-size: 0.62rem; padding: 1px 5px; border-radius: 10px; white-space: nowrap; flex-shrink: 0;">
                                 ${l.totalElementos} el.
                             </span>
                         </div>
-                        <button onclick="event.stopPropagation(); bimFocoElementoRedline(${JSON.stringify(l.guids).replace(/"/g, '&quot;')})" title="Aislar y enfocar toda la línea en 3D" class="bim-scan-btn" style="padding: 2px 7px; font-size: 0.66rem; background: rgba(236,72,153,0.3); border-color: rgba(236,72,153,0.5); color: #fff; flex-shrink: 0;">
+                        <button onclick="event.stopPropagation(); bimAislarLineaConReemplazos('${escLinea}', ${JSON.stringify(l.guids).replace(/"/g, '&quot;')})" 
+                                title="Aislar línea completa: Spools normales en amarillo y a reemplazar en rosa" 
+                                class="bim-scan-btn" 
+                                style="padding: 2px 8px; font-size: 0.67rem; background: rgba(236,72,153,0.28); border: 1px solid rgba(236,72,153,0.55); color: #fff; border-radius: 5px; white-space: nowrap; flex-shrink: 0; display: flex; align-items: center; gap: 4px;">
                             <i class="fas fa-eye"></i> Línea 3D
                         </button>
                     </div>
@@ -1375,6 +1398,16 @@ export async function bimRenderReemplazosList() {
                            style="width: 100%; box-sizing: border-box; padding: 5px 8px 5px 26px; background: rgba(0,0,0,0.3); border: 1px solid rgba(236,72,153,0.35); border-radius: 5px; color: #fff; font-size: 0.76rem;">
                     <i class="fas fa-search" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7rem; color: #f472b6; opacity: 0.8;"></i>
                 </div>
+                <!-- Leyenda de colores para Línea 3D -->
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 6px; padding: 3px 7px; background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.06); border-radius: 5px; font-size: 0.65rem;">
+                    <span style="color:var(--text-dim); font-weight:600;"><i class="fas fa-palette" style="margin-right:3px;"></i>Línea 3D:</span>
+                    <span style="display:inline-flex; align-items:center; gap:3px; color:#fde047;">
+                        <span style="width:8px; height:8px; border-radius:2px; background:#facc15; display:inline-block;"></span> Spools
+                    </span>
+                    <span style="display:inline-flex; align-items:center; gap:3px; color:#f472b6;">
+                        <span style="width:8px; height:8px; border-radius:2px; background:#ec4899; display:inline-block;"></span> Reemplazo
+                    </span>
+                </div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px; font-size: 0.7rem; color: var(--text-dim);">
                     <span>${data.totalLineas} líneas • ${data.totalIsos} hojas • ${data.totalSpools} spools</span>
                     <div style="display:flex; gap:4px;">
@@ -1395,6 +1428,135 @@ export async function bimRenderReemplazosList() {
     } catch (e) {
         console.error('[BIM Render Reemplazos List Error]', e);
         bimSetMeta(`<div class="bim-meta-empty"><i class="fas fa-exclamation-triangle"></i><p>Error cargando lista: ${e.message}</p></div>`);
+    }
+}
+
+/**
+ * Aísla en el visor 3D la línea de cañería completa:
+ * - Colorea en AMARILLO (#facc15) todos los spools normales de la línea.
+ * - Colorea en ROSA (#ec4899) los spools asignados para reemplazo.
+ */
+export async function bimAislarLineaConReemplazos(lineaId, guidsReemplazo = []) {
+    if (!bimState.viewer) return;
+    const viewer = bimState.viewer;
+
+    bimSetMetaCargando(`Aislando línea: ${lineaId}...`);
+
+    try {
+        // 1. Obtener todos los GUIDs de la línea completa desde la API
+        const resp = await fetch(`/api/bim/linea/item/${encodeURIComponent(lineaId)}`);
+        const data = resp.ok ? await resp.json() : null;
+        const lineaGuids = (data && Array.isArray(data.guids)) ? data.guids : [];
+
+        // 2. Coleccionar y normalizar todos los GUIDs
+        const setReemplazo = new Set(
+            (Array.isArray(guidsReemplazo) ? guidsReemplazo : [guidsReemplazo])
+                .map(g => String(g).trim().toLowerCase())
+                .filter(Boolean)
+        );
+
+        // Unir todos los GUIDs conocidos de la línea
+        const todosGuidsSet = new Set(lineaGuids.map(g => String(g).trim().toLowerCase()));
+        setReemplazo.forEach(g => {
+            const baseG = g.split('#p')[0];
+            todosGuidsSet.add(baseG);
+            todosGuidsSet.add(g);
+        });
+
+        // Separar guids de elementos reales (sin '#p') para resolución en Forge Viewer
+        const guidsParaForge = new Set();
+        todosGuidsSet.forEach(g => {
+            const baseG = g.split('#p')[0];
+            if (baseG) guidsParaForge.add(baseG);
+        });
+
+        const guidsArray = Array.from(guidsParaForge);
+        if (!guidsArray.length) {
+            alert(`No se encontraron elementos 3D para la línea "${lineaId}".`);
+            bimRenderReemplazosList();
+            return;
+        }
+
+        // 3. Limpiar coloraciones previas
+        viewer.clearThemingColors(viewer.model);
+
+        // 4. Convertir a dbIds de Forge
+        bimGuidsToDbIds(guidsArray, (dbIds) => {
+            if (!dbIds || !dbIds.length) {
+                console.warn('[Línea 3D] No se pudieron mapear dbIds para:', guidsArray);
+                bimRenderReemplazosList();
+                return;
+            }
+
+            // Mapear cada dbId a su externalId/GUID para discriminar Reemplazo vs Normal
+            viewer.model.getBulkProperties(dbIds, { propFilter: ['externalId', 'GUID', 'Element GUID'] }, (results) => {
+                const dbIdsReemplazo = [];
+                const dbIdsNormales = [];
+
+                (results || []).forEach(r => {
+                    const extId = String(r.externalId || '').trim().toLowerCase();
+                    if (setReemplazo.has(extId)) {
+                        dbIdsReemplazo.push(r.dbId);
+                    } else {
+                        dbIdsNormales.push(r.dbId);
+                    }
+                });
+
+                if (!dbIdsReemplazo.length && setReemplazo.size) {
+                    const baseReemp = Array.from(setReemplazo).map(g => g.split('#p')[0]);
+                    bimGuidsToDbIds(baseReemp, (rIds) => {
+                        aplicarVisualizacion3D(rIds, dbIds.filter(id => !rIds.includes(id)));
+                    });
+                } else {
+                    aplicarVisualizacion3D(dbIdsReemplazo, dbIdsNormales);
+                }
+            });
+
+            function aplicarVisualizacion3D(reempIds, normalIds) {
+                const todosDbIds = [...new Set([...reempIds, ...normalIds])].filter(id => !divState.ocultos.includes(id));
+                bimState.dbIds = todosDbIds;
+                viewer.isolate(todosDbIds);
+                viewer.fitToView(todosDbIds);
+
+                if (typeof bimDivReocultarOriginales === 'function') bimDivReocultarOriginales();
+
+                // 🟡 AMARILLO para spools normales de la línea (#facc15)
+                const colAmarillo = new THREE.Vector4(0.98, 0.80, 0.08, 0.88);
+                normalIds.forEach(id => viewer.setThemingColor(id, colAmarillo, viewer.model, true));
+
+                // 🌸 ROSA para spools a reemplazar (#ec4899)
+                const colRosa = new THREE.Vector4(0.925, 0.282, 0.600, 0.92);
+                reempIds.forEach(id => viewer.setThemingColor(id, colRosa, viewer.model, true));
+
+                // Colorear trozos divididos (si existen)
+                if (divState.trozoMeshes) {
+                    Object.entries(divState.trozoMeshes).forEach(([k, mesh]) => {
+                        const kLower = k.toLowerCase();
+                        const baseG = kLower.split('#p')[0];
+                        if (todosGuidsSet.has(baseG) || todosGuidsSet.has(kLower)) {
+                            mesh.visible = true;
+                            if (setReemplazo.has(kLower) || setReemplazo.has(baseG)) {
+                                mesh.material.color.setHex(0xec4899); // Rosa
+                            } else {
+                                mesh.material.color.setHex(0xfacc15); // Amarillo
+                            }
+                            mesh.material.opacity = 0.9;
+                            mesh.material.transparent = true;
+                        }
+                    });
+                }
+
+                const actionsEl = document.getElementById('bim-actions');
+                if (actionsEl) actionsEl.style.display = 'flex';
+                if (window.innerWidth <= 1024) bimCloseSidebar();
+            }
+        });
+
+        bimRenderReemplazosList();
+
+    } catch (err) {
+        console.error('[BIM Aislar Línea con Reemplazos]', err);
+        bimRenderReemplazosList();
     }
 }
 
@@ -5682,6 +5844,7 @@ if (typeof window !== 'undefined') {
     window.bimBuscarReemplazoTag    = bimBuscarReemplazoTag;
     window.bimFiltrarReemplazosUI   = bimFiltrarReemplazosUI;
     window.bimToggleTodasLineas     = bimToggleTodasLineas;
+    window.bimAislarLineaConReemplazos = bimAislarLineaConReemplazos;
     window.bimToggleElementsList    = bimToggleElementsList;
     window.bimToggleMetaExtra       = bimToggleMetaExtra;
     window.bimToggleSidebar         = bimToggleSidebar;

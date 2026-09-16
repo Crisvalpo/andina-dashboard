@@ -1717,14 +1717,18 @@ app.get('/api/bim/reemplazo/lineas', async (req, res) => {
             let idIso = spoolInfo?.ID_ISO ? String(spoolInfo.ID_ISO).trim() : '';
             let sheet = spoolInfo?.SHEET ? String(spoolInfo.SHEET).trim() : '';
             if (!sheet && idIso) {
-                const matchSheet = idIso.match(/_HOJA-(\d+)/i) || idIso.match(/_H(\d+)/i);
+                const matchSheet = idIso.match(/_HOJA-(\d+)/i) || idIso.match(/_H(\d+)/i) || idIso.match(/HOJA[_-]?(\d+)/i);
                 if (matchSheet) sheet = matchSheet[1];
             }
-            if (!idIso) idIso = sheet ? `Hoja ${sheet}` : 'Sin Isométrico';
+            if (!sheet && spoolInfo?.['ID_SPOOL']) {
+                const matchSheet = String(spoolInfo['ID_SPOOL']).match(/_HOJA-(\d+)/i) || String(spoolInfo['ID_SPOOL']).match(/_H(\d+)/i);
+                if (matchSheet) sheet = matchSheet[1];
+            }
+            if (!idIso) idIso = sheet ? `HOJA-${sheet}` : 'Sin Isométrico';
             allIsosSet.add(idIso.toLowerCase());
 
-            // Etiqueta legible corta del Isométrico para no saturar la barra lateral
-            let isoLabel = sheet ? `Hoja ${sheet}` : (idIso.length > 25 ? idIso.slice(-15) : idIso);
+            // Etiqueta legible sin la cadena de línea: HOJA 1, HOJA 2, etc.
+            let isoLabel = sheet ? `HOJA ${sheet}` : (idIso.replace(/.*_HOJA[_-]?/i, 'HOJA ') || 'HOJA 1');
 
             if (!lineasMap[idLinea]) {
                 lineasMap[idLinea] = {
