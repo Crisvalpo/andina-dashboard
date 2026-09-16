@@ -33,7 +33,9 @@ export const bimState = {
     capa:          'spool',// Capa activa: 'spool' | 'valvula' | 'soporte'
     capaMapeo:     {},     // { valvula: {guidLower:id}, soporte: {...} }
     capaIndex:     {},     // { valvula: {idLower:row}, soporte: {...} }
-    reemplazoLineasCache: null // Caché en memoria de la jerarquía de líneas/reemplazos
+    reemplazoLineasCache: null, // Caché en memoria de la jerarquía de líneas/reemplazos
+    spoolMetaCache:       {},   // Caché de metadata de spool { [tagLower]: { data, ts } }
+    _spoolSelSeq:         0     // Contador de secuencia para evitar race conditions en fetch de metadata
 };
 
 if (typeof window !== 'undefined') {

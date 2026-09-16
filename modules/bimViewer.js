@@ -315,11 +315,13 @@ export function bimStartViewer() {
                             fetch('/api/bim/statuses').then(r => r.json()).catch(() => null),
                             bimCargarColoresEstados(),
                             fetch('/api/bim/estado-conteos').then(r => r.json()).catch(() => null),
-                            fetch('/api/bim/mapeo').then(r => r.json()).catch(() => null)
-                        ]).then(([data, , conteos, mapeo]) => {
+                            fetch('/api/bim/mapeo').then(r => r.json()).catch(() => null),
+                            fetch('/api/bim/spool-index').then(r => r.json()).catch(() => null)
+                        ]).then(([data, , conteos, mapeo, spoolIdx]) => {
                             if (data) bimState.statusesCache = data;
                             if (conteos) bimState.estadoConteos = conteos;
                             if (mapeo) bimState.mapeoSpools = mapeo;
+                            if (spoolIdx) bimState.spoolIndex = spoolIdx;
                             bimRenderStatusChips();
                             // Si por algún motivo ya había un filtro activo, refrescar el panel
                             if (bimState.filtroEstados.size > 0) {
@@ -499,15 +501,33 @@ export function bimStartViewer() {
                                                 if (linkSpoolInput) linkSpoolInput.value = commonSpool !== 'Múltiples Spools' ? commonSpool : '';
 
                                                 if (commonSpool !== 'Múltiples Spools') {
-                                                    // Cargar metadatos del spool para detalles e isométricos (PDF)
-                                                    fetch(`/api/bim/spool/${encodeURIComponent(commonSpool)}`)
-                                                        .then(r => r.json())
-                                                        .then(spoolData => {
-                                                            if (spoolData && spoolData.spool_id) {
-                                                                bimRenderMeta(spoolData);
-                                                            }
-                                                        })
-                                                        .catch(err => console.error('[BIM] Error cargando metadata del spool seleccionado:', err));
+                                                    // Cargar metadatos del spool (con caché)
+                                                    const cacheKey = String(commonSpool).toLowerCase();
+                                                    const cached = bimState.spoolMetaCache[cacheKey];
+                                                    const CACHE_TTL = 5 * 60 * 1000; // 5 min
+                                                    const selStamp = ++bimState._spoolSelSeq;
+
+                                                    if (cached && (Date.now() - cached.ts < CACHE_TTL)) {
+                                                        // Cache hit: render inmediato sin fetch
+                                                        bimRenderMeta(cached.data);
+                                                    } else {
+                                                        // Cache miss: spinner inmediato para no mostrar data vieja
+                                                        bimSetMetaCargando(`Cargando spool ${commonSpool}…`);
+                                                        fetch(`/api/bim/spool/${encodeURIComponent(commonSpool)}`)
+                                                            .then(r => r.json())
+                                                            .then(spoolData => {
+                                                                // Guardar en caché
+                                                                if (spoolData && spoolData.spool_id) {
+                                                                    bimState.spoolMetaCache[cacheKey] = { data: spoolData, ts: Date.now() };
+                                                                }
+                                                                // Solo renderizar si esta selección sigue siendo la vigente
+                                                                if (bimState._spoolSelSeq !== selStamp) return;
+                                                                if (spoolData && spoolData.spool_id) {
+                                                                    bimRenderMeta(spoolData);
+                                                                }
+                                                            })
+                                                            .catch(err => console.error('[BIM] Error cargando metadata del spool seleccionado:', err));
+                                                    }
                                                 } else {
                                                     // Varios spools: el panel de metadata muestra el desglose
                                                     bimSetMeta(bimRenderMultiSpoolMeta(spoolsDistintos));
@@ -723,9 +743,20 @@ export async function bimLoadSpool(spoolId) {
     bimSetMetaCargando('Buscando elementos...');
 
     try {
-        const resp = await fetch(`/api/bim/spool/${encodeURIComponent(spoolId)}`);
-        if (!resp.ok) throw new Error(`Error ${resp.status}`);
-        const data = await resp.json();
+        const cacheKey = String(spoolId).toLowerCase();
+        const cached = bimState.spoolMetaCache[cacheKey];
+        const CACHE_TTL = 5 * 60 * 1000;
+        let data;
+        if (cached && (Date.now() - cached.ts < CACHE_TTL)) {
+            data = cached.data;
+        } else {
+            const resp = await fetch(`/api/bim/spool/${encodeURIComponent(spoolId)}`);
+            if (!resp.ok) throw new Error(`Error ${resp.status}`);
+            data = await resp.json();
+            if (data && data.spool_id) {
+                bimState.spoolMetaCache[cacheKey] = { data, ts: Date.now() };
+            }
+        }
 
         if (!data.guids || data.guids.length === 0) {
             bimSetMeta(`
@@ -1306,11 +1337,10 @@ function bimPintarReemplazosHtml(data) {
             const attrIso = (iso.idIso || '').replace(/"/g, '&quot;');
             const spoolsHtml = iso.spools.map((sp, spIdx) => {
                 const rawIdSpool = String(sp.idSpool || '').trim();
-                // Abreviar ID_SPOOL a sus últimos 4 caracteres (ej: ..._SP01 -> SP01)
-                const spoolAbrev = rawIdSpool ? (rawIdSpool.length > 4 ? rawIdSpool.slice(-4) : rawIdSpool) : '';
+                const d = bimDesglosarSpool(rawIdSpool, sp.tag, l.linea, iso.idIso || ('HOJA-' + (iso.sheet || '1')));
 
                 return `
-                <div class="bim-reemplazo-spool-card" data-spool="${sp.tag}" data-idspool="${rawIdSpool.replace(/"/g, '&quot;')}" style="background: rgba(236,72,153,0.06); border: 1px solid rgba(236,72,153,0.22); border-left: 3px solid #ec4899; border-radius: 5px; padding: 7px 8px; margin-bottom: 5px;">
+                <div class="bim-reemplazo-spool-card" data-spool="${sp.tag}" data-idspool="${(d.idSpool || rawIdSpool).replace(/"/g, '&quot;')}" style="background: rgba(236,72,153,0.06); border: 1px solid rgba(236,72,153,0.22); border-left: 3px solid #ec4899; border-radius: 5px; padding: 7px 8px; margin-bottom: 6px;">
                     <div style="display:flex; justify-content:space-between; align-items:center;">
                         <span style="font-weight:700; color:#f472b6; font-size:0.84rem;">
                             <i class="fas fa-arrows-rotate" style="font-size:0.7rem; margin-right:4px;"></i>Spool ${sp.tag}
@@ -1320,7 +1350,7 @@ function bimPintarReemplazosHtml(data) {
                             <span class="bim-badge" style="background:rgba(255,255,255,0.07); color:var(--text-dim); font-size:0.63rem; padding:1px 5px;">${sp.guids.length} el.</span>
                         </div>
                     </div>
-                    ${spoolAbrev ? `<div style="font-size:0.68rem; color:#93c5fd; font-family:monospace; margin-top:2px; font-weight:600; display:flex; align-items:center; gap:4px;" title="${rawIdSpool.replace(/"/g, '&quot;')}"><i class="fas fa-barcode" style="font-size:0.6rem; opacity:0.8;"></i>${spoolAbrev}</div>` : ''}
+                    ${bimRenderReemplazoDetalleHtml(d, { compact: true })}
                     <div style="display:flex; gap:5px; margin-top:6px;">
                         <button onclick="bimFocoSpoolPorIndice(${lIdx}, ${isoIdx}, ${spIdx})" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; flex:1; justify-content:center;">
                             <i class="fas fa-eye"></i> Ver 3D
@@ -1615,13 +1645,15 @@ export async function bimBuscarReemplazoTag(tag, lineaNombre = '', isoNombre = '
 
     bimState.isProgrammaticSelection = true;
     bimFocoElementoRedline(guids);
+    const d = bimDesglosarSpool('', tag, lineaNombre, isoNombre);
     bimSetMeta(`
         <div class="bim-meta-header" style="background: rgba(236,72,153,0.2); border-color: rgba(236,72,153,0.4);">
             <i class="fas fa-arrows-rotate" style="color: #f472b6;"></i>
             <span style="font-weight:700;">Spool a Reemplazar: ${tag}</span>
             <span class="bim-badge" style="background:#ec4899;">${guids.length} elem.</span>
         </div>
-        <button onclick="bimRenderReemplazosList()" class="bim-scan-btn" style="margin-bottom:10px; padding:6px 10px; font-size:0.75rem; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:var(--text-bright); width:100%; justify-content:center; border-radius:6px; font-weight:600; gap:6px;">
+        ${bimRenderReemplazoDetalleHtml(d)}
+        <button onclick="bimRenderReemplazosList()" class="bim-scan-btn" style="margin-top:8px; margin-bottom:10px; padding:6px 10px; font-size:0.75rem; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:var(--text-bright); width:100%; justify-content:center; border-radius:6px; font-weight:600; gap:6px;">
             <i class="fas fa-arrow-left"></i> Volver a la lista
         </button>
         ${bimRedlineRenderSection(guids, tag, tag, 'REEMPLAZO')}`);
@@ -2495,6 +2527,7 @@ export function bimTrozoRenderPanel(mesh) {
     const subAsignado = (bimState.capaMapeo['subsistema'] || {})[key] || null;
     const reemplazoAsignado = (bimState.capaMapeo['reemplazo'] || {})[key.toLowerCase()] || null;
     const info = tagAsignado && bimState.spoolIndex ? bimState.spoolIndex[String(tagAsignado).toLowerCase()] : null;
+    const desgloseReemplazo = esReemplazo && reemplazoAsignado ? bimDesglosarSpool('', reemplazoAsignado) : null;
 
     // Estado actual (desde el caché de estados, que ya incluye los trozos)
     let status = null;
@@ -2524,7 +2557,8 @@ export function bimTrozoRenderPanel(mesh) {
         <div style="padding:10px;border-radius:8px;background:${vinculoBg};border:1px solid ${vinculoBorder};margin-bottom:10px;">
             <div style="display:flex;justify-content:space-between;font-size:0.85rem;"><span style="opacity:0.7;">${vinculoLabel}:</span><strong style="color:${vinculoColor};">${vinculoActivo}</strong></div>
             ${!esSub && !esReemplazo && info ? `<div style="font-family:monospace;font-size:0.68rem;opacity:0.7;word-break:break-all;margin-top:3px;">${info.id_spool}</div>` : ''}
-            ${status ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-top:4px;"><span style="opacity:0.7;">Estado:</span><strong style="${esReemplazo ? 'color:#f472b6;' : ''}">${status}</strong></div>` : ''}
+            ${esReemplazo && desgloseReemplazo ? bimRenderReemplazoDetalleHtml(desgloseReemplazo) : ''}
+            ${status ? `<div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-top:6px;"><span style="opacity:0.7;">Estado:</span><strong style="${esReemplazo ? 'color:#f472b6;' : ''}">${status}</strong></div>` : ''}
         </div>
         <button class="bim-scan-btn" onclick="bimTrozoDesvincular('${key}')" style="background:rgba(239,68,68,0.12);border-color:rgba(239,68,68,0.3);color:#fca5a5;justify-content:center;width:100%;margin-bottom:8px;">
             <i class="fas fa-unlink"></i> Desvincular de ${vinculoActivo}</button>`
@@ -2689,13 +2723,24 @@ export async function bimTrozoVincular(key) {
             }
         } else {
             if (bimState.mapeoSpools) bimState.mapeoSpools[key] = tag;
+            // Invalidar caché: los elementos del spool cambiaron
+            delete bimState.spoolMetaCache[String(tag).toLowerCase()];
         }
 
         if (!esSub && !esReemplazo) {
             // Estado del spool desde su ficha
             let estadoSpool = null;
             try {
-                const dSpool = await (await fetch(`/api/bim/spool/${encodeURIComponent(tag)}`)).json();
+                const ck = String(tag).toLowerCase();
+                const cc = bimState.spoolMetaCache[ck];
+                const TTL = 5 * 60 * 1000;
+                let dSpool;
+                if (cc && (Date.now() - cc.ts < TTL)) {
+                    dSpool = cc.data;
+                } else {
+                    dSpool = await (await fetch(`/api/bim/spool/${encodeURIComponent(tag)}`)).json();
+                    if (dSpool && dSpool.spool_id) bimState.spoolMetaCache[ck] = { data: dSpool, ts: Date.now() };
+                }
                 estadoSpool = dSpool.estado_actual || null;
             } catch (e) { /* sin ficha, sin estado */ }
             const st = String(estadoSpool || 'SIN ESTADO').toUpperCase();
@@ -2763,6 +2808,9 @@ export async function bimTrozoDesvincular(key) {
                 if (i !== -1) bimState.capaStatuses['REEMPLAZO'].splice(i, 1);
             }
         } else {
+            // Invalidar caché de metadata del spool afectado
+            const tagDesv = bimState.mapeoSpools ? bimState.mapeoSpools[key] : null;
+            if (tagDesv) delete bimState.spoolMetaCache[String(tagDesv).toLowerCase()];
             if (bimState.mapeoSpools) delete bimState.mapeoSpools[key];
         }
         // Sacarlo del caché de estados
@@ -3762,8 +3810,124 @@ export function bimDividirCancelar() {
  * resolviéndolo contra el índice precargado.
  */
 export function bimResolverSpool(tag) {
-    if (!tag || !bimState.spoolIndex) return null;
-    return bimState.spoolIndex[String(tag).toLowerCase()] || null;
+    if (!tag) return null;
+    const key = String(tag).trim().toLowerCase();
+    if (bimState.spoolIndex && bimState.spoolIndex[key]) {
+        return bimState.spoolIndex[key];
+    }
+    // Fallback: buscar en bimState.reemplazoLineasCache
+    if (bimState.reemplazoLineasCache?.lineas) {
+        for (const l of bimState.reemplazoLineasCache.lineas) {
+            for (const iso of (l.isos || [])) {
+                for (const sp of (iso.spools || [])) {
+                    if (String(sp.tag).trim().toLowerCase() === key || String(sp.idSpool).trim().toLowerCase() === key) {
+                        return {
+                            id_spool: sp.idSpool,
+                            tag_gestion: sp.tag,
+                            id_iso: iso.idIso,
+                            id_linea: l.linea,
+                            sheet: iso.sheet
+                        };
+                    }
+                }
+            }
+        }
+    }
+    return null;
+}
+
+/**
+ * Desglosa un spool en sus 4 partes fundamentales solicitadas:
+ * Línea, Hoja, Spool, TAG (y el ID_SPOOL completo).
+ * Ejemplo: 03351-CT-6"-C3-0018-R3 , HOJA-12 , SP01 , tag 223
+ */
+export function bimDesglosarSpool(rawIdSpool, tag = '', lineaFallback = '', isoFallback = '') {
+    let info = null;
+    if (!rawIdSpool && tag) {
+        info = bimResolverSpool(tag);
+        if (info?.id_spool) rawIdSpool = info.id_spool;
+    } else if (rawIdSpool) {
+        info = bimResolverSpool(rawIdSpool) || (tag ? bimResolverSpool(tag) : null);
+    }
+
+    let raw = String(rawIdSpool || '').trim();
+    let linea = info?.id_linea || lineaFallback || '';
+    let hoja = info?.sheet ? (String(info.sheet).toUpperCase().startsWith('HOJA') ? info.sheet : `HOJA-${info.sheet}`) : (info?.id_iso || isoFallback || '');
+    let spool = '';
+    const cleanTag = tag || info?.tag_gestion || '';
+
+    if (raw && raw !== cleanTag) {
+        // Extraer spool final (ej: _SP01, -SP01, _SP12, _SP02A)
+        const spMatch = raw.match(/[_-](SP\d+[A-Z]?)$/i) || raw.match(/[_-](SP\w+)$/i);
+        let resto = raw;
+        if (spMatch) {
+            spool = spMatch[1].toUpperCase();
+            resto = raw.slice(0, spMatch.index);
+        }
+
+        // Extraer hoja (ej: _HOJA-12, _HOJA 12, _H12, _HOJA12)
+        const hojaMatch = resto.match(/[_-]?(HOJA[_-]?\d+|H\d+)/i);
+        if (hojaMatch) {
+            const num = hojaMatch[1].match(/\d+/);
+            hoja = num ? `HOJA-${num[0]}` : hojaMatch[1].toUpperCase().replace('_', '-');
+            if (!linea) {
+                linea = resto.slice(0, hojaMatch.index).replace(/[_-]+$/, '');
+            }
+        } else if (!linea) {
+            linea = resto;
+        }
+    }
+
+    if (!linea && lineaFallback) linea = lineaFallback;
+    if (!hoja) {
+        if (isoFallback) {
+            const num = String(isoFallback).match(/\d+/);
+            hoja = num ? `HOJA-${num[0]}` : String(isoFallback);
+        } else {
+            hoja = 'HOJA 1';
+        }
+    }
+    if (!spool) {
+        spool = cleanTag ? `SP${String(cleanTag).padStart(2, '0')}` : '—';
+    }
+
+    return {
+        idSpool: raw || (linea && hoja && spool ? `${linea}_${hoja}_${spool}` : (cleanTag ? `Spool ${cleanTag}` : '—')),
+        linea: linea || 'Sin Línea',
+        hoja: hoja,
+        spool: spool,
+        tag: cleanTag || '—'
+    };
+}
+
+/**
+ * Renderiza el bloque visual enriquecido con las 4 partes:
+ * Línea, Hoja, Spool, TAG e ID_SPOOL.
+ */
+export function bimRenderReemplazoDetalleHtml(d, { align = 'left', compact = false } = {}) {
+    if (!d) return '';
+    return `
+    <div class="bim-reemplazo-breakdown" style="margin-top:5px; padding:6px 8px; border-radius:6px; background:rgba(15,23,42,0.45); border:1px solid rgba(236,72,153,0.25); text-align:${align};">
+        <div style="display:flex; flex-wrap:wrap; gap:4px; align-items:center; justify-content:${align === 'center' ? 'center' : 'flex-start'}; font-family:monospace; font-size:${compact ? '0.67rem' : '0.73rem'}; line-height:1.3;">
+            <span style="background:rgba(236,72,153,0.18); color:#fbcfe8; border:1px solid rgba(236,72,153,0.35); padding:2px 6px; border-radius:4px; font-weight:700; word-break:break-all;" title="Línea">
+                <i class="fas fa-grip-lines" style="font-size:0.6rem; margin-right:3px; opacity:0.8;"></i>${d.linea}
+            </span>
+            <span style="background:rgba(56,189,248,0.18); color:#7dd3fc; border:1px solid rgba(56,189,248,0.35); padding:2px 6px; border-radius:4px; font-weight:600; white-space:nowrap;" title="Hoja / Isométrico">
+                <i class="fas fa-file-lines" style="font-size:0.6rem; margin-right:3px; opacity:0.8;"></i>${d.hoja}
+            </span>
+            <span style="background:rgba(168,85,247,0.18); color:#d8b4fe; border:1px solid rgba(168,85,247,0.35); padding:2px 6px; border-radius:4px; font-weight:700; white-space:nowrap;" title="Código de Spool">
+                <i class="fas fa-cube" style="font-size:0.6rem; margin-right:3px; opacity:0.8;"></i>${d.spool}
+            </span>
+            <span style="background:rgba(251,191,36,0.18); color:#fde68a; border:1px solid rgba(251,191,36,0.35); padding:2px 6px; border-radius:4px; font-weight:700; white-space:nowrap;" title="TAG Gestión">
+                <i class="fas fa-tag" style="font-size:0.6rem; margin-right:3px; opacity:0.8;"></i>tag ${d.tag}
+            </span>
+        </div>
+        ${d.idSpool && d.idSpool !== d.tag ? `
+            <div style="font-family:monospace; font-size:0.65rem; color:#94a3b8; word-break:break-all; margin-top:4px; display:flex; align-items:center; gap:4px; justify-content:${align === 'center' ? 'center' : 'flex-start'};" title="ID_SPOOL Completo">
+                <i class="fas fa-barcode" style="font-size:0.6rem; opacity:0.7;"></i>
+                <span style="color:#cbd5e1;">${d.idSpool}</span>
+            </div>` : ''}
+    </div>`;
 }
 
 /** Despliega/contrae las tarjetas de detalle adicionales del spool. */
@@ -4798,9 +4962,29 @@ export function bimRedlineLightbox(url, tipo, obs, usuario, fecha, guidsAttr = '
             title.innerHTML = `<i class="fas fa-camera" style="color:#ef4444;"></i> ${tipo || 'Foto Red Line'}`;
         }
         if (info) {
+            let desgloseHtml = '';
+            let spoolTag = '';
+            if (tipo) {
+                const m = tipo.match(/Spool\s+([A-Za-z0-9_-]+)/i);
+                if (m) spoolTag = m[1];
+            }
+            if (!spoolTag && guidsList.length) {
+                for (const g of guidsList) {
+                    const rTag = (bimState.capaMapeo['reemplazo'] || {})[g.toLowerCase()];
+                    if (rTag) { spoolTag = rTag; break; }
+                    const sTag = (bimState.mapeoSpools || {})[g.toLowerCase()];
+                    if (sTag) { spoolTag = sTag; break; }
+                }
+            }
+            if (spoolTag) {
+                const d = bimDesglosarSpool('', spoolTag);
+                desgloseHtml = bimRenderReemplazoDetalleHtml(d, { align: 'center' });
+            }
+
             info.innerHTML = `
                 <div style="font-weight:700; color:#fca5a5; font-size:0.95rem;">${tipo || 'Red Line'}</div>
-                ${obs ? `<div style="opacity:0.95; margin:4px 0; max-width:650px; word-break:break-word;">${obs}</div>` : ''}
+                ${desgloseHtml}
+                ${obs ? `<div style="opacity:0.95; margin:6px 0; max-width:650px; word-break:break-word;">${obs}</div>` : ''}
                 <div style="font-size:0.75rem; opacity:0.6; margin-top:2px; display:flex; gap:8px; align-items:center; justify-content:center;">
                     <span><i class="fas fa-user"></i> ${usuario || 'Desconocido'}</span>
                     <span>•</span>
@@ -4858,7 +5042,8 @@ export async function bimSincronizarFotoReemplazo(tag, guids) {
     if (resizeBar) resizeBar.style.display = 'flex';
 
     if (splitTitle) {
-        splitTitle.innerHTML = `<i class="fas fa-camera" style="color:#ec4899;"></i> Foto Reemplazo — Spool ${tag}`;
+        const d = bimDesglosarSpool('', tag);
+        splitTitle.innerHTML = `<i class="fas fa-camera" style="color:#ec4899;"></i> Foto Reemplazo — Spool ${tag}${d.spool && d.spool !== '—' ? ` (${d.spool})` : ''}`;
     }
 
     if (bimState.viewer) {
@@ -4938,9 +5123,12 @@ export function bimRenderSplitFotoReemplazo(tag, guidsList, fotos, indexActivo =
             </div>`;
     }
 
+    const d = bimDesglosarSpool('', tag);
+
     splitInfo.innerHTML = `
         <div style="font-weight:700; color:#f472b6; font-size:0.95rem;">${r.tipo_modificacion || 'Foto Reemplazo'} (Spool ${tag})</div>
-        ${r.observacion ? `<div style="opacity:0.95; margin:4px 0; max-width:550px; word-break:break-word; font-size:0.82rem; color:#e2e8f0;">${r.observacion}</div>` : ''}
+        ${bimRenderReemplazoDetalleHtml(d, { align: 'center' })}
+        ${r.observacion ? `<div style="opacity:0.95; margin:6px 0; max-width:550px; word-break:break-word; font-size:0.82rem; color:#e2e8f0;">${r.observacion}</div>` : ''}
         <div style="font-size:0.75rem; opacity:0.7; margin-top:2px; display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap;">
             <span><i class="fas fa-user"></i> ${r.usuario || 'Desconocido'}</span>
             <span>•</span>
@@ -5181,13 +5369,16 @@ export async function bimRenderCapaMeta(capa, id, lineData = null) {
         const count = guidsDelSpool.length || 1;
         const firstGuid = guidsDelSpool[0] || '';
 
+        const d = bimDesglosarSpool('', id);
+
         bimSetMeta(`
             <div class="bim-meta-header" style="background: rgba(236,72,153,0.2); border-color: rgba(236,72,153,0.4);">
                 <i class="fas fa-arrows-rotate" style="color: #f472b6;"></i>
                 <span style="font-weight:700;">Spool a Reemplazar: ${id}</span>
                 <span class="bim-badge" style="background:#ec4899;">${count} elem.</span>
             </div>
-            <button onclick="bimRenderReemplazosList()" class="bim-scan-btn" style="margin-bottom:10px; padding:6px 12px; font-size:0.75rem; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:var(--text-bright); width:100%; justify-content:center; border-radius:6px; font-weight:600; gap:6px;">
+            ${bimRenderReemplazoDetalleHtml(d)}
+            <button onclick="bimRenderReemplazosList()" class="bim-scan-btn" style="margin-top:8px; margin-bottom:10px; padding:6px 12px; font-size:0.75rem; background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.18); color:var(--text-bright); width:100%; justify-content:center; border-radius:6px; font-weight:600; gap:6px;">
                 <i class="fas fa-arrow-left"></i> Volver a la lista
             </button>
             ${bimRedlineRenderSection(guidsDelSpool.length ? guidsDelSpool : [firstGuid], id, id, 'REEMPLAZO')}`);
@@ -5339,7 +5530,16 @@ export async function bimRemoveLink() {
 
         // Actualizar localmente la caché del mapeo (eliminar la asignación)
         if (bimState.capa === 'spool') {
-            if (bimState.mapeoSpools) elements.forEach(el => { delete bimState.mapeoSpools[el.guid.toLowerCase()]; });
+            // Recoger los tags afectados ANTES de borrarlos del mapeo para invalidar el caché
+            const tagsAfectados = new Set();
+            if (bimState.mapeoSpools) {
+                elements.forEach(el => {
+                    const tag = bimState.mapeoSpools[el.guid.toLowerCase()];
+                    if (tag) tagsAfectados.add(String(tag).toLowerCase());
+                    delete bimState.mapeoSpools[el.guid.toLowerCase()];
+                });
+            }
+            tagsAfectados.forEach(t => delete bimState.spoolMetaCache[t]);
         } else if (bimState.capaMapeo[bimState.capa]) {
             elements.forEach(el => { delete bimState.capaMapeo[bimState.capa][el.guid.toLowerCase()]; });
         }
@@ -5719,6 +5919,8 @@ export async function bimSaveLink() {
         // Actualizar localmente el mapeo en memoria para reflejar la vinculación de inmediato
         if (capa === 'spool') {
             if (bimState.mapeoSpools) elements.forEach(el => { bimState.mapeoSpools[el.guid.toLowerCase()] = spoolVal; });
+            // Invalidar caché de metadata para que la próxima selección refleje el cambio
+            delete bimState.spoolMetaCache[String(spoolVal).toLowerCase()];
         } else {
             if (!bimState.capaMapeo[capa]) bimState.capaMapeo[capa] = {};
             elements.forEach(el => { bimState.capaMapeo[capa][el.guid.toLowerCase()] = itemId; });
@@ -5906,5 +6108,7 @@ if (typeof window !== 'undefined') {
     window.bimFocoElementoRedline   = bimFocoElementoRedline;
     window.bimObtenerGuidsSeleccionActual = bimObtenerGuidsSeleccionActual;
     window.bimRedlineVincularSeleccionActual = bimRedlineVincularSeleccionActual;
+    window.bimDesglosarSpool        = bimDesglosarSpool;
+    window.bimRenderReemplazoDetalleHtml = bimRenderReemplazoDetalleHtml;
     window.divState                 = divState;
 }

@@ -878,11 +878,13 @@ app.get('/api/bim/spool-index', async (req, res) => {
         spools.forEach(s => {
             const tag     = String(s['TAG GESTION'] || '').trim();
             const idSpool = String(s['ID_SPOOL'] || '').trim();
+            const idLinea = String(s['ID_LINEA'] || s['LINEA'] || '').trim();
             const idIso   = String(s['ID_ISO'] || '').trim() ||
                 (idSpool.includes('_') ? idSpool.substring(0, idSpool.lastIndexOf('_')) : '');
-            if (tag) {
-                index[tag.toLowerCase()] = { id_spool: idSpool, tag_gestion: tag, id_iso: idIso };
-            }
+            const sheet   = String(s['SHEET'] || '').trim();
+            const item = { id_spool: idSpool, tag_gestion: tag, id_iso: idIso, id_linea: idLinea, sheet };
+            if (tag) index[tag.toLowerCase()] = item;
+            if (idSpool) index[idSpool.toLowerCase()] = item;
         });
         res.json(index);
     } catch (e) {
