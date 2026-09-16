@@ -1653,13 +1653,21 @@ async function procesarReemplazoLineas() {
 
     const localMapeo = cargarMapeoReemplazo();
 
-    // Indexar spools por TAG GESTION e ID_SPOOL
+    // Indexar spools por TAG GESTION e ID_SPOOL, y agrupar por línea
     const spoolsIndex = new Map();
+    const spoolsPorLinea = {};
     spoolsRows.forEach(s => {
         const tag = String(s['TAG GESTION'] || '').trim().toLowerCase();
         const idS = String(s['ID_SPOOL'] || '').trim().toLowerCase();
         if (tag) spoolsIndex.set(tag, s);
         if (idS) spoolsIndex.set(idS, s);
+
+        const idLinea = String(s['ID_LINEA'] || s['LINEA'] || '').trim().toLowerCase();
+        if (idLinea) {
+            if (!spoolsPorLinea[idLinea]) spoolsPorLinea[idLinea] = new Set();
+            if (tag) spoolsPorLinea[idLinea].add(tag);
+            if (idS) spoolsPorLinea[idLinea].add(idS);
+        }
     });
 
     // Contar fotos en Supabase por spool_tag y por guids
@@ -1814,20 +1822,30 @@ async function procesarReemplazoLineas() {
         let countSpoolsLinea = 0;
         isos.forEach(i => { countSpoolsLinea += i.totalSpools; });
 
-        // Extraer todos los GUIDs de esta línea de cañería en el modelo 3D (para visualización Línea 3D instantánea)
-        const targetClean = cleanLine(l.linea);
+        // Extraer ÚNICAMENTE los GUIDs vinculados en LIST_Bim_MS que pertenezcan a esta línea:
+        // 1. Elementos con SPOOL LUKEAPP perteneciente a los spools de la línea
+        // 2. O elementos cuyo Line Number coincida exactamente con l.linea
+        // Si no está vinculado en LIST_Bim_MS a esta línea, NO se incluye ni se colorea
+        const lKey = String(l.linea || '').trim().toLowerCase();
+        const tagsDeEstaLinea = spoolsPorLinea[lKey] || new Set();
+
         const guidsTotalesSet = new Set();
         const guidsReemplazoSet = l.guidsSet;
 
         bimRows.forEach(r => {
             const guid = r['Elemento GUID'] || r['GUID'];
             if (!guid) return;
-            const lineCol = String(r['Line Number LUKEAPP'] || r['Line Number'] || r['ID_LINEA'] || r['LINEA'] || r['TAG'] || '').trim();
-            if (cleanLine(lineCol).includes(targetClean) || targetClean.includes(cleanLine(lineCol))) {
+
+            const lineCol = String(r['Line Number LUKEAPP'] || r['Line Number'] || '').trim().toLowerCase();
+            const spoolCol = String(r['SPOOL LUKEAPP'] || '').trim().toLowerCase();
+
+            const perteneceALinea = (lineCol && lineCol === lKey) || (spoolCol && tagsDeEstaLinea.has(spoolCol));
+            if (perteneceALinea) {
                 guidsTotalesSet.add(guid);
             }
         });
-        // Asegurar que todos los de reemplazo estén incluidos
+
+        // Asegurar que todos los elementos de reemplazo de esta línea estén incluidos
         guidsReemplazoSet.forEach(g => {
             const baseG = g.split('#p')[0];
             guidsTotalesSet.add(baseG);
