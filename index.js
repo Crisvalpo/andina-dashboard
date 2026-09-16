@@ -1640,6 +1640,149 @@ app.post('/api/bim/vincular-masivo-agua', requerirPermiso('bim'), async (req, re
     }
 });
 
+// GET /api/bim/reemplazo/lineas → Estructura jerárquica Líneas → Spools → Elementos de reemplazo
+app.get('/api/bim/reemplazo/lineas', async (req, res) => {
+    try {
+        const [bimRows, spoolsRows] = await Promise.all([
+            fetchAppSheetCached('LIST_Bim_MS'),
+            fetchAppSheetCached('LIST_Spools_MS_').catch(() => [])
+        ]);
+
+        const localMapeo = cargarMapeoReemplazo();
+
+        // Indexar spools por TAG GESTION e ID_SPOOL
+        const spoolsIndex = new Map();
+        spoolsRows.forEach(s => {
+            const tag = String(s['TAG GESTION'] || '').trim().toLowerCase();
+            const idS = String(s['ID_SPOOL'] || '').trim().toLowerCase();
+            if (tag) spoolsIndex.set(tag, s);
+            if (idS) spoolsIndex.set(idS, s);
+        });
+
+        // Contar fotos en Supabase por spool_tag y por guids
+        const fotosPorTag = {};
+        const fotosPorGuid = {};
+        try {
+            const supabase = getSupabase();
+            const { data: fotos } = await supabase
+                .from('redline_registros')
+                .select('guid, guids, spool_tag');
+            (fotos || []).forEach(f => {
+                if (f.spool_tag) {
+                    const st = String(f.spool_tag).trim().toLowerCase();
+                    fotosPorTag[st] = (fotosPorTag[st] || 0) + 1;
+                }
+                const gList = Array.isArray(f.guids) && f.guids.length ? f.guids : [f.guid].filter(Boolean);
+                gList.forEach(g => {
+                    const gl = String(g).trim().toLowerCase();
+                    fotosPorGuid[gl] = (fotosPorGuid[gl] || 0) + 1;
+                });
+            });
+        } catch (fotoErr) {
+            console.warn('[BIM Reemplazo Lineas] No se pudieron contar fotos de Supabase:', fotoErr.message);
+        }
+
+        // Agrupar elementos por Línea y Spool
+        const lineasMap = {};
+        const allSpoolsSet = new Set();
+        let totalElementos = 0;
+
+        bimRows.forEach(row => {
+            const guid = String(row['Elemento GUID'] || '').trim();
+            if (!guid) return;
+            const guidLower = guid.toLowerCase();
+
+            const tag = String(row['REEMPLAZO LUKEAPP'] || localMapeo[guidLower] || '').trim();
+            if (!tag) return;
+
+            totalElementos++;
+            allSpoolsSet.add(tag.toLowerCase());
+
+            const spoolInfo = spoolsIndex.get(tag.toLowerCase());
+
+            // Resolver Línea
+            let idLinea = '';
+            if (spoolInfo?.ID_LINEA) {
+                idLinea = String(spoolInfo.ID_LINEA).trim();
+            } else {
+                const rowLine = String(row['Line Number'] || '').trim();
+                const rowTag = String(row['TAG'] || '').trim();
+                if (rowLine && rowLine !== '0') idLinea = rowLine;
+                else if (rowTag && rowTag !== '0') idLinea = rowTag;
+            }
+            if (!idLinea) idLinea = 'Sin Línea Asignada';
+
+            if (!lineasMap[idLinea]) {
+                lineasMap[idLinea] = {
+                    linea: idLinea,
+                    spoolsMap: {},
+                    guidsSet: new Set()
+                };
+            }
+
+            lineasMap[idLinea].guidsSet.add(guid);
+
+            if (!lineasMap[idLinea].spoolsMap[tag]) {
+                lineasMap[idLinea].spoolsMap[tag] = {
+                    tag: tag,
+                    idSpool: spoolInfo ? String(spoolInfo['ID_SPOOL'] || tag).trim() : tag,
+                    area: spoolInfo ? String(spoolInfo['AREA'] || '').trim() : '',
+                    subsistema: spoolInfo ? String(spoolInfo['SUB SISTEMA'] || '').trim() : '',
+                    guids: []
+                };
+            }
+
+            lineasMap[idLinea].spoolsMap[tag].guids.push(guid);
+        });
+
+        // Formatear array de líneas
+        const lineas = Object.values(lineasMap).map(l => {
+            const spools = Object.values(l.spoolsMap).map(sp => {
+                const countFotosTag = fotosPorTag[sp.tag.toLowerCase()] || 0;
+                let countFotosGuids = 0;
+                sp.guids.forEach(g => {
+                    countFotosGuids += (fotosPorGuid[g.toLowerCase()] || 0);
+                });
+                return {
+                    tag: sp.tag,
+                    idSpool: sp.idSpool,
+                    area: sp.area,
+                    subsistema: sp.subsistema,
+                    guids: sp.guids,
+                    fotosCount: Math.max(countFotosTag, countFotosGuids)
+                };
+            }).sort((a, b) => {
+                const na = parseInt(a.tag, 10), nb = parseInt(b.tag, 10);
+                if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                return a.tag.localeCompare(b.tag);
+            });
+
+            return {
+                linea: l.linea,
+                totalElementos: l.guidsSet.size,
+                totalSpools: spools.length,
+                guids: Array.from(l.guidsSet),
+                spools: spools
+            };
+        }).sort((a, b) => {
+            if (a.linea === 'Sin Línea Asignada') return 1;
+            if (b.linea === 'Sin Línea Asignada') return -1;
+            return a.linea.localeCompare(b.linea);
+        });
+
+        res.json({
+            success: true,
+            totalLineas: lineas.length,
+            totalSpools: allSpoolsSet.size,
+            totalElementos: totalElementos,
+            lineas: lineas
+        });
+    } catch (e) {
+        console.error('[BIM Reemplazo Lineas Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // GET /api/bim/:capa/mapeo → { [guidLower]: idItem }
 app.get('/api/bim/:capa/mapeo', async (req, res) => {
     if (req.params.capa === 'subsistema') {
@@ -2468,19 +2611,40 @@ app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => 
             if (g) existing.set(g.toLowerCase(), row);
         });
 
+        // Si es capa reemplazo, intentar deducir la línea desde LIST_Spools_MS_
+        let lineaDeducida = '';
+        if (req.params.capa === 'reemplazo') {
+            try {
+                const spools = await fetchAppSheetCached('LIST_Spools_MS_').catch(() => []);
+                const found = spools.find(s => 
+                    String(s['TAG GESTION'] || '').trim().toLowerCase() === itemId.toLowerCase() ||
+                    String(s['ID_SPOOL'] || '').trim().toLowerCase() === itemId.toLowerCase()
+                );
+                if (found?.ID_LINEA) {
+                    lineaDeducida = String(found.ID_LINEA).trim();
+                }
+            } catch (spoolErr) {
+                console.warn('[BIM Reemplazo vincular auto-linea]', spoolErr.message);
+            }
+        }
+
         const rowsToAdd = [], rowsToEdit = [];
         for (const el of elements) {
             if (!el.guid) continue;
             const k = String(el.guid).trim().toLowerCase();
             const row = existing.get(k);
             if (row) {
-                rowsToEdit.push(bimBuildEditRow(row, capa.col, itemId));
+                const editRow = bimBuildEditRow(row, capa.col, itemId);
+                if (lineaDeducida && (!editRow['Line Number'] || editRow['Line Number'] === '0')) {
+                    editRow['Line Number'] = lineaDeducida;
+                }
+                rowsToEdit.push(editRow);
             } else {
                 rowsToAdd.push({
                     'Elemento GUID': el.guid,
                     [capa.col]:      itemId,
                     'CWP':           el.cwp || '',
-                    'Line Number':   el.line_number || el.layer || '',
+                    'Line Number':   el.line_number || lineaDeducida || el.layer || '',
                     'TAG':           el.tag || el.layer || ''
                 });
             }
