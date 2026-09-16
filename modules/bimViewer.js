@@ -1188,32 +1188,48 @@ export async function bimFiltrarTodosReemplazos() {
     bimAplicarFiltroEstados();
 }
 
-/** Filtra dinámicamente en tiempo real los acordeones de líneas y tarjetas de spools */
+/** Filtra dinámicamente en tiempo real los acordeones de líneas, isométricos y tarjetas de spools */
 export function bimFiltrarReemplazosUI(filtro) {
     const q = String(filtro || '').trim().toLowerCase();
-    const detailsList = document.querySelectorAll('.bim-linea-accordion');
+    const lineaDetailsList = document.querySelectorAll('.bim-linea-accordion');
     let visiblesCount = 0;
 
-    detailsList.forEach(det => {
-        const lineaText = (det.getAttribute('data-linea') || '').toLowerCase();
-        const spoolCards = det.querySelectorAll('.bim-reemplazo-spool-card');
-        let algunSpoolCoincide = false;
+    lineaDetailsList.forEach(lineaDet => {
+        const lineaText = (lineaDet.getAttribute('data-linea') || '').toLowerCase();
+        const isoDetailsList = lineaDet.querySelectorAll('.bim-iso-accordion');
+        let algunIsoCoincide = false;
 
-        spoolCards.forEach(card => {
-            const spTag = (card.getAttribute('data-spool') || '').toLowerCase();
-            const spId = (card.getAttribute('data-idspool') || '').toLowerCase();
-            const coincideSpool = !q || spTag.includes(q) || spId.includes(q) || lineaText.includes(q);
-            card.style.display = coincideSpool ? '' : 'none';
-            if (coincideSpool) algunSpoolCoincide = true;
+        isoDetailsList.forEach(isoDet => {
+            const isoText = (isoDet.getAttribute('data-iso') || '').toLowerCase();
+            const isoSheet = (isoDet.getAttribute('data-sheet') || '').toLowerCase();
+            const spoolCards = isoDet.querySelectorAll('.bim-reemplazo-spool-card');
+            let algunSpoolCoincide = false;
+
+            spoolCards.forEach(card => {
+                const spTag = (card.getAttribute('data-spool') || '').toLowerCase();
+                const spId = (card.getAttribute('data-idspool') || '').toLowerCase();
+                const coincideSpool = !q || spTag.includes(q) || spId.includes(q) || isoText.includes(q) || isoSheet.includes(q) || lineaText.includes(q);
+                card.style.display = coincideSpool ? '' : 'none';
+                if (coincideSpool) algunSpoolCoincide = true;
+            });
+
+            const coincideIso = !q || isoText.includes(q) || isoSheet.includes(q) || lineaText.includes(q);
+            if (coincideIso || algunSpoolCoincide) {
+                isoDet.style.display = '';
+                algunIsoCoincide = true;
+                if (q) isoDet.open = true;
+            } else {
+                isoDet.style.display = 'none';
+            }
         });
 
         const coincideLinea = !q || lineaText.includes(q);
-        if (coincideLinea || algunSpoolCoincide) {
-            det.style.display = '';
+        if (coincideLinea || algunIsoCoincide) {
+            lineaDet.style.display = '';
             visiblesCount++;
-            if (q) det.open = true;
+            if (q) lineaDet.open = true;
         } else {
-            det.style.display = 'none';
+            lineaDet.style.display = 'none';
         }
     });
 
@@ -1223,17 +1239,19 @@ export function bimFiltrarReemplazosUI(filtro) {
     }
 }
 
-/** Expande o colapsa todos los acordeones de líneas */
+/** Expande o colapsa todos los acordeones de líneas e isométricos */
 export function bimToggleTodasLineas(expandir) {
-    const detailsList = document.querySelectorAll('.bim-linea-accordion');
-    detailsList.forEach(det => {
+    document.querySelectorAll('.bim-linea-accordion').forEach(det => {
+        det.open = !!expandir;
+    });
+    document.querySelectorAll('.bim-iso-accordion').forEach(det => {
         det.open = !!expandir;
     });
 }
 
-/** Renderiza la lista completa interactiva de tramos/spools agrupados por línea de cañería en la barra lateral. */
+/** Renderiza la lista completa interactiva organizada por Línea -> Isométrico (Hoja) -> Spool. */
 export async function bimRenderReemplazosList() {
-    bimSetMetaCargando('Cargando reemplazos agrupados por línea...');
+    bimSetMetaCargando('Cargando reemplazos por línea e isométrico...');
     try {
         const res = await fetch('/api/bim/reemplazo/lineas');
         const data = await res.json();
@@ -1250,81 +1268,115 @@ export async function bimRenderReemplazosList() {
 
         const accordionsHtml = data.lineas.map(l => {
             const escLinea = (l.linea || 'Sin Línea').replace(/'/g, "\\'");
-            const spoolsHtml = l.spools.map(sp => {
-                const escTag = String(sp.tag).replace(/'/g, "\\'");
-                const tagDisplay = (sp.idSpool && String(sp.idSpool) !== String(sp.tag)) 
-                    ? `Spool ${sp.tag} <span style="font-size:0.7rem; color:var(--text-dim); font-weight:normal;">(${sp.idSpool})</span>`
-                    : `Spool ${sp.tag}`;
-                const infoExtra = [sp.area ? `Área: ${sp.area}` : '', sp.subsistema ? `Sub: ${sp.subsistema}` : ''].filter(Boolean).join(' • ');
+
+            // Subgrupos de Isométricos
+            const isosHtml = (l.isos || []).map(iso => {
+                const escIso = (iso.idIso || '').replace(/'/g, "\\'");
+                const spoolsHtml = iso.spools.map(sp => {
+                    const escTag = String(sp.tag).replace(/'/g, "\\'");
+                    const infoExtra = [sp.area ? `Área: ${sp.area}` : '', sp.subsistema ? `Sub: ${sp.subsistema}` : ''].filter(Boolean).join(' • ');
+
+                    return `
+                    <div class="bim-reemplazo-spool-card" data-spool="${sp.tag}" data-idspool="${sp.idSpool || ''}" style="background: rgba(236,72,153,0.06); border: 1px solid rgba(236,72,153,0.22); border-left: 3px solid #ec4899; border-radius: 5px; padding: 7px 8px; margin-bottom: 5px;">
+                        <div style="display:flex; justify-content:space-between; align-items:center;">
+                            <span style="font-weight:700; color:#f472b6; font-size:0.84rem;">
+                                <i class="fas fa-arrows-rotate" style="font-size:0.7rem; margin-right:4px;"></i>Spool ${sp.tag}
+                            </span>
+                            <div style="display:flex; align-items:center; gap:4px;">
+                                ${sp.fotosCount > 0 ? `<span class="bim-badge" title="${sp.fotosCount} foto(s) registradas" style="background:rgba(16,185,129,0.2); color:#6ee7b7; border:1px solid rgba(16,185,129,0.35); font-size:0.63rem; padding:1px 5px;"><i class="fas fa-camera"></i> ${sp.fotosCount}</span>` : ''}
+                                <span class="bim-badge" style="background:rgba(255,255,255,0.07); color:var(--text-dim); font-size:0.63rem; padding:1px 5px;">${sp.guids.length} el.</span>
+                            </div>
+                        </div>
+                        ${infoExtra ? `<div style="font-size:0.66rem; color:var(--text-dim); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;" title="${infoExtra}">${infoExtra}</div>` : ''}
+                        <div style="display:flex; gap:5px; margin-top:6px;">
+                            <button onclick="bimFocoElementoRedline(${JSON.stringify(sp.guids).replace(/"/g, '&quot;')})" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; flex:1; justify-content:center;">
+                                <i class="fas fa-eye"></i> Ver 3D
+                            </button>
+                            <button onclick="bimBuscarReemplazoTag('${escTag}', '${escLinea}', '${escIso}')" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light); flex:1; justify-content:center;">
+                                <i class="fas fa-camera"></i> Ficha
+                            </button>
+                        </div>
+                    </div>`;
+                }).join('');
 
                 return `
-                <div class="bim-reemplazo-spool-card" data-spool="${sp.tag}" data-idspool="${sp.idSpool || ''}" style="background: rgba(236,72,153,0.07); border: 1px solid rgba(236,72,153,0.2); border-left: 3px solid #ec4899; border-radius: 5px; padding: 7px 9px; margin-bottom: 6px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 4px;">
-                        <span style="font-weight:700; color:#f472b6; font-size:0.84rem;">
-                            <i class="fas fa-arrows-rotate" style="font-size:0.72rem; margin-right:4px;"></i>${tagDisplay}
-                        </span>
-                        <div style="display:flex; align-items:center; gap:4px;">
-                            ${sp.fotosCount > 0 ? `<span class="bim-badge" title="${sp.fotosCount} foto(s) registradas" style="background:rgba(16,185,129,0.2); color:#6ee7b7; border:1px solid rgba(16,185,129,0.3); font-size:0.65rem; padding:1px 5px;"><i class="fas fa-camera"></i> ${sp.fotosCount}</span>` : ''}
-                            <span class="bim-badge" style="background:rgba(255,255,255,0.06); font-size:0.65rem; padding:1px 5px;">${sp.guids.length} elem.</span>
+                <details class="bim-iso-accordion" data-iso="${iso.idIso}" data-sheet="${iso.sheet || ''}" open style="margin-bottom: 6px; background: rgba(0,0,0,0.2); border: 1px solid rgba(56,189,248,0.25); border-radius: 5px; overflow: hidden;">
+                    <summary style="display: flex; align-items: center; justify-content: space-between; padding: 6px 8px; background: rgba(56,189,248,0.08); cursor: pointer; gap: 6px;">
+                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
+                            <i class="fas fa-chevron-right bim-sub-chevron" style="font-size:0.62rem; color:#38bdf8; transition: transform 0.2s; flex-shrink:0;"></i>
+                            <i class="fas fa-file-lines" style="font-size:0.72rem; color:#38bdf8; flex-shrink:0;"></i>
+                            <span title="${iso.idIso}" style="font-weight: 700; color: #bae6fd; font-size: 0.76rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                                ${iso.label}
+                            </span>
+                            <span style="font-size: 0.65rem; color: var(--text-dim); flex-shrink: 0;">(${iso.totalSpools} spools)</span>
                         </div>
-                    </div>
-                    ${infoExtra ? `<div style="font-size:0.68rem; color:var(--text-dim); margin-bottom:5px;">${infoExtra}</div>` : ''}
-                    <div style="display:flex; gap:5px; margin-top:5px;">
-                        <button onclick="bimFocoElementoRedline(${JSON.stringify(sp.guids).replace(/"/g, '&quot;')})" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(236,72,153,0.2); border-color:rgba(236,72,153,0.4); color:#f472b6; flex:1; justify-content:center;">
-                            <i class="fas fa-eye"></i> Ver 3D
+                        <button onclick="event.stopPropagation(); bimFocoElementoRedline(${JSON.stringify(iso.guids).replace(/"/g, '&quot;')})" title="Aislar y enfocar isométrico completo en 3D" class="bim-scan-btn" style="padding: 2px 6px; font-size: 0.65rem; background: rgba(56,189,248,0.2); border-color: rgba(56,189,248,0.4); color: #bae6fd; flex-shrink: 0;">
+                            <i class="fas fa-eye"></i> ISO 3D
                         </button>
-                        <button onclick="bimBuscarReemplazoTag('${escTag}', '${escLinea}')" class="bim-scan-btn" style="padding:3px 6px; font-size:0.69rem; background:rgba(99,102,241,0.2); border-color:rgba(99,102,241,0.4); color:var(--primary-light); flex:1; justify-content:center;">
-                            <i class="fas fa-camera"></i> Ficha
-                        </button>
+                    </summary>
+                    <div style="padding: 6px 6px 2px 6px;">
+                        ${spoolsHtml}
                     </div>
-                </div>`;
+                </details>`;
             }).join('');
 
             return `
-            <details class="bim-linea-accordion" data-linea="${l.linea}" open style="margin-bottom: 8px; background: rgba(255,255,255,0.02); border: 1px solid rgba(236,72,153,0.25); border-radius: 6px; overflow: hidden;">
-                <summary style="display: flex; align-items: center; justify-content: space-between; padding: 7px 9px; background: rgba(236,72,153,0.12); cursor: pointer; gap: 6px;">
-                    <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
+            <details class="bim-linea-accordion" data-linea="${l.linea}" open style="margin-bottom: 10px; background: rgba(255,255,255,0.02); border: 1px solid rgba(236,72,153,0.3); border-radius: 6px; overflow: hidden;">
+                <summary style="display: flex; flex-direction: column; padding: 8px 10px; background: rgba(236,72,153,0.14); cursor: pointer; gap: 5px;">
+                    <!-- Fila 1: Nombre completo de la línea -->
+                    <div style="display: flex; align-items: center; gap: 6px; width: 100%;">
                         <i class="fas fa-chevron-right bim-linea-chevron" style="font-size:0.68rem; color:#f472b6; transition: transform 0.2s; flex-shrink:0;"></i>
-                        <span title="${l.linea}" style="font-weight: 700; color: #fbcfe8; font-size: 0.78rem; font-family: monospace; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+                        <span title="${l.linea}" style="font-weight: 700; color: #fbcfe8; font-size: 0.78rem; font-family: monospace; word-break: break-all; line-height: 1.25; flex: 1;">
                             ${l.linea}
                         </span>
                     </div>
-                    <div style="display: flex; align-items: center; gap: 4px; flex-shrink: 0;">
-                        <span class="bim-badge" style="background: rgba(236,72,153,0.25); color: #fbcfe8; font-size: 0.63rem; padding: 1px 5px;">${l.totalSpools} spools</span>
-                        <span class="bim-badge" style="background: rgba(255,255,255,0.08); color: var(--text-dim); font-size: 0.63rem; padding: 1px 5px;">${l.totalElementos} el.</span>
-                        <button onclick="event.stopPropagation(); bimFocoElementoRedline(${JSON.stringify(l.guids).replace(/"/g, '&quot;')})" title="Aislar y enfocar toda la línea en 3D" class="bim-scan-btn" style="padding: 2px 6px; font-size: 0.66rem; background: rgba(236,72,153,0.3); border-color: rgba(236,72,153,0.5); color: #fff; margin-left: 2px;">
+                    <!-- Fila 2: Métricas ordenadas y botón 3D -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%; padding-left: 14px; box-sizing: border-box;">
+                        <div style="display: flex; align-items: center; gap: 4px; flex-wrap: wrap;">
+                            <span class="bim-badge" style="background: rgba(56,189,248,0.18); color: #7dd3fc; border: 1px solid rgba(56,189,248,0.3); font-size: 0.62rem; padding: 1px 5px;">
+                                <i class="fas fa-layer-group"></i> ${l.totalIsos} hojas
+                            </span>
+                            <span class="bim-badge" style="background: rgba(236,72,153,0.22); color: #fbcfe8; font-size: 0.62rem; padding: 1px 5px;">
+                                ${l.totalSpools} spools
+                            </span>
+                            <span class="bim-badge" style="background: rgba(255,255,255,0.08); color: var(--text-dim); font-size: 0.62rem; padding: 1px 5px;">
+                                ${l.totalElementos} el.
+                            </span>
+                        </div>
+                        <button onclick="event.stopPropagation(); bimFocoElementoRedline(${JSON.stringify(l.guids).replace(/"/g, '&quot;')})" title="Aislar y enfocar toda la línea en 3D" class="bim-scan-btn" style="padding: 2px 7px; font-size: 0.66rem; background: rgba(236,72,153,0.3); border-color: rgba(236,72,153,0.5); color: #fff; flex-shrink: 0;">
                             <i class="fas fa-eye"></i> Línea 3D
                         </button>
                     </div>
                 </summary>
                 <div style="padding: 7px 7px 2px 7px;">
-                    ${spoolsHtml}
+                    ${isosHtml}
                 </div>
             </details>`;
         }).join('');
 
         bimSetMeta(`
             <style>
-                .bim-linea-accordion > summary { list-style: none; user-select: none; }
-                .bim-linea-accordion > summary::-webkit-details-marker { display: none; }
-                .bim-linea-accordion[open] .bim-linea-chevron { transform: rotate(90deg); }
+                .bim-linea-accordion > summary, .bim-iso-accordion > summary { list-style: none; user-select: none; }
+                .bim-linea-accordion > summary::-webkit-details-marker, .bim-iso-accordion > summary::-webkit-details-marker { display: none; }
+                .bim-linea-accordion[open] > summary .bim-linea-chevron { transform: rotate(90deg); }
+                .bim-iso-accordion[open] > summary .bim-sub-chevron { transform: rotate(90deg); }
             </style>
             <div class="bim-meta-header" style="background: rgba(236,72,153,0.18); border-color: rgba(236,72,153,0.35);">
                 <i class="fas fa-list-check" style="color:#f472b6;"></i>
-                <span style="font-weight:700;">Reemplazos por Línea</span>
+                <span style="font-weight:700;">Reemplazos por Línea e ISO</span>
                 <button onclick="bimFiltrarTodosReemplazos()" style="margin-left:auto; background:rgba(236,72,153,0.3); border:1px solid rgba(236,72,153,0.5); color:#fff; border-radius:4px; padding:2px 8px; font-size:0.7rem; cursor:pointer;">
                     <i class="fas fa-filter"></i> Ver Todos 3D
                 </button>
             </div>
             <div style="padding: 8px 0 4px 0;">
                 <div style="position: relative; margin-bottom: 6px;">
-                    <input type="text" id="bim-reemplazo-busqueda" placeholder="Buscar por línea o spool..." 
+                    <input type="text" id="bim-reemplazo-busqueda" placeholder="Buscar línea, isométrico o spool..." 
                            oninput="bimFiltrarReemplazosUI(this.value)" 
                            style="width: 100%; box-sizing: border-box; padding: 5px 8px 5px 26px; background: rgba(0,0,0,0.3); border: 1px solid rgba(236,72,153,0.35); border-radius: 5px; color: #fff; font-size: 0.76rem;">
                     <i class="fas fa-search" style="position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 0.7rem; color: #f472b6; opacity: 0.8;"></i>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 8px; font-size: 0.7rem; color: var(--text-dim);">
-                    <span>${data.totalLineas} línea(s) • ${data.totalSpools} spools • ${data.totalElementos} elem.</span>
+                    <span>${data.totalLineas} líneas • ${data.totalIsos} hojas • ${data.totalSpools} spools</span>
                     <div style="display:flex; gap:4px;">
                         <button onclick="bimToggleTodasLineas(true)" style="background:transparent; border:none; color:#f472b6; cursor:pointer; font-size:0.68rem; text-decoration:underline;">Expandir</button>
                         <span>•</span>
@@ -1336,7 +1388,7 @@ export async function bimRenderReemplazosList() {
                 ${accordionsHtml}
                 <div id="bim-reemplazo-no-results" style="display:none; text-align:center; padding:15px; color:var(--text-dim); font-size:0.75rem;">
                     <i class="fas fa-search" style="font-size:1.2rem; margin-bottom:6px; opacity:0.5;"></i>
-                    <p>No se encontraron líneas ni spools que coincidan.</p>
+                    <p>No se encontraron coincidencias.</p>
                 </div>
             </div>
         `);
@@ -1346,8 +1398,8 @@ export async function bimRenderReemplazosList() {
     }
 }
 
-/** Despliega la vista detallada de un spool a reemplazar con su ficha de fotos y referencia de línea. */
-export async function bimBuscarReemplazoTag(tag, lineaNombre = '') {
+/** Despliega la vista detallada de un spool a reemplazar con su ficha de fotos y referencias. */
+export async function bimBuscarReemplazoTag(tag, lineaNombre = '', isoNombre = '') {
     if (!tag) return;
     const mapeo = await (await fetch('/api/bim/reemplazo/mapeo')).json() || {};
     const guids = Object.entries(mapeo)
@@ -1367,12 +1419,13 @@ export async function bimBuscarReemplazoTag(tag, lineaNombre = '') {
             <span style="font-weight:700;">Spool a Reemplazar: ${tag}</span>
             <span class="bim-badge" style="background:#ec4899;">${guids.length} elem.</span>
         </div>
-        <div class="bim-meta-card" style="background: rgba(236,72,153,0.12); border: 1px solid rgba(236,72,153,0.3); border-left: 4px solid #ec4899; margin-bottom:10px;">
-            ${lineaNombre ? `<div style="font-size:0.74rem; color:#fbcfe8; margin-bottom:5px;"><i class="fas fa-project-diagram" style="margin-right:4px;"></i> Línea: <strong style="font-family:monospace; color:#fff;">${lineaNombre}</strong></div>` : ''}
-            <div style="font-size:0.8rem; color:#f472b6; font-weight:600; margin-bottom:4px;">TAG Reemplazo: Spool ${tag}</div>
-            <div style="font-size:0.75rem; color:var(--text-dim);">Elementos aislados y enfocados en el modelo 3D.</div>
-            <button onclick="bimRenderReemplazosList()" class="bim-scan-btn" style="margin-top:8px; padding:3px 8px; font-size:0.72rem; background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.15); color:var(--text-bright); width:100%; justify-content:center;">
-                <i class="fas fa-arrow-left"></i> Volver a la lista de líneas
+        <div class="bim-meta-card" style="background: rgba(236,72,153,0.12); border: 1px solid rgba(236,72,153,0.3); border-left: 4px solid #ec4899; margin-bottom:10px; display:flex; flex-direction:column; gap:4px;">
+            ${lineaNombre ? `<div style="font-size:0.73rem; color:#fbcfe8;"><i class="fas fa-project-diagram" style="margin-right:4px;"></i> Línea: <strong style="font-family:monospace; color:#fff; word-break:break-all;">${lineaNombre}</strong></div>` : ''}
+            ${isoNombre ? `<div style="font-size:0.71rem; color:#bae6fd;"><i class="fas fa-file-lines" style="margin-right:4px;"></i> ISO: <span style="font-family:monospace; color:#e0f2fe; word-break:break-all;">${isoNombre}</span></div>` : ''}
+            <div style="font-size:0.8rem; color:#f472b6; font-weight:600; margin-top:2px;">TAG Reemplazo: Spool ${tag}</div>
+            <div style="font-size:0.72rem; color:var(--text-dim);">Elementos aislados y enfocados en el modelo 3D.</div>
+            <button onclick="bimRenderReemplazosList()" class="bim-scan-btn" style="margin-top:6px; padding:3px 8px; font-size:0.72rem; background:rgba(255,255,255,0.08); border-color:rgba(255,255,255,0.15); color:var(--text-bright); width:100%; justify-content:center;">
+                <i class="fas fa-arrow-left"></i> Volver a la lista agrupada
             </button>
         </div>
         ${bimRedlineRenderSection(guids, tag, tag, 'REEMPLAZO')}`);

@@ -1682,9 +1682,10 @@ app.get('/api/bim/reemplazo/lineas', async (req, res) => {
             console.warn('[BIM Reemplazo Lineas] No se pudieron contar fotos de Supabase:', fotoErr.message);
         }
 
-        // Agrupar elementos por Línea y Spool
+        // Agrupar elementos por Línea -> Isométrico -> Spool
         const lineasMap = {};
         const allSpoolsSet = new Set();
+        const allIsosSet = new Set();
         let totalElementos = 0;
 
         bimRows.forEach(row => {
@@ -1700,7 +1701,7 @@ app.get('/api/bim/reemplazo/lineas', async (req, res) => {
 
             const spoolInfo = spoolsIndex.get(tag.toLowerCase());
 
-            // Resolver Línea
+            // 1. Resolver Línea
             let idLinea = '';
             if (spoolInfo?.ID_LINEA) {
                 idLinea = String(spoolInfo.ID_LINEA).trim();
@@ -1712,57 +1713,104 @@ app.get('/api/bim/reemplazo/lineas', async (req, res) => {
             }
             if (!idLinea) idLinea = 'Sin Línea Asignada';
 
+            // 2. Resolver Isométrico y Hoja
+            let idIso = spoolInfo?.ID_ISO ? String(spoolInfo.ID_ISO).trim() : '';
+            let sheet = spoolInfo?.SHEET ? String(spoolInfo.SHEET).trim() : '';
+            if (!sheet && idIso) {
+                const matchSheet = idIso.match(/_HOJA-(\d+)/i) || idIso.match(/_H(\d+)/i);
+                if (matchSheet) sheet = matchSheet[1];
+            }
+            if (!idIso) idIso = sheet ? `Hoja ${sheet}` : 'Sin Isométrico';
+            allIsosSet.add(idIso.toLowerCase());
+
+            // Etiqueta legible corta del Isométrico para no saturar la barra lateral
+            let isoLabel = sheet ? `Hoja ${sheet}` : (idIso.length > 25 ? idIso.slice(-15) : idIso);
+
             if (!lineasMap[idLinea]) {
                 lineasMap[idLinea] = {
                     linea: idLinea,
-                    spoolsMap: {},
-                    guidsSet: new Set()
+                    guidsSet: new Set(),
+                    isosMap: {}
                 };
             }
-
             lineasMap[idLinea].guidsSet.add(guid);
 
-            if (!lineasMap[idLinea].spoolsMap[tag]) {
-                lineasMap[idLinea].spoolsMap[tag] = {
+            if (!lineasMap[idLinea].isosMap[idIso]) {
+                lineasMap[idLinea].isosMap[idIso] = {
+                    idIso: idIso,
+                    sheet: sheet,
+                    label: isoLabel,
+                    guidsSet: new Set(),
+                    spoolsMap: {}
+                };
+            }
+            lineasMap[idLinea].isosMap[idIso].guidsSet.add(guid);
+
+            if (!lineasMap[idLinea].isosMap[idIso].spoolsMap[tag]) {
+                lineasMap[idLinea].isosMap[idIso].spoolsMap[tag] = {
                     tag: tag,
                     idSpool: spoolInfo ? String(spoolInfo['ID_SPOOL'] || tag).trim() : tag,
                     area: spoolInfo ? String(spoolInfo['AREA'] || '').trim() : '',
                     subsistema: spoolInfo ? String(spoolInfo['SUB SISTEMA'] || '').trim() : '',
+                    sheet: sheet,
+                    idIso: idIso,
                     guids: []
                 };
             }
 
-            lineasMap[idLinea].spoolsMap[tag].guids.push(guid);
+            lineasMap[idLinea].isosMap[idIso].spoolsMap[tag].guids.push(guid);
         });
 
-        // Formatear array de líneas
+        // Formatear array jerárquico de líneas -> isos -> spools
         const lineas = Object.values(lineasMap).map(l => {
-            const spools = Object.values(l.spoolsMap).map(sp => {
-                const countFotosTag = fotosPorTag[sp.tag.toLowerCase()] || 0;
-                let countFotosGuids = 0;
-                sp.guids.forEach(g => {
-                    countFotosGuids += (fotosPorGuid[g.toLowerCase()] || 0);
+            const isos = Object.values(l.isosMap).map(iso => {
+                const spools = Object.values(iso.spoolsMap).map(sp => {
+                    const countFotosTag = fotosPorTag[sp.tag.toLowerCase()] || 0;
+                    let countFotosGuids = 0;
+                    sp.guids.forEach(g => {
+                        countFotosGuids += (fotosPorGuid[g.toLowerCase()] || 0);
+                    });
+                    return {
+                        tag: sp.tag,
+                        idSpool: sp.idSpool,
+                        area: sp.area,
+                        subsistema: sp.subsistema,
+                        sheet: sp.sheet,
+                        idIso: sp.idIso,
+                        guids: sp.guids,
+                        fotosCount: Math.max(countFotosTag, countFotosGuids)
+                    };
+                }).sort((a, b) => {
+                    const na = parseInt(a.tag, 10), nb = parseInt(b.tag, 10);
+                    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+                    return a.tag.localeCompare(b.tag);
                 });
+
                 return {
-                    tag: sp.tag,
-                    idSpool: sp.idSpool,
-                    area: sp.area,
-                    subsistema: sp.subsistema,
-                    guids: sp.guids,
-                    fotosCount: Math.max(countFotosTag, countFotosGuids)
+                    idIso: iso.idIso,
+                    sheet: iso.sheet,
+                    label: iso.label,
+                    totalElementos: iso.guidsSet.size,
+                    totalSpools: spools.length,
+                    guids: Array.from(iso.guidsSet),
+                    spools: spools
                 };
             }).sort((a, b) => {
-                const na = parseInt(a.tag, 10), nb = parseInt(b.tag, 10);
+                const na = parseInt(a.sheet, 10), nb = parseInt(b.sheet, 10);
                 if (!isNaN(na) && !isNaN(nb)) return na - nb;
-                return a.tag.localeCompare(b.tag);
+                return a.label.localeCompare(b.label);
             });
+
+            let countSpoolsLinea = 0;
+            isos.forEach(i => { countSpoolsLinea += i.totalSpools; });
 
             return {
                 linea: l.linea,
                 totalElementos: l.guidsSet.size,
-                totalSpools: spools.length,
+                totalIsos: isos.length,
+                totalSpools: countSpoolsLinea,
                 guids: Array.from(l.guidsSet),
-                spools: spools
+                isos: isos
             };
         }).sort((a, b) => {
             if (a.linea === 'Sin Línea Asignada') return 1;
@@ -1773,6 +1821,7 @@ app.get('/api/bim/reemplazo/lineas', async (req, res) => {
         res.json({
             success: true,
             totalLineas: lineas.length,
+            totalIsos: allIsosSet.size,
             totalSpools: allSpoolsSet.size,
             totalElementos: totalElementos,
             lineas: lineas
