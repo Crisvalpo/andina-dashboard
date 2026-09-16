@@ -1640,196 +1640,266 @@ app.post('/api/bim/vincular-masivo-agua', requerirPermiso('bim'), async (req, re
     }
 });
 
-// GET /api/bim/reemplazo/lineas → Estructura jerárquica Líneas → Spools → Elementos de reemplazo
-app.get('/api/bim/reemplazo/lineas', async (req, res) => {
+// Caché en memoria para la jerarquía de reemplazos (5 minutos TTL, stale-while-revalidate)
+let bimReemplazoLineasCache = { data: null, timestamp: 0 };
+let bimReemplazoLineasEnVuelo = null;
+const BIM_REEMPLAZO_CACHE_TTL = 5 * 60 * 1000;
+
+async function procesarReemplazoLineas() {
+    const [bimRows, spoolsRows] = await Promise.all([
+        fetchAppSheetCached('LIST_Bim_MS'),
+        fetchAppSheetCached('LIST_Spools_MS_').catch(() => [])
+    ]);
+
+    const localMapeo = cargarMapeoReemplazo();
+
+    // Indexar spools por TAG GESTION e ID_SPOOL
+    const spoolsIndex = new Map();
+    spoolsRows.forEach(s => {
+        const tag = String(s['TAG GESTION'] || '').trim().toLowerCase();
+        const idS = String(s['ID_SPOOL'] || '').trim().toLowerCase();
+        if (tag) spoolsIndex.set(tag, s);
+        if (idS) spoolsIndex.set(idS, s);
+    });
+
+    // Contar fotos en Supabase por spool_tag y por guids
+    const fotosPorTag = {};
+    const fotosPorGuid = {};
     try {
-        const [bimRows, spoolsRows] = await Promise.all([
-            fetchAppSheetCached('LIST_Bim_MS'),
-            fetchAppSheetCached('LIST_Spools_MS_').catch(() => [])
-        ]);
-
-        const localMapeo = cargarMapeoReemplazo();
-
-        // Indexar spools por TAG GESTION e ID_SPOOL
-        const spoolsIndex = new Map();
-        spoolsRows.forEach(s => {
-            const tag = String(s['TAG GESTION'] || '').trim().toLowerCase();
-            const idS = String(s['ID_SPOOL'] || '').trim().toLowerCase();
-            if (tag) spoolsIndex.set(tag, s);
-            if (idS) spoolsIndex.set(idS, s);
-        });
-
-        // Contar fotos en Supabase por spool_tag y por guids
-        const fotosPorTag = {};
-        const fotosPorGuid = {};
-        try {
-            const supabase = getSupabase();
-            const { data: fotos } = await supabase
-                .from('redline_registros')
-                .select('guid, guids, spool_tag');
-            (fotos || []).forEach(f => {
-                if (f.spool_tag) {
-                    const st = String(f.spool_tag).trim().toLowerCase();
-                    fotosPorTag[st] = (fotosPorTag[st] || 0) + 1;
-                }
-                const gList = Array.isArray(f.guids) && f.guids.length ? f.guids : [f.guid].filter(Boolean);
-                gList.forEach(g => {
-                    const gl = String(g).trim().toLowerCase();
-                    fotosPorGuid[gl] = (fotosPorGuid[gl] || 0) + 1;
-                });
+        const supabase = getSupabase();
+        const { data: fotos } = await supabase
+            .from('redline_registros')
+            .select('guid, guids, spool_tag');
+        (fotos || []).forEach(f => {
+            if (f.spool_tag) {
+                const st = String(f.spool_tag).trim().toLowerCase();
+                fotosPorTag[st] = (fotosPorTag[st] || 0) + 1;
+            }
+            const gList = Array.isArray(f.guids) && f.guids.length ? f.guids : [f.guid].filter(Boolean);
+            gList.forEach(g => {
+                const gl = String(g).trim().toLowerCase();
+                fotosPorGuid[gl] = (fotosPorGuid[gl] || 0) + 1;
             });
-        } catch (fotoErr) {
-            console.warn('[BIM Reemplazo Lineas] No se pudieron contar fotos de Supabase:', fotoErr.message);
+        });
+    } catch (fotoErr) {
+        console.warn('[BIM Reemplazo Lineas] No se pudieron contar fotos de Supabase:', fotoErr.message);
+    }
+
+    // Agrupar elementos por Línea -> Isométrico -> Spool
+    const lineasMap = {};
+    const allSpoolsSet = new Set();
+    const allIsosSet = new Set();
+    let totalElementos = 0;
+
+    bimRows.forEach(row => {
+        const guid = String(row['Elemento GUID'] || '').trim();
+        if (!guid) return;
+        const guidLower = guid.toLowerCase();
+
+        const tag = String(row['REEMPLAZO LUKEAPP'] || localMapeo[guidLower] || '').trim();
+        if (!tag) return;
+
+        totalElementos++;
+        allSpoolsSet.add(tag.toLowerCase());
+
+        const spoolInfo = spoolsIndex.get(tag.toLowerCase());
+
+        // 1. Resolver Línea
+        let idLinea = '';
+        if (spoolInfo?.ID_LINEA) {
+            idLinea = String(spoolInfo.ID_LINEA).trim();
+        } else {
+            const rowLine = String(row['Line Number'] || '').trim();
+            const rowTag = String(row['TAG'] || '').trim();
+            if (rowLine && rowLine !== '0') idLinea = rowLine;
+            else if (rowTag && rowTag !== '0') idLinea = rowTag;
+        }
+        if (!idLinea) idLinea = 'Sin Línea Asignada';
+
+        // 2. Resolver Isométrico y Hoja
+        let idIso = spoolInfo?.ID_ISO ? String(spoolInfo.ID_ISO).trim() : '';
+        let sheet = spoolInfo?.SHEET ? String(spoolInfo.SHEET).trim() : '';
+        if (!sheet && idIso) {
+            const matchSheet = idIso.match(/_HOJA-(\d+)/i) || idIso.match(/_H(\d+)/i) || idIso.match(/HOJA[_-]?(\d+)/i);
+            if (matchSheet) sheet = matchSheet[1];
+        }
+        if (!sheet && spoolInfo?.['ID_SPOOL']) {
+            const matchSheet = String(spoolInfo['ID_SPOOL']).match(/_HOJA-(\d+)/i) || String(spoolInfo['ID_SPOOL']).match(/_H(\d+)/i);
+            if (matchSheet) sheet = matchSheet[1];
+        }
+        if (!idIso) idIso = sheet ? `HOJA-${sheet}` : 'Sin Isométrico';
+        allIsosSet.add(idIso.toLowerCase());
+
+        // Etiqueta legible sin la cadena de línea: HOJA 1, HOJA 2, etc.
+        let isoLabel = sheet ? `HOJA ${sheet}` : (idIso.replace(/.*_HOJA[_-]?/i, 'HOJA ') || 'HOJA 1');
+
+        if (!lineasMap[idLinea]) {
+            lineasMap[idLinea] = {
+                linea: idLinea,
+                guidsSet: new Set(),
+                isosMap: {}
+            };
+        }
+        lineasMap[idLinea].guidsSet.add(guid);
+
+        if (!lineasMap[idLinea].isosMap[idIso]) {
+            lineasMap[idLinea].isosMap[idIso] = {
+                idIso: idIso,
+                sheet: sheet,
+                label: isoLabel,
+                guidsSet: new Set(),
+                spoolsMap: {}
+            };
+        }
+        lineasMap[idLinea].isosMap[idIso].guidsSet.add(guid);
+
+        if (!lineasMap[idLinea].isosMap[idIso].spoolsMap[tag]) {
+            lineasMap[idLinea].isosMap[idIso].spoolsMap[tag] = {
+                tag: tag,
+                idSpool: spoolInfo ? String(spoolInfo['ID_SPOOL'] || tag).trim() : tag,
+                area: spoolInfo ? String(spoolInfo['AREA'] || '').trim() : '',
+                subsistema: spoolInfo ? String(spoolInfo['SUB SISTEMA'] || '').trim() : '',
+                sheet: sheet,
+                idIso: idIso,
+                guids: []
+            };
         }
 
-        // Agrupar elementos por Línea -> Isométrico -> Spool
-        const lineasMap = {};
-        const allSpoolsSet = new Set();
-        const allIsosSet = new Set();
-        let totalElementos = 0;
+        lineasMap[idLinea].isosMap[idIso].spoolsMap[tag].guids.push(guid);
+    });
 
-        bimRows.forEach(row => {
-            const guid = String(row['Elemento GUID'] || '').trim();
-            if (!guid) return;
-            const guidLower = guid.toLowerCase();
+    // Función auxiliar para comparar nombres de línea
+    const cleanLine = s => String(s || '').replace(/"/g, '_').replace(/-(HC_HOJA|HOJA|HC|N|R\d+|REV\d+).*$/i, '').toLowerCase().trim();
 
-            const tag = String(row['REEMPLAZO LUKEAPP'] || localMapeo[guidLower] || '').trim();
-            if (!tag) return;
-
-            totalElementos++;
-            allSpoolsSet.add(tag.toLowerCase());
-
-            const spoolInfo = spoolsIndex.get(tag.toLowerCase());
-
-            // 1. Resolver Línea
-            let idLinea = '';
-            if (spoolInfo?.ID_LINEA) {
-                idLinea = String(spoolInfo.ID_LINEA).trim();
-            } else {
-                const rowLine = String(row['Line Number'] || '').trim();
-                const rowTag = String(row['TAG'] || '').trim();
-                if (rowLine && rowLine !== '0') idLinea = rowLine;
-                else if (rowTag && rowTag !== '0') idLinea = rowTag;
-            }
-            if (!idLinea) idLinea = 'Sin Línea Asignada';
-
-            // 2. Resolver Isométrico y Hoja
-            let idIso = spoolInfo?.ID_ISO ? String(spoolInfo.ID_ISO).trim() : '';
-            let sheet = spoolInfo?.SHEET ? String(spoolInfo.SHEET).trim() : '';
-            if (!sheet && idIso) {
-                const matchSheet = idIso.match(/_HOJA-(\d+)/i) || idIso.match(/_H(\d+)/i) || idIso.match(/HOJA[_-]?(\d+)/i);
-                if (matchSheet) sheet = matchSheet[1];
-            }
-            if (!sheet && spoolInfo?.['ID_SPOOL']) {
-                const matchSheet = String(spoolInfo['ID_SPOOL']).match(/_HOJA-(\d+)/i) || String(spoolInfo['ID_SPOOL']).match(/_H(\d+)/i);
-                if (matchSheet) sheet = matchSheet[1];
-            }
-            if (!idIso) idIso = sheet ? `HOJA-${sheet}` : 'Sin Isométrico';
-            allIsosSet.add(idIso.toLowerCase());
-
-            // Etiqueta legible sin la cadena de línea: HOJA 1, HOJA 2, etc.
-            let isoLabel = sheet ? `HOJA ${sheet}` : (idIso.replace(/.*_HOJA[_-]?/i, 'HOJA ') || 'HOJA 1');
-
-            if (!lineasMap[idLinea]) {
-                lineasMap[idLinea] = {
-                    linea: idLinea,
-                    guidsSet: new Set(),
-                    isosMap: {}
-                };
-            }
-            lineasMap[idLinea].guidsSet.add(guid);
-
-            if (!lineasMap[idLinea].isosMap[idIso]) {
-                lineasMap[idLinea].isosMap[idIso] = {
-                    idIso: idIso,
-                    sheet: sheet,
-                    label: isoLabel,
-                    guidsSet: new Set(),
-                    spoolsMap: {}
-                };
-            }
-            lineasMap[idLinea].isosMap[idIso].guidsSet.add(guid);
-
-            if (!lineasMap[idLinea].isosMap[idIso].spoolsMap[tag]) {
-                lineasMap[idLinea].isosMap[idIso].spoolsMap[tag] = {
-                    tag: tag,
-                    idSpool: spoolInfo ? String(spoolInfo['ID_SPOOL'] || tag).trim() : tag,
-                    area: spoolInfo ? String(spoolInfo['AREA'] || '').trim() : '',
-                    subsistema: spoolInfo ? String(spoolInfo['SUB SISTEMA'] || '').trim() : '',
-                    sheet: sheet,
-                    idIso: idIso,
-                    guids: []
-                };
-            }
-
-            lineasMap[idLinea].isosMap[idIso].spoolsMap[tag].guids.push(guid);
-        });
-
-        // Formatear array jerárquico de líneas -> isos -> spools
-        const lineas = Object.values(lineasMap).map(l => {
-            const isos = Object.values(l.isosMap).map(iso => {
-                const spools = Object.values(iso.spoolsMap).map(sp => {
-                    const countFotosTag = fotosPorTag[sp.tag.toLowerCase()] || 0;
-                    let countFotosGuids = 0;
-                    sp.guids.forEach(g => {
-                        countFotosGuids += (fotosPorGuid[g.toLowerCase()] || 0);
-                    });
-                    return {
-                        tag: sp.tag,
-                        idSpool: sp.idSpool,
-                        area: sp.area,
-                        subsistema: sp.subsistema,
-                        sheet: sp.sheet,
-                        idIso: sp.idIso,
-                        guids: sp.guids,
-                        fotosCount: Math.max(countFotosTag, countFotosGuids)
-                    };
-                }).sort((a, b) => {
-                    const na = parseInt(a.tag, 10), nb = parseInt(b.tag, 10);
-                    if (!isNaN(na) && !isNaN(nb)) return na - nb;
-                    return a.tag.localeCompare(b.tag);
+    // Formatear array jerárquico de líneas -> isos -> spools
+    const lineas = Object.values(lineasMap).map(l => {
+        const isos = Object.values(l.isosMap).map(iso => {
+            const spools = Object.values(iso.spoolsMap).map(sp => {
+                const countFotosTag = fotosPorTag[sp.tag.toLowerCase()] || 0;
+                let countFotosGuids = 0;
+                sp.guids.forEach(g => {
+                    countFotosGuids += (fotosPorGuid[g.toLowerCase()] || 0);
                 });
-
                 return {
-                    idIso: iso.idIso,
-                    sheet: iso.sheet,
-                    label: iso.label,
-                    totalElementos: iso.guidsSet.size,
-                    totalSpools: spools.length,
-                    guids: Array.from(iso.guidsSet),
-                    spools: spools
+                    tag: sp.tag,
+                    idSpool: sp.idSpool,
+                    area: sp.area,
+                    subsistema: sp.subsistema,
+                    sheet: sp.sheet,
+                    idIso: sp.idIso,
+                    guids: sp.guids,
+                    fotosCount: Math.max(countFotosTag, countFotosGuids)
                 };
             }).sort((a, b) => {
-                const na = parseInt(a.sheet, 10), nb = parseInt(b.sheet, 10);
+                const na = parseInt(a.tag, 10), nb = parseInt(b.tag, 10);
                 if (!isNaN(na) && !isNaN(nb)) return na - nb;
-                return a.label.localeCompare(b.label);
+                return a.tag.localeCompare(b.tag);
             });
 
-            let countSpoolsLinea = 0;
-            isos.forEach(i => { countSpoolsLinea += i.totalSpools; });
-
             return {
-                linea: l.linea,
-                totalElementos: l.guidsSet.size,
-                totalIsos: isos.length,
-                totalSpools: countSpoolsLinea,
-                guids: Array.from(l.guidsSet),
-                isos: isos
+                idIso: iso.idIso,
+                sheet: iso.sheet,
+                label: iso.label,
+                totalElementos: iso.guidsSet.size,
+                totalSpools: spools.length,
+                guids: Array.from(iso.guidsSet),
+                spools: spools
             };
         }).sort((a, b) => {
-            if (a.linea === 'Sin Línea Asignada') return 1;
-            if (b.linea === 'Sin Línea Asignada') return -1;
-            return a.linea.localeCompare(b.linea);
+            const na = parseInt(a.sheet, 10), nb = parseInt(b.sheet, 10);
+            if (!isNaN(na) && !isNaN(nb)) return na - nb;
+            return a.label.localeCompare(b.label);
         });
 
-        res.json({
-            success: true,
-            totalLineas: lineas.length,
-            totalIsos: allIsosSet.size,
-            totalSpools: allSpoolsSet.size,
-            totalElementos: totalElementos,
-            lineas: lineas
+        let countSpoolsLinea = 0;
+        isos.forEach(i => { countSpoolsLinea += i.totalSpools; });
+
+        // Extraer todos los GUIDs de esta línea de cañería en el modelo 3D (para visualización Línea 3D instantánea)
+        const targetClean = cleanLine(l.linea);
+        const guidsTotalesSet = new Set();
+        const guidsReemplazoSet = l.guidsSet;
+
+        bimRows.forEach(r => {
+            const guid = r['Elemento GUID'] || r['GUID'];
+            if (!guid) return;
+            const lineCol = String(r['Line Number LUKEAPP'] || r['Line Number'] || r['ID_LINEA'] || r['LINEA'] || r['TAG'] || '').trim();
+            if (cleanLine(lineCol).includes(targetClean) || targetClean.includes(cleanLine(lineCol))) {
+                guidsTotalesSet.add(guid);
+            }
         });
+        // Asegurar que todos los de reemplazo estén incluidos
+        guidsReemplazoSet.forEach(g => {
+            const baseG = g.split('#p')[0];
+            guidsTotalesSet.add(baseG);
+        });
+
+        const guidsLineaTotales = Array.from(guidsTotalesSet);
+        const guidsLineaNormales = guidsLineaTotales.filter(g => !guidsReemplazoSet.has(g));
+
+        return {
+            linea: l.linea,
+            totalElementos: l.guidsSet.size,
+            totalIsos: isos.length,
+            totalSpools: countSpoolsLinea,
+            guids: Array.from(l.guidsSet),
+            guidsLineaTotales: guidsLineaTotales,
+            guidsLineaNormales: guidsLineaNormales,
+            isos: isos
+        };
+    }).sort((a, b) => {
+        if (a.linea === 'Sin Línea Asignada') return 1;
+        if (b.linea === 'Sin Línea Asignada') return -1;
+        return a.linea.localeCompare(b.linea);
+    });
+
+    return {
+        success: true,
+        totalLineas: lineas.length,
+        totalIsos: allIsosSet.size,
+        totalSpools: allSpoolsSet.size,
+        totalElementos: totalElementos,
+        lineas: lineas
+    };
+}
+
+// GET /api/bim/reemplazo/lineas → Estructura jerárquica Líneas → Spools → Elementos de reemplazo (Caché rápida)
+app.get('/api/bim/reemplazo/lineas', async (req, res) => {
+    const now = Date.now();
+
+    // 1. Si hay caché fresca (< 5 min), servir inmediatamente en 1ms
+    if (bimReemplazoLineasCache.data && (now - bimReemplazoLineasCache.timestamp < BIM_REEMPLAZO_CACHE_TTL)) {
+        res.set('X-Cache', 'hit');
+        return res.json(bimReemplazoLineasCache.data);
+    }
+
+    // 2. Si hay caché vencida, servir stale al instante y revalidar en segundo plano
+    if (bimReemplazoLineasCache.data) {
+        res.set('X-Cache', 'stale');
+        res.json(bimReemplazoLineasCache.data);
+        if (!bimReemplazoLineasEnVuelo) {
+            bimReemplazoLineasEnVuelo = procesarReemplazoLineas()
+                .then(data => {
+                    bimReemplazoLineasCache = { data, timestamp: Date.now() };
+                })
+                .catch(err => console.warn('[BIM Reemplazo Background Refresh]', err.message))
+                .finally(() => { bimReemplazoLineasEnVuelo = null; });
+        }
+        return;
+    }
+
+    // 3. Si no hay caché, procesar esperando
+    try {
+        if (!bimReemplazoLineasEnVuelo) {
+            bimReemplazoLineasEnVuelo = procesarReemplazoLineas()
+                .then(data => {
+                    bimReemplazoLineasCache = { data, timestamp: Date.now() };
+                    return data;
+                })
+                .finally(() => { bimReemplazoLineasEnVuelo = null; });
+        }
+        const data = await bimReemplazoLineasEnVuelo;
+        res.set('X-Cache', 'miss');
+        res.json(data);
     } catch (e) {
         console.error('[BIM Reemplazo Lineas Error]', e.message);
         res.status(500).json({ error: e.message });

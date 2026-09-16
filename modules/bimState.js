@@ -32,7 +32,8 @@ export const bimState = {
     capaStatuses:  null,   // Estados de la capa válvula/soporte activa
     capa:          'spool',// Capa activa: 'spool' | 'valvula' | 'soporte'
     capaMapeo:     {},     // { valvula: {guidLower:id}, soporte: {...} }
-    capaIndex:     {}      // { valvula: {idLower:row}, soporte: {...} }
+    capaIndex:     {},     // { valvula: {idLower:row}, soporte: {...} }
+    reemplazoLineasCache: null // Caché en memoria de la jerarquía de líneas/reemplazos
 };
 
 if (typeof window !== 'undefined') {
