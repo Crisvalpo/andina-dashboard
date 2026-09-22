@@ -254,7 +254,8 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
                         pulgadasTotal: 0,
                         pulgadasEjecutadas: 0,
                         spoolsSet: new Set(),
-                        spoolsMontadosSet: new Set()
+                        spoolsMontadosSet: new Set(),
+                        spoolsEliminadosSet: new Set()
                     };
                 }
 
@@ -295,17 +296,23 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
                 if (!lineaEntry.spoolsMap[idSpool]) {
                     const stEntry = spoolStatuses[idSpool] || spoolStatuses[idSpool.toLowerCase()];
                     const stName = stEntry ? stEntry.status : 'SIN ESTADO';
-                    const isMontado = (stName === 'MONTADO' || stName === 'MONTADA');
+                    const isEliminado = (stName === 'ELIMINADO' || stName === 'ELIMINADA' || stName === 'CANCELADO' || stName === 'CANCELADA');
+                    const isMontado = !isEliminado && (stName === 'MONTADO' || stName === 'MONTADA');
 
                     lineaEntry.spoolsMap[idSpool] = {
                         id_spool: idSpool,
                         status: stName,
                         montado: isMontado,
+                        eliminado: isEliminado,
                         juntas: []
                     };
 
-                    tpEntry.spoolsSet.add(idSpool.toLowerCase());
-                    if (isMontado) tpEntry.spoolsMontadosSet.add(idSpool.toLowerCase());
+                    if (!isEliminado) {
+                        tpEntry.spoolsSet.add(idSpool.toLowerCase());
+                        if (isMontado) tpEntry.spoolsMontadosSet.add(idSpool.toLowerCase());
+                    } else {
+                        tpEntry.spoolsEliminadosSet.add(idSpool.toLowerCase());
+                    }
                 }
 
                 lineaEntry.spoolsMap[idSpool].juntas.push(juntaItem);
@@ -321,6 +328,7 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
         const pctPulgadas = tp.pulgadasTotal > 0 ? ((tp.pulgadasEjecutadas / tp.pulgadasTotal) * 100) : 0;
         const totalSpools = tp.spoolsSet.size;
         const montadosSpools = tp.spoolsMontadosSet.size;
+        const eliminadosSpools = tp.spoolsEliminadosSet.size;
         const pctSpools = totalSpools > 0 ? ((montadosSpools / totalSpools) * 100) : 0;
 
         let tpTotalValvulas = 0;
@@ -331,6 +339,10 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
         const lineas = Object.values(tp.lineasMap).map(l => {
             const lPctJuntas = l.juntasCount > 0 ? ((l.juntasEjecutadas / l.juntasCount) * 100) : 0;
             const spools = Object.values(l.spoolsMap);
+            const spoolsValidos = spools.filter(s => !s.eliminado);
+            const spoolsMontados = spoolsValidos.filter(s => s.montado).length;
+            const spoolsEliminados = spools.filter(s => s.eliminado).length;
+            const lPctSpools = spoolsValidos.length > 0 ? ((spoolsMontados / spoolsValidos.length) * 100) : 0;
 
             // Válvulas asociadas a esta línea
             const vList = valvulasPorLinea.get(l.id_linea.toLowerCase()) || valvulasPorLinea.get(cleanLine(l.id_linea)) || [];
@@ -356,8 +368,10 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
                     juntas_porcentaje: parseFloat(lPctJuntas.toFixed(1)),
                     pulgadas_total: parseFloat(l.pulgadasTotal.toFixed(1)),
                     pulgadas_ejecutadas: parseFloat(l.pulgadasEjecutadas.toFixed(1)),
-                    total_spools: spools.length,
-                    spools_montados: spools.filter(s => s.montado).length,
+                    total_spools: spoolsValidos.length,
+                    spools_montados: spoolsMontados,
+                    spools_eliminados: spoolsEliminados,
+                    spools_porcentaje: parseFloat(lPctSpools.toFixed(1)),
                     total_valvulas: vList.length,
                     valvulas_montadas: vMont,
                     valvulas_porcentaje: vList.length > 0 ? parseFloat(((vMont / vList.length) * 100).toFixed(1)) : 0,
@@ -387,6 +401,7 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
                 pulgadas_porcentaje: parseFloat(pctPulgadas.toFixed(1)),
                 total_spools: totalSpools,
                 spools_montados: montadosSpools,
+                spools_eliminados: eliminadosSpools,
                 spools_porcentaje: parseFloat(pctSpools.toFixed(1)),
                 total_valvulas: tpTotalValvulas,
                 valvulas_montadas: tpValvulasMontadas,
@@ -452,10 +467,13 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
         if (!lEntry.spoolsMap[spKey]) {
             const stEntry = spoolStatuses[spKey] || spoolStatuses[spKey.toLowerCase()];
             const stName = stEntry ? stEntry.status : 'SIN ESTADO';
+            const isEliminado = (stName === 'ELIMINADO' || stName === 'ELIMINADA' || stName === 'CANCELADO' || stName === 'CANCELADA');
+            const isMontado = !isEliminado && (stName === 'MONTADO' || stName === 'MONTADA');
             lEntry.spoolsMap[spKey] = {
                 id_spool: spKey,
                 status: stName,
-                montado: (stName === 'MONTADO' || stName === 'MONTADA'),
+                montado: isMontado,
+                eliminado: isEliminado,
                 juntas: []
             };
         }
@@ -470,6 +488,9 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
     const arbolHuerfanos = Object.values(huerfanosLineasMap).map(l => {
         const pctJ = l.juntasCount > 0 ? ((l.juntasEjecutadas / l.juntasCount) * 100) : 0;
         const spools = Object.values(l.spoolsMap);
+        const spoolsValidos = spools.filter(s => !s.eliminado);
+        const spoolsMontados = spoolsValidos.filter(s => s.montado).length;
+        const spoolsEliminados = spools.filter(s => s.eliminado).length;
 
         const vList = valvulasPorLinea.get(l.id_linea.toLowerCase()) || valvulasPorLinea.get(cleanLine(l.id_linea)) || [];
         const vMont = vList.filter(v => v.montada).length;
@@ -493,8 +514,9 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
                 juntas_porcentaje: parseFloat(pctJ.toFixed(1)),
                 pulgadas_total: parseFloat(l.pulgadasTotal.toFixed(1)),
                 pulgadas_ejecutadas: parseFloat(l.pulgadasEjecutadas.toFixed(1)),
-                total_spools: spools.length,
-                spools_montados: spools.filter(s => s.montado).length,
+                total_spools: spoolsValidos.length,
+                spools_montados: spoolsMontados,
+                spools_eliminados: spoolsEliminados,
                 total_valvulas: vList.length,
                 valvulas_montadas: vMont,
                 total_soportes: sList.length,

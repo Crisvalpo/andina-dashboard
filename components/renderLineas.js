@@ -440,7 +440,7 @@ function renderTpLineas(lineas, parentCleanId, tpNombre, autoExpand = false) {
                     </div>
 
                     <div class="tree-linea-stats">
-                        <span><i class="fas fa-industry"></i> ${lm.spools_montados}/${lm.total_spools} spools</span>
+                        <span><i class="fas fa-industry"></i> ${lm.spools_montados}/${lm.total_spools} spools ${lm.spools_eliminados > 0 ? `<small style="color:#ef4444; font-size:0.7rem;" title="${lm.spools_eliminados} spool(s) eliminado(s) no suman a meta">(${lm.spools_eliminados} elim.)</small>` : ''}</span>
                         <span><i class="fas fa-link"></i> ${lm.juntas_ejecutadas}/${lm.juntas_total} juntas</span>
                         ${lm.total_valvulas > 0 ? `<span title="Válvulas montadas / totales"><i class="fas fa-faucet" style="color:#38bdf8;"></i> ${lm.valvulas_montadas}/${lm.total_valvulas} válv.</span>` : ''}
                         ${lm.total_soportes > 0 ? `<span title="Soportes montados / totales"><i class="fas fa-border-all" style="color:#fbbf24;"></i> ${lm.soportes_montados}/${lm.total_soportes} sop.</span>` : ''}
@@ -475,18 +475,20 @@ function renderTpSpools(spools, parentCleanId, tpNombre, autoExpand = false) {
     let html = ``;
     spools.forEach((sp, spIdx) => {
         const cleanSpId = `${parentCleanId}-sp-${spIdx}`;
-        const isMontado = sp.montado;
-        const statusBadgeClass = isMontado ? 'badge-success' : 'badge-secondary';
+        const isEliminado = sp.eliminado || (sp.status === 'ELIMINADO' || sp.status === 'ELIMINADA' || sp.status === 'CANCELADO' || sp.status === 'CANCELADA');
+        const isMontado = sp.montado && !isEliminado;
+        const statusBadgeClass = isEliminado ? 'badge-danger' : (isMontado ? 'badge-success' : 'badge-secondary');
         const commentsCount = getComentariosCount('spool', sp.id_spool);
         const juntasEjec = sp.juntas.filter(j => j.ejecutada).length;
 
         html += `
-            <div class="tree-spool-node" id="node-spool-${cleanSpId}">
+            <div class="tree-spool-node ${isEliminado ? 'tree-spool-eliminado' : ''}" id="node-spool-${cleanSpId}" style="${isEliminado ? 'opacity: 0.65; border-color: rgba(239, 68, 68, 0.25);' : ''}">
                 <div class="tree-spool-header" onclick="toggleTpSpoolAccordion('${cleanSpId}')">
                     <div style="display:flex; align-items:center; gap:8px;">
-                        <i class="fas fa-cube" style="color:${isMontado ? '#10b981' : '#38bdf8'}; font-size:0.85rem;"></i>
-                        <strong>${escapeHtml(sp.id_spool)}</strong>
+                        <i class="fas ${isEliminado ? 'fa-ban' : 'fa-cube'}" style="color:${isEliminado ? '#ef4444' : (isMontado ? '#10b981' : '#38bdf8')}; font-size:0.85rem;"></i>
+                        <strong style="${isEliminado ? 'text-decoration: line-through; color:#94a3b8;' : ''}">${escapeHtml(sp.id_spool)}</strong>
                         <span class="status-badge ${statusBadgeClass}" style="font-size:0.65rem; padding:1px 6px;">${escapeHtml(sp.status)}</span>
+                        ${isEliminado ? '<span style="font-size:0.65rem; color:#ef4444; font-weight:600;">(No computable)</span>' : ''}
                     </div>
 
                     <div style="display:flex; align-items:center; gap:10px; font-size:0.75rem; color:#94a3b8;">
