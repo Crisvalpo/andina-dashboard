@@ -398,7 +398,16 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
             },
             lineas: lineas
         };
-    }).sort((a, b) => a.nombre.localeCompare(b.nombre));
+    }).sort((a, b) => {
+        const getTpNum = (name) => {
+            const m = String(name || '').match(/\d+/);
+            return m ? parseInt(m[0], 10) : 999999;
+        };
+        const numA = getTpNum(a.nombre);
+        const numB = getTpNum(b.nombre);
+        if (numA !== numB) return numA - numB;
+        return a.nombre.localeCompare(b.nombre);
+    });
 
     // 7. Construir árbol y listas de elementos NO ASOCIADOS (Sin Test Pack)
     // Agrupar juntas huérfanas en árbol (Línea -> Spool -> Juntas)

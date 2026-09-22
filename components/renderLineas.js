@@ -57,6 +57,18 @@ export async function loadLineasData(forceRefresh = false) {
 
         if (resTp.ok) {
             testPacksCacheData = await resTp.json();
+            if (testPacksCacheData?.test_packs) {
+                const getTpNum = (name) => {
+                    const m = String(name || '').match(/\d+/);
+                    return m ? parseInt(m[0], 10) : 999999;
+                };
+                testPacksCacheData.test_packs.sort((a, b) => {
+                    const numA = getTpNum(a.nombre);
+                    const numB = getTpNum(b.nombre);
+                    if (numA !== numB) return numA - numB;
+                    return a.nombre.localeCompare(b.nombre);
+                });
+            }
         }
 
         if (resComentarios.ok) {
@@ -250,6 +262,17 @@ export function filterLineas() {
             if (filterAvance === 'PENDIENTE') return pct === 0;
 
             return true;
+        });
+
+        const getTpNum = (name) => {
+            const m = String(name || '').match(/\d+/);
+            return m ? parseInt(m[0], 10) : 999999;
+        };
+        filteredTps.sort((a, b) => {
+            const numA = getTpNum(a.nombre);
+            const numB = getTpNum(b.nombre);
+            if (numA !== numB) return numA - numB;
+            return a.nombre.localeCompare(b.nombre);
         });
 
         if (badgeTotal) badgeTotal.textContent = `${filteredTps.length} Test Packs`;
