@@ -188,9 +188,23 @@
 
             <!-- ===== SECTION: LÍNEAS ===== -->
             <section class="section-content" id="lineas-section">
-                <!-- KPIs Superiores de Líneas -->
-                <div class="kpi-section-label">📐 Resumen General de Líneas</div>
+                <!-- KPIs Superiores de Líneas & Test Packs -->
+                <div class="kpi-section-label">📐 Resumen General de Líneas & Test Packs</div>
                 <div class="kpi-row">
+                    <div class="kpi-card glass kpi-primary">
+                        <div class="kpi-icon" style="background:#8b5cf620"><i class="fas fa-vial" style="color:#a78bfa"></i></div>
+                        <div>
+                            <p class="kpi-label">Test Packs Detectados</p>
+                            <p class="kpi-value" id="kpi-lineas-tp-total">--</p>
+                        </div>
+                    </div>
+                    <div class="kpi-card glass kpi-primary">
+                        <div class="kpi-icon" style="background:#06b6d420"><i class="fas fa-chart-pie" style="color:#22d3ee"></i></div>
+                        <div>
+                            <p class="kpi-label">Cobertura Juntas en TP</p>
+                            <p class="kpi-value" id="kpi-lineas-tp-cobertura">--</p>
+                        </div>
+                    </div>
                     <div class="kpi-card glass kpi-primary">
                         <div class="kpi-icon" style="background:#6366f120"><i class="fas fa-stream" style="color:#818cf8"></i></div>
                         <div>
@@ -201,7 +215,7 @@
                     <div class="kpi-card glass kpi-primary">
                         <div class="kpi-icon" style="background:#10b98120"><i class="fas fa-link" style="color:#10b981"></i></div>
                         <div>
-                            <p class="kpi-label">Juntas (Ejecutadas / Total)</p>
+                            <p class="kpi-label">Juntas (Ejec. / Total)</p>
                             <p class="kpi-value" id="kpi-lineas-juntas">--</p>
                         </div>
                     </div>
@@ -213,13 +227,6 @@
                         </div>
                     </div>
                     <div class="kpi-card glass kpi-primary">
-                        <div class="kpi-icon" style="background:#06b6d420"><i class="fas fa-faucet" style="color:#06b6d4"></i></div>
-                        <div>
-                            <p class="kpi-label">Válvulas (Montadas / Total)</p>
-                            <p class="kpi-value" id="kpi-lineas-valvulas">--</p>
-                        </div>
-                    </div>
-                    <div class="kpi-card glass kpi-primary">
                         <div class="kpi-icon" style="background:#f59e0b20"><i class="fas fa-border-all" style="color:#f59e0b"></i></div>
                         <div>
                             <p class="kpi-label">Soportes (Montados / Total)</p>
@@ -228,17 +235,47 @@
                     </div>
                 </div>
 
+                <!-- Barra de Navegación de Sub-Vistas -->
+                <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-top:1.2rem;">
+                    <div class="lineas-subtabs-nav">
+                        <button class="lineas-subtab-btn active" id="btn-subtab-tp" onclick="setLineasSubTab('testpacks')">
+                            <i class="fas fa-vial"></i> 🌳 Árbol Test Packs
+                            <span class="badge-mini" id="badge-subtab-tp">...</span>
+                        </button>
+                        <button class="lineas-subtab-btn subtab-warn" id="btn-subtab-huerfanos" onclick="setLineasSubTab('huerfanos')">
+                            <i class="fas fa-exclamation-triangle"></i> ⚠️ Sin Test Pack (Huérfanos)
+                            <span class="badge-mini badge-warn" id="badge-subtab-huerfanos">...</span>
+                        </button>
+                        <button class="lineas-subtab-btn" id="btn-subtab-lineas" onclick="setLineasSubTab('lineas')">
+                            <i class="fas fa-stream"></i> 📋 Vista Consolidada por Líneas
+                            <span class="badge-mini" id="badge-subtab-lineas">...</span>
+                        </button>
+                    </div>
+
+                    <div style="display:flex; gap:8px; align-items:center;">
+                        <button onclick="toggleAllTreeNodes(true)" class="glass-btn" style="padding:6px 12px; font-size:0.8rem;" title="Expandir todos los nodos">
+                            <i class="fas fa-chevron-down"></i> Expandir Todo
+                        </button>
+                        <button onclick="toggleAllTreeNodes(false)" class="glass-btn" style="padding:6px 12px; font-size:0.8rem;" title="Colapsar todos los nodos">
+                            <i class="fas fa-chevron-up"></i> Colapsar Todo
+                        </button>
+                        <button onclick="refrescarDatosLineas(true)" class="glass-btn" style="padding:6px 12px; font-size:0.8rem;" title="Forzar sincronización de datos">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Filtros y Búsqueda -->
-                <div class="chart-card glass" style="margin-top: 1rem;">
+                <div class="chart-card glass" style="margin-top: 0.8rem;">
                     <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom: 1rem;">
                         <div style="display:flex; align-items:center; gap:10px;">
-                            <h3 style="margin:0;"><i class="fas fa-project-diagram"></i> Listado Consolidado por Línea</h3>
-                            <span class="lineas-count-badge" id="badge-total-lineas" style="display:inline-block; font-size:0.85rem; padding:4px 10px; background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); color:#818cf8; border-radius:8px;">0 líneas</span>
+                            <h3 id="lineas-section-view-title" style="margin:0;"><i class="fas fa-project-diagram"></i> Árbol de Test Packs</h3>
+                            <span class="lineas-count-badge" id="badge-total-lineas" style="display:inline-block; font-size:0.85rem; padding:4px 10px; background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.3); color:#818cf8; border-radius:8px;">0 detectados</span>
                         </div>
                         <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
                             <div class="search-box" style="margin:0;">
                                 <i class="fas fa-search"></i>
-                                <input type="text" id="lineas-search" placeholder="Buscar por Línea, ISO, Subsistema..." onkeyup="filterLineas()">
+                                <input type="text" id="lineas-search" placeholder="Buscar por Test Pack, Línea, Spool o Junta..." onkeyup="filterLineas()">
                             </div>
                             <select id="lineas-filter-avance" onchange="filterLineas()" class="glass-select" style="padding: 8px 12px; border-radius: 8px; background: rgba(30, 41, 59, 0.8); color: #fff; border: 1px solid rgba(255, 255, 255, 0.15); font-size: 0.85rem;">
                                 <option value="TODOS">Todos los Avances</option>
@@ -249,11 +286,11 @@
                         </div>
                     </div>
 
-                    <!-- Contenedor de Tarjetas / Acordeones de Líneas -->
+                    <!-- Contenedor de Contenido (Árbol Test Packs / Huérfanos / Líneas) -->
                     <div id="lineas-container" class="lineas-list-container">
                         <div class="empty-msg" style="text-align:center; padding: 40px; opacity:0.7;">
                             <i class="fas fa-spinner fa-spin" style="font-size:1.5rem; margin-bottom:8px;"></i>
-                            <p>Cargando información consolidada de líneas...</p>
+                            <p>Cargando información consolidada de líneas y Test Packs...</p>
                         </div>
                     </div>
                 </div>
@@ -1147,6 +1184,43 @@
             <div class="pdf-modal-body" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:16px; background:#0f172a; overflow:auto;">
                 <img id="redline-modal-img" src="" style="max-width:100%; max-height:calc(85vh - 90px); object-fit:contain; border-radius:8px; border:1px solid rgba(239,68,68,0.3); box-shadow: 0 10px 30px rgba(0,0,0,0.5);" alt="Foto Red Line">
                 <div id="redline-modal-info" style="margin-top:12px; text-align:center; color:#e2e8f0; font-size:0.85rem; display:flex; flex-direction:column; gap:4px; align-items:center;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL PREMIUM DE COMENTARIOS / OBSERVACIONES TEST PACK -->
+    <div id="testpack-comentarios-modal" class="comentarios-modal" style="display:none;">
+        <div class="comentarios-modal-overlay" onclick="cerrarModalComentarios()"></div>
+        <div class="comentarios-modal-content">
+            <div class="comentarios-modal-header">
+                <h3>
+                    <i class="fas fa-comment-dots" style="color:#818cf8;"></i>
+                    <span id="modal-comentarios-titulo">Comentarios</span>
+                </h3>
+                <button class="pdf-modal-close" onclick="cerrarModalComentarios()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="comentarios-modal-body" id="modal-comentarios-lista">
+                <div class="empty-msg" style="text-align:center; padding:20px; opacity:0.7;">
+                    <i class="fas fa-spinner fa-spin"></i> Cargando notas...
+                </div>
+            </div>
+            <div class="comentarios-modal-footer">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:0.75rem; color:#94a3b8;">Firmar como:</span>
+                    <select id="modal-comentario-autor" class="comentario-autor-select">
+                        <option value="Supervisor Piping">Supervisor Piping</option>
+                        <option value="Control de Calidad">Control de Calidad</option>
+                        <option value="Oficina Técnica">Oficina Técnica</option>
+                        <option value="Jefe de Terreno">Jefe de Terreno</option>
+                        <option value="Inspector QA/QC">Inspector QA/QC</option>
+                    </select>
+                </div>
+                <div class="comentario-input-row">
+                    <textarea id="modal-comentario-texto" placeholder="Escribe una observación, avance o detalle técnico..." onkeydown="handleComentarioKeydown(event)"></textarea>
+                    <button class="btn-enviar-comentario" onclick="enviarNuevoComentario()">
+                        <i class="fas fa-paper-plane"></i>
+                    </button>
+                </div>
             </div>
         </div>
     </div>

@@ -7,6 +7,12 @@ const { crearToken, permisosDeClave, requerirPermiso, TTL_HORAS, requerirSesion 
 const { getSupabase, asegurarBucketExistente, asegurarBucketRedline } = require('./lib/supabase');
 const { cargarTools, ejecutarTool, registrarTool } = require('./lib/botTools');
 const { procesarCambioEstadoSpool } = require('./lib/pipelineRealtime');
+const {
+    procesarArbolTestPacks,
+    obtenerComentarios: obtenerTpComentarios,
+    guardarComentario: guardarTpComentario,
+    eliminarComentario: eliminarTpComentario
+} = require('./services/testPackService');
 const app = express();
 const PORT = CONFIG.PORT;
 
@@ -2493,6 +2499,57 @@ app.get('/api/lineas/resumen', async (req, res) => {
         res.json(data);
     } catch (e) {
         console.error('[API /api/lineas/resumen Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/testpacks/tree → Árbol jerárquico de Test Packs y elementos huérfanos/sin asignar
+app.get('/api/testpacks/tree', async (req, res) => {
+    try {
+        const force = req.query.refresh === 'true';
+        const data = await procesarArbolTestPacks(fetchAppSheetCached, force);
+        res.json(data);
+    } catch (e) {
+        console.error('[API /api/testpacks/tree Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/testpacks/comentarios → Listado de comentarios/notas por entidad o general
+app.get('/api/testpacks/comentarios', async (req, res) => {
+    try {
+        let sb = null;
+        try { sb = getSupabase(); } catch (err) {}
+        const data = await obtenerTpComentarios(sb, req.query);
+        res.json(data);
+    } catch (e) {
+        console.error('[API /api/testpacks/comentarios Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/testpacks/comentarios → Guardar nuevo comentario
+app.post('/api/testpacks/comentarios', async (req, res) => {
+    try {
+        let sb = null;
+        try { sb = getSupabase(); } catch (err) {}
+        const nuevo = await guardarTpComentario(sb, req.body);
+        res.status(201).json(nuevo);
+    } catch (e) {
+        console.error('[API POST /api/testpacks/comentarios Error]', e.message);
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// DELETE /api/testpacks/comentarios/:id → Eliminar comentario
+app.delete('/api/testpacks/comentarios/:id', async (req, res) => {
+    try {
+        let sb = null;
+        try { sb = getSupabase(); } catch (err) {}
+        const out = await eliminarTpComentario(sb, req.params.id);
+        res.json(out);
+    } catch (e) {
+        console.error('[API DELETE /api/testpacks/comentarios Error]', e.message);
         res.status(500).json({ error: e.message });
     }
 });
