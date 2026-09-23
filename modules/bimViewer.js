@@ -5875,7 +5875,7 @@ export async function bimSaveLink() {
             cwp: '',
             descripcion: el.name || 'ACPPPIPE',
             line_number: el.layer || '',
-            tag: el.layer || '',
+            tag: el.tag || el.layer || '',
             autocad_size: ''
         }));
 
