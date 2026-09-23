@@ -2896,6 +2896,9 @@ app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => 
                 if (lineaDeducida && (!editRow['Line Number'] || editRow['Line Number'] === '0')) {
                     editRow['Line Number'] = lineaDeducida;
                 }
+                if (el.tag) {
+                    editRow['TAG'] = el.tag;
+                }
                 rowsToEdit.push(editRow);
             } else {
                 rowsToAdd.push({
@@ -2914,6 +2917,24 @@ app.post('/api/bim/:capa/vincular', requerirPermiso('bim'), async (req, res) => 
 
         invalidarCache('LIST_Bim_MS');
         delete cache['LIST_Bim_MS'];
+
+        // Si es capa soporte y trae tag del modelo 3D, actualizar TAG_SOPORTE en LIST_Soportes_MS
+        if (req.params.capa === 'soporte') {
+            const firstTag = elements.map(e => e.tag).find(Boolean);
+            if (firstTag) {
+                try {
+                    await fetchAppSheet('LIST_Soportes_MS', 'Edit', [{
+                        'ID_Soporte': itemId,
+                        'TAG_SOPORTE': firstTag
+                    }]);
+                    invalidarCache('LIST_Soportes_MS');
+                    delete cache['LIST_Soportes_MS'];
+                    console.log(`[BIM soporte] TAG_SOPORTE actualizado para ${itemId}: ${firstTag}`);
+                } catch (sopErr) {
+                    console.warn('[BIM soporte TAG_SOPORTE update]', sopErr.message);
+                }
+            }
+        }
 
         res.json({ success: true, count: elements.length, addedCount: rowsToAdd.length, editedCount: rowsToEdit.length });
     } catch (e) {
