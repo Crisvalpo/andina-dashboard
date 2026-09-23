@@ -367,47 +367,86 @@ export function bimStartViewer() {
                                             let guid = pResult.externalId || '';
                                             let layer = '';
                                             let sourceFile = '';
-                                            let tag = '';
-                                            let autocadTag = '';
-                                            let genericTag = '';
                                             let lineNo = '';
                                             let spool = '';
                                             let cwp = '';
+                                            const tagsFound = [];
                                             
                                             if (pResult.properties) {
                                                 pResult.properties.forEach(prop => {
-                                                    const cat = String(prop.displayCategory || '').toLowerCase();
+                                                    const cat = String(prop.displayCategory || '').toLowerCase().trim();
                                                     const propName = String(prop.displayName || prop.attributeName || '').toLowerCase().trim();
                                                     const val = String(prop.displayValue || '').trim();
-                                                    if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(propName) && val) {
+                                                    if (!val || val === '-') return;
+
+                                                    if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(propName)) {
                                                         guid = val;
                                                     }
-                                                    if (propName === 'layer' && val) {
+                                                    if (propName === 'layer') {
                                                         layer = val;
                                                     }
-                                                    if (propName === 'source file' && val) {
+                                                    if (propName === 'source file') {
                                                         sourceFile = val;
                                                     }
-                                                    if (['tag', 'item tag', 'support tag', 'tag_soporte'].includes(propName) && val && val !== '-') {
-                                                        if (cat.includes('autocad') || cat.includes('plant') || cat.includes('support')) {
-                                                            autocadTag = val;
-                                                        } else if (!genericTag) {
-                                                            genericTag = val;
-                                                        }
-                                                    }
-                                                    if (['line number', 'linenumber', 'line'].includes(propName) && val) {
+                                                    if (['line number', 'linenumber', 'line', 'line number tag', 'linenumbertag'].includes(propName)) {
                                                         lineNo = val;
                                                     }
-                                                    if (['spool', 'spool lukeapp', 'tag gestion'].includes(propName) && val) {
+                                                    if (['spool', 'spool lukeapp', 'tag gestion'].includes(propName)) {
                                                         spool = val;
                                                     }
-                                                    if (propName === 'cwp' && val) {
+                                                    if (propName === 'cwp') {
                                                         cwp = val;
+                                                    }
+                                                    if (['tag', 'item tag', 'support tag', 'tag_soporte', 'tag soporte', 'etiqueta'].includes(propName)) {
+                                                        tagsFound.push({ cat, propName, val });
                                                     }
                                                 });
                                             }
 
-                                            tag = autocadTag || genericTag || '';
+                                            // Helper para detectar si un valor coincide con el número de línea de cañería
+                                            const cleanStr = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                                            const isLineIdentifier = (v) => {
+                                                if (!v) return false;
+                                                const cv = cleanStr(v);
+                                                if (!cv) return false;
+                                                if (layer) {
+                                                    const cl = cleanStr(layer);
+                                                    if (cv === cl || (cl.length >= 8 && (cl.includes(cv) || cv.includes(cl)))) return true;
+                                                }
+                                                if (lineNo) {
+                                                    const cn = cleanStr(lineNo);
+                                                    if (cv === cn || (cn.length >= 8 && (cn.includes(cv) || cv.includes(cn)))) return true;
+                                                }
+                                                if (/-[A-Z0-9]+-\d+.*-[A-Z0-9]+-R\d+/i.test(v) || /-R\d+$/i.test(v)) return true;
+                                                return false;
+                                            };
+
+                                            let tag = '';
+                                            const isSoporteContext = bimState.capa === 'soporte' || String(pResult.name || '').toUpperCase().includes('SUPPORT');
+
+                                            if (isSoporteContext) {
+                                                const autocadSupport = tagsFound.find(t => t.cat === 'autocad' && !isLineIdentifier(t.val));
+                                                const anyNonLine = tagsFound.find(t => !isLineIdentifier(t.val));
+                                                const autocadDirect = tagsFound.find(t => t.cat === 'autocad');
+
+                                                tag = (autocadSupport && autocadSupport.val) ||
+                                                      (anyNonLine && anyNonLine.val) ||
+                                                      (autocadDirect && autocadDirect.val) || '';
+                                            } else {
+                                                const autocadTag = tagsFound.find(t => t.cat === 'autocad');
+                                                const plantTag = tagsFound.find(t => t.cat.includes('plant'));
+                                                const anyTag = tagsFound[0];
+                                                tag = (autocadTag && autocadTag.val) || (plantTag && plantTag.val) || (anyTag && anyTag.val) || '';
+                                            }
+
+                                            console.log('[BIM Selection Item]', {
+                                                guid,
+                                                layer,
+                                                lineNo,
+                                                tagsFound,
+                                                isSoporteContext,
+                                                resolvedTag: tag
+                                            });
 
                                             if (guid) {
                                                 selectedList.push({
