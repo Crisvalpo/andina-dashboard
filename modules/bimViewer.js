@@ -355,10 +355,10 @@ export function bimStartViewer() {
                                 // el panel con el grupo completo (antes se retornaba y quedaba sin info).
                                 const skipAuto = bimState.isAutoSelecting;
 
-                                // Obtener propiedades de todos los elementos seleccionados en un único bloque
+                                // Obtener propiedades de todos los elementos seleccionados en un único bloque (sin propFilter para capturar propiedades de AutoCAD/Plant 3D)
                                 viewer.model.getBulkProperties(
                                     dbIdArray,
-                                    { propFilter: ['externalId', 'GUID', 'Element GUID', 'Revit GUID', 'Layer', 'PnPGuid', 'PnPGUID', 'Tag', 'TAG', 'Line Number', 'LineNumber', 'Item Code', 'Spool', 'SPOOL', 'CWP'] },
+                                    { ignoreHidden: false },
                                     (results) => {
                                         const selectedList = [];
                                         const uniqueLayers = new Set();
@@ -368,37 +368,46 @@ export function bimStartViewer() {
                                             let layer = '';
                                             let sourceFile = '';
                                             let tag = '';
+                                            let autocadTag = '';
+                                            let genericTag = '';
                                             let lineNo = '';
                                             let spool = '';
                                             let cwp = '';
                                             
                                             if (pResult.properties) {
                                                 pResult.properties.forEach(prop => {
-                                                    const propName = String(prop.displayName || prop.attributeName || '').toLowerCase();
+                                                    const cat = String(prop.displayCategory || '').toLowerCase();
+                                                    const propName = String(prop.displayName || prop.attributeName || '').toLowerCase().trim();
                                                     const val = String(prop.displayValue || '').trim();
-                                                    if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(propName)) {
+                                                    if (['guid', 'element guid', 'revit guid', 'pnpguid'].includes(propName) && val) {
                                                         guid = val;
                                                     }
-                                                    if (propName === 'layer') {
+                                                    if (propName === 'layer' && val) {
                                                         layer = val;
                                                     }
-                                                    if (propName === 'source file') {
+                                                    if (propName === 'source file' && val) {
                                                         sourceFile = val;
                                                     }
-                                                    if (['tag', 'item tag'].includes(propName)) {
-                                                        tag = val;
+                                                    if (['tag', 'item tag', 'support tag', 'tag_soporte'].includes(propName) && val && val !== '-') {
+                                                        if (cat.includes('autocad') || cat.includes('plant') || cat.includes('support')) {
+                                                            autocadTag = val;
+                                                        } else if (!genericTag) {
+                                                            genericTag = val;
+                                                        }
                                                     }
-                                                    if (['line number', 'linenumber', 'line'].includes(propName)) {
+                                                    if (['line number', 'linenumber', 'line'].includes(propName) && val) {
                                                         lineNo = val;
                                                     }
-                                                    if (['spool', 'spool lukeapp', 'tag gestion'].includes(propName)) {
+                                                    if (['spool', 'spool lukeapp', 'tag gestion'].includes(propName) && val) {
                                                         spool = val;
                                                     }
-                                                    if (propName === 'cwp') {
+                                                    if (propName === 'cwp' && val) {
                                                         cwp = val;
                                                     }
                                                 });
                                             }
+
+                                            tag = autocadTag || genericTag || '';
 
                                             if (guid) {
                                                 selectedList.push({
@@ -4247,11 +4256,22 @@ export function bimRenderCapaSelection(capa, selectedList, uniqueLayers, suppres
     const mapeo = bimState.capaMapeo[capa] || {};
     const index = bimState.capaIndex[capa] || {};
 
-    // GUID / capa
+    // GUID / capa / tag
     const guidEl = document.getElementById('bim-link-guid');
     if (guidEl) guidEl.textContent = selectedList.length === 1 ? selectedList[0].guid : `${selectedList.length} elementos`;
     const layerEl = document.getElementById('bim-link-layer');
     if (layerEl) layerEl.textContent = uniqueLayers && uniqueLayers.size ? Array.from(uniqueLayers).join(', ') : 'N/A';
+    const tagEl = document.getElementById('bim-link-tag');
+    const tagRow = document.getElementById('bim-link-tag-row');
+    const firstTag = selectedList.map(x => x.tag).find(Boolean);
+    if (tagRow) {
+        if (firstTag) {
+            tagRow.style.display = 'flex';
+            if (tagEl) tagEl.textContent = firstTag;
+        } else {
+            tagRow.style.display = 'none';
+        }
+    }
 
     // Título del panel
     const linkTitle = document.querySelector('#bim-link-panel h4');
@@ -5875,7 +5895,7 @@ export async function bimSaveLink() {
             cwp: '',
             descripcion: el.name || 'ACPPPIPE',
             line_number: el.layer || '',
-            tag: el.tag || el.layer || '',
+            tag: el.tag || (capa === 'soporte' ? '' : el.layer) || '',
             autocad_size: ''
         }));
 
