@@ -16,7 +16,7 @@ import {
     getVal, getEstado, getJuntaId, getEtapaBadge, getMaxEtapa
 } from './utils/dataHelpers.js';
 import { renderOverview } from './components/renderOverview.js';
-import { loadLineasData } from './components/renderLineas.js';
+import { loadLineasData } from './components/renderLineas.js?v=1.3.0';
 import { renderJuntas } from './components/renderJuntas.js';
 import { renderSpools } from './components/renderSpools.js';
 import { renderQC } from './components/renderQC.js';

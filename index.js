@@ -11,7 +11,10 @@ const {
     procesarArbolTestPacks,
     obtenerComentarios: obtenerTpComentarios,
     guardarComentario: guardarTpComentario,
-    eliminarComentario: eliminarTpComentario
+    eliminarComentario: eliminarTpComentario,
+    obtenerCustodias: obtenerTpCustodias,
+    guardarCustodia: guardarTpCustodia,
+    eliminarCustodia: eliminarTpCustodia
 } = require('./services/testPackService');
 const app = express();
 const PORT = CONFIG.PORT;
@@ -2506,11 +2509,52 @@ app.get('/api/lineas/resumen', async (req, res) => {
 // GET /api/testpacks/tree → Árbol jerárquico de Test Packs y elementos huérfanos/sin asignar
 app.get('/api/testpacks/tree', async (req, res) => {
     try {
+        let sb = null;
+        try { sb = getSupabase(); } catch (err) {}
         const force = req.query.refresh === 'true';
-        const data = await procesarArbolTestPacks(fetchAppSheetCached, force);
+        const data = await procesarArbolTestPacks(fetchAppSheetCached, force, sb);
         res.json(data);
     } catch (e) {
         console.error('[API /api/testpacks/tree Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// GET /api/testpacks/custodia → Obtiene custodia vigente de carpetas físicas o historial de un TP
+app.get('/api/testpacks/custodia', async (req, res) => {
+    try {
+        let sb = null;
+        try { sb = getSupabase(); } catch (err) {}
+        const data = await obtenerTpCustodias(sb, req.query);
+        res.json(data);
+    } catch (e) {
+        console.error('[API /api/testpacks/custodia Error]', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/testpacks/custodia → Registrar traspaso/asignación de carpeta física
+app.post('/api/testpacks/custodia', async (req, res) => {
+    try {
+        let sb = null;
+        try { sb = getSupabase(); } catch (err) {}
+        const nuevo = await guardarTpCustodia(sb, req.body);
+        res.status(201).json(nuevo);
+    } catch (e) {
+        console.error('[API POST /api/testpacks/custodia Error]', e.message);
+        res.status(400).json({ error: e.message });
+    }
+});
+
+// DELETE /api/testpacks/custodia/:id → Eliminar registro de custodia
+app.delete('/api/testpacks/custodia/:id', async (req, res) => {
+    try {
+        let sb = null;
+        try { sb = getSupabase(); } catch (err) {}
+        const out = await eliminarTpCustodia(sb, req.params.id);
+        res.json(out);
+    } catch (e) {
+        console.error('[API DELETE /api/testpacks/custodia Error]', e.message);
         res.status(500).json({ error: e.message });
     }
 });

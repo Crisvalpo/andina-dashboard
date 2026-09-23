@@ -16,8 +16,9 @@ let comentariosCacheMap = new Map(); // "tipo:id" -> Array de comentarios
 let activeSubTab = 'testpacks'; // 'testpacks' | 'huerfanos' | 'lineas'
 let isFetchingData = false;
 
-// Estado actual del modal de comentarios
+// Estado actual del modal de comentarios y custodia
 let currentCommentEntity = null; // { tipo, id, tp }
+let currentCustodiaTp = null; // nombre del Test Pack actual en modal de custodia
 
 export async function loadLineasData(forceRefresh = false) {
     const container = document.getElementById('lineas-container');
@@ -237,6 +238,7 @@ export function setLineasSubTab(subTab) {
 export function filterLineas() {
     const query = (document.getElementById('lineas-search')?.value || '').toLowerCase().trim();
     const filterAvance = document.getElementById('lineas-filter-avance')?.value || 'TODOS';
+    const filterCustodia = document.getElementById('lineas-filter-custodia')?.value || 'TODOS';
     const badgeTotal = document.getElementById('badge-total-lineas');
 
     if (activeSubTab === 'testpacks') {
@@ -245,6 +247,8 @@ export function filterLineas() {
         const filteredTps = testPacksCacheData.test_packs.filter(tp => {
             const matchQuery = !query ||
                 tp.nombre.toLowerCase().includes(query) ||
+                (tp.custodia?.responsable && tp.custodia.responsable.toLowerCase().includes(query)) ||
+                (tp.custodia?.departamento && tp.custodia.departamento.toLowerCase().includes(query)) ||
                 tp.lineas.some(l => 
                     l.id_linea.toLowerCase().includes(query) ||
                     (l.subsistema && l.subsistema.toLowerCase().includes(query)) ||
@@ -257,9 +261,24 @@ export function filterLineas() {
             if (!matchQuery) return false;
 
             const pct = tp.metricas.juntas_porcentaje;
-            if (filterAvance === '100') return pct >= 100;
-            if (filterAvance === 'EN_PROCESO') return pct > 0 && pct < 100;
-            if (filterAvance === 'PENDIENTE') return pct === 0;
+            if (filterAvance === '100') {
+                if (pct < 100) return false;
+            } else if (filterAvance === 'EN_PROCESO') {
+                if (pct <= 0 || pct >= 100) return false;
+            } else if (filterAvance === 'PENDIENTE') {
+                if (pct > 0) return false;
+            }
+
+            // Filtro por custodia de carpeta física
+            if (filterCustodia !== 'TODOS') {
+                if (filterCustodia === 'SIN_ASIGNAR') {
+                    if (tp.custodia && tp.custodia.responsable) return false;
+                } else {
+                    if (!tp.custodia || !tp.custodia.responsable) return false;
+                    const dep = tp.custodia.departamento || '';
+                    if (dep.toLowerCase() !== filterCustodia.toLowerCase()) return false;
+                }
+            }
 
             return true;
         });
@@ -360,6 +379,29 @@ function renderTestPackTree(tps, query) {
         const cardClass = isComplete ? 'tp-complete' : (m.juntas_porcentaje > 0 ? 'tp-in-progress' : '');
         const commentsCount = getComentariosCount('test_pack', tp.nombre);
 
+        // Estado de custodia de carpeta física
+        const c = tp.custodia;
+        let custodiaClass = 'custodia-sin-asignar';
+        let custodiaIcon = 'far fa-folder';
+        let custodiaLabel = 'Carpeta: Sin asignar';
+        let custodiaTooltip = 'Click para indicar responsable y departamento de la carpeta física';
+
+        if (c && c.responsable) {
+            const depto = c.departamento || 'Terreno';
+            if (depto === 'Terreno') {
+                custodiaClass = 'custodia-terreno';
+                custodiaIcon = 'fas fa-hard-hat';
+            } else if (depto === 'QAQC') {
+                custodiaClass = 'custodia-qaqc';
+                custodiaIcon = 'fas fa-clipboard-check';
+            } else if (depto === 'Oficina Técnica') {
+                custodiaClass = 'custodia-ot';
+                custodiaIcon = 'fas fa-drafting-compass';
+            }
+            custodiaLabel = `${depto}: ${escapeHtml(c.responsable)}`;
+            custodiaTooltip = `Carpeta física en posesión de ${escapeHtml(c.responsable)} (${depto})${c.ubicacion_detalle ? ' - ' + escapeHtml(c.ubicacion_detalle) : ''}. Click para ver historial o traspasar.`;
+        }
+
         // Si hay una búsqueda activa, expandir automáticamente
         const autoExpand = Boolean(query && query.length > 1);
 
@@ -388,6 +430,14 @@ function renderTestPackTree(tps, query) {
                     </div>
 
                     <div class="tp-header-right">
+                        <!-- Badge Custodia Carpeta Física -->
+                        <div class="tp-custodia-badge ${custodiaClass}" 
+                             title="${custodiaTooltip}" 
+                             onclick="event.stopPropagation(); abrirModalCustodia('${escapeHtml(tp.nombre)}')">
+                            <i class="${custodiaIcon}"></i>
+                            <span>${custodiaLabel}</span>
+                        </div>
+
                         <button class="btn-comentario-trigger ${commentsCount > 0 ? 'has-comments' : ''}" 
                                 onclick="event.stopPropagation(); abrirModalComentarios('test_pack', '${escapeHtml(tp.nombre)}', '${escapeHtml(tp.nombre)}')">
                             <i class="fas fa-comment${commentsCount > 0 ? 's' : ''}"></i>
@@ -1259,6 +1309,231 @@ export function handleComentarioKeydown(event) {
     }
 }
 
+/**
+ * 5. SISTEMA DE CUSTODIA DE CARPETA FÍSICA
+ */
+export async function abrirModalCustodia(tpNombre) {
+    currentCustodiaTp = tpNombre;
+    const modal = document.getElementById('testpack-custodia-modal');
+    const tituloEl = document.getElementById('modal-custodia-titulo');
+    const actualBox = document.getElementById('modal-custodia-actual-box');
+    const historialLista = document.getElementById('modal-custodia-historial-lista');
+    const inputResp = document.getElementById('modal-custodia-responsable');
+    const inputUbic = document.getElementById('modal-custodia-ubicacion');
+
+    if (!modal) return;
+
+    if (tituloEl) tituloEl.textContent = `Custodia Carpeta Física — ${tpNombre}`;
+    if (inputResp) inputResp.value = '';
+    if (inputUbic) inputUbic.value = '';
+
+    modal.style.display = 'flex';
+
+    // Obtener datos del TP desde la caché en memoria si existe
+    const tpObj = testPacksCacheData?.test_packs?.find(t => t.nombre.toLowerCase() === tpNombre.toLowerCase());
+    renderCustodiaActualBox(tpObj?.custodia);
+
+    // Cargar historial desde el servidor
+    if (historialLista) {
+        historialLista.innerHTML = `<div class="empty-msg" style="padding:15px; font-size:0.8rem; text-align:center;"><i class="fas fa-spinner fa-spin"></i> Cargando historial de traspasos...</div>`;
+    }
+
+    try {
+        const res = await fetch(`/api/testpacks/custodia?test_pack=${encodeURIComponent(tpNombre)}`);
+        if (res.ok) {
+            const data = await res.json();
+            renderCustodiaHistorial(data);
+            if (data && data.length > 0) {
+                renderCustodiaActualBox(data[0]);
+                if (tpObj) tpObj.custodia = data[0];
+            }
+        }
+    } catch (e) {
+        if (historialLista) {
+            historialLista.innerHTML = `<p style="color:#ef4444; font-size:0.8rem; margin:0;">Error cargando historial: ${escapeHtml(e.message)}</p>`;
+        }
+    }
+}
+
+function renderCustodiaActualBox(custodia) {
+    const box = document.getElementById('modal-custodia-actual-box');
+    if (!box) return;
+
+    if (!custodia || !custodia.responsable) {
+        box.innerHTML = `
+            <div class="custodia-current-left">
+                <div class="custodia-current-icon" style="background:rgba(148, 163, 184, 0.15); color:#94a3b8;">
+                    <i class="far fa-folder-open"></i>
+                </div>
+                <div>
+                    <div style="font-size:0.75rem; color:#94a3b8; text-transform:uppercase; font-weight:600;">Estado de Carpeta Física</div>
+                    <div style="font-size:1rem; font-weight:600; color:#e2e8f0;">Sin custodio asignado actualmente</div>
+                    <div style="font-size:0.75rem; color:#64748b;">Indica abajo quién tiene la carpeta y a qué departamento pertenece.</div>
+                </div>
+            </div>
+            <span class="status-badge badge-secondary" style="font-size:0.75rem;">SIN ASIGNAR</span>
+        `;
+        return;
+    }
+
+    const depto = custodia.departamento || 'Terreno';
+    let icon = 'fas fa-hard-hat';
+    let color = '#fbbf24';
+    let bg = 'rgba(245, 158, 11, 0.2)';
+    let badgeClass = 'badge-warning';
+
+    if (depto === 'QAQC') {
+        icon = 'fas fa-clipboard-check';
+        color = '#c084fc';
+        bg = 'rgba(168, 85, 247, 0.2)';
+        badgeClass = 'badge-primary';
+    } else if (depto === 'Oficina Técnica') {
+        icon = 'fas fa-drafting-compass';
+        color = '#38bdf8';
+        bg = 'rgba(6, 182, 212, 0.2)';
+        badgeClass = 'badge-info';
+    }
+
+    const fechaStr = formatearFecha(custodia.fecha_entrega || custodia.created_at);
+
+    box.innerHTML = `
+        <div class="custodia-current-left">
+            <div class="custodia-current-icon" style="background:${bg}; color:${color};">
+                <i class="${icon}"></i>
+            </div>
+            <div>
+                <div style="font-size:0.75rem; color:#94a3b8; text-transform:uppercase; font-weight:600;">Poseedor Físico Actual</div>
+                <div style="font-size:1.05rem; font-weight:700; color:#f8fafc;">
+                    ${escapeHtml(custodia.responsable)} 
+                    <span style="font-size:0.8rem; font-weight:600; color:${color}; margin-left:6px;">(${escapeHtml(depto)})</span>
+                </div>
+                <div style="font-size:0.75rem; color:#94a3b8; display:flex; gap:12px; margin-top:2px; flex-wrap:wrap;">
+                    ${custodia.ubicacion_detalle ? `<span><i class="fas fa-map-marker-alt"></i> ${escapeHtml(custodia.ubicacion_detalle)}</span>` : ''}
+                    <span><i class="far fa-clock"></i> Desde: ${fechaStr}</span>
+                    ${custodia.usuario_registro ? `<span><i class="far fa-user"></i> Por: ${escapeHtml(custodia.usuario_registro)}</span>` : ''}
+                </div>
+            </div>
+        </div>
+        <span class="status-badge ${badgeClass}" style="font-size:0.75rem;">EN ${depto.toUpperCase()}</span>
+    `;
+}
+
+function renderCustodiaHistorial(historial) {
+    const lista = document.getElementById('modal-custodia-historial-lista');
+    if (!lista) return;
+
+    if (!historial || historial.length === 0) {
+        lista.innerHTML = `<p style="color:#64748b; font-size:0.78rem; margin:0; text-align:center;">Sin registros de movimientos previos para esta carpeta.</p>`;
+        return;
+    }
+
+    let html = ``;
+    historial.forEach((item, idx) => {
+        const isCurrent = idx === 0;
+        const depto = item.departamento || 'Terreno';
+        let icon = 'fas fa-hard-hat';
+        let color = '#fbbf24';
+        if (depto === 'QAQC') { icon = 'fas fa-clipboard-check'; color = '#c084fc'; }
+        else if (depto === 'Oficina Técnica') { icon = 'fas fa-drafting-compass'; color = '#38bdf8'; }
+
+        const fechaStr = formatearFecha(item.fecha_entrega || item.created_at);
+
+        html += `
+            <div class="custodia-history-item" style="${isCurrent ? 'border-left: 3px solid ' + color + '; background: rgba(30, 41, 59, 0.7);' : ''}">
+                <div class="custodia-history-left">
+                    <i class="${icon}" style="color:${color}; font-size:0.9rem;"></i>
+                    <div>
+                        <strong style="color:#f8fafc;">${escapeHtml(item.responsable)}</strong>
+                        <span style="color:${color}; font-size:0.75rem; font-weight:600; margin-left:4px;">${escapeHtml(depto)}</span>
+                        ${isCurrent ? '<span style="font-size:0.65rem; padding:1px 5px; background:rgba(255,255,255,0.1); border-radius:4px; margin-left:4px;">Actual</span>' : ''}
+                        ${item.ubicacion_detalle ? `<div style="color:#94a3b8; font-size:0.72rem; margin-top:1px;"><i class="fas fa-map-marker-alt"></i> ${escapeHtml(item.ubicacion_detalle)}</div>` : ''}
+                    </div>
+                </div>
+                <div class="custodia-history-right">
+                    <div>${fechaStr}</div>
+                    <div style="opacity:0.8;">Registró: ${escapeHtml(item.usuario_registro || 'Supervisor')}</div>
+                </div>
+            </div>
+        `;
+    });
+
+    lista.innerHTML = html;
+}
+
+export async function guardarCustodiaCarpeta() {
+    if (!currentCustodiaTp) return;
+
+    const deptoRadio = document.querySelector('input[name="custodia-depto"]:checked');
+    const depto = deptoRadio ? deptoRadio.value : 'Terreno';
+    const inputResp = document.getElementById('modal-custodia-responsable');
+    const inputUbic = document.getElementById('modal-custodia-ubicacion');
+    const selectRegistrador = document.getElementById('modal-custodia-registrador');
+
+    const responsable = (inputResp?.value || '').trim();
+    const ubicacion = (inputUbic?.value || '').trim();
+    const registrador = selectRegistrador?.value || 'Oficina Técnica';
+
+    if (!responsable) {
+        alert('Por favor ingresa el nombre de la persona que tiene actualmente la carpeta física.');
+        inputResp?.focus();
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/testpacks/custodia', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                test_pack: currentCustodiaTp,
+                responsable: responsable,
+                departamento: depto,
+                ubicacion_detalle: ubicacion,
+                usuario_registro: registrador
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Error ${res.status}`);
+        }
+
+        const nuevo = await res.json();
+
+        // Actualizar en la caché en memoria de testPacksCacheData
+        if (testPacksCacheData?.test_packs) {
+            const tp = testPacksCacheData.test_packs.find(t => t.nombre.toLowerCase() === currentCustodiaTp.toLowerCase());
+            if (tp) {
+                tp.custodia = nuevo;
+            }
+        }
+
+        // Limpiar inputs
+        if (inputResp) inputResp.value = '';
+        if (inputUbic) inputUbic.value = '';
+
+        // Actualizar caja actual en el modal
+        renderCustodiaActualBox(nuevo);
+
+        // Recargar historial en el modal
+        const resH = await fetch(`/api/testpacks/custodia?test_pack=${encodeURIComponent(currentCustodiaTp)}`);
+        if (resH.ok) {
+            const histData = await resH.json();
+            renderCustodiaHistorial(histData);
+        }
+
+        // Refrescar el árbol de Test Packs en pantalla para ver el nuevo badge
+        filterLineas();
+    } catch (e) {
+        alert(`Error al registrar custodia: ${e.message}`);
+    }
+}
+
+export function cerrarModalCustodia() {
+    const modal = document.getElementById('testpack-custodia-modal');
+    if (modal) modal.style.display = 'none';
+    currentCustodiaTp = null;
+}
+
 function formatearFecha(iso) {
     if (!iso) return '';
     try {
@@ -1301,6 +1576,9 @@ window.cerrarModalComentarios   = cerrarModalComentarios;
 window.enviarNuevoComentario    = enviarNuevoComentario;
 window.eliminarComentarioUI     = eliminarComentarioUI;
 window.handleComentarioKeydown  = handleComentarioKeydown;
+window.abrirModalCustodia       = abrirModalCustodia;
+window.cerrarModalCustodia      = cerrarModalCustodia;
+window.guardarCustodiaCarpeta   = guardarCustodiaCarpeta;
 
 window.verIsoPdf = function(idIso, directUrl) {
     if (window.showSection) window.showSection('bim');

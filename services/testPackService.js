@@ -9,6 +9,8 @@ const path = require('path');
 
 // Archivo de respaldo para comentarios locales si la tabla de Supabase no está migrada aún
 const LOCAL_COMMENTS_FILE = path.join(__dirname, '../scratch/testpack_comentarios.json');
+// Archivo de respaldo para custodia de carpetas físicas
+const LOCAL_CUSTODIA_FILE = path.join(__dirname, '../scratch/testpack_custodia.json');
 
 let _testPacksCache = null;
 let _testPacksCacheTime = 0;
@@ -59,7 +61,7 @@ function estadosActualesDeLog(logs) {
 /**
  * Procesa la jerarquía de Test Packs y elementos no asociados
  */
-async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false) {
+async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false, supabase = null) {
     const ahora = Date.now();
     if (!forceRefresh && _testPacksCache && (ahora - _testPacksCacheTime < 60000)) {
         return _testPacksCache;
@@ -74,7 +76,8 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
         valvulasRows,
         montajeValvulasRows,
         soportesRows,
-        montajeSoportesRows
+        montajeSoportesRows,
+        custodiasMap
     ] = await Promise.all([
         fetchAppSheetCached('LIST_Juntas_MS_').catch(() => []),
         fetchAppSheetCached('REG_EjecucionJuntas_MS').catch(() => []),
@@ -84,7 +87,8 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
         fetchAppSheetCached('LIST_Valvulas_MS').catch(() => []),
         fetchAppSheetCached('REG_MontajeValvulas_MS').catch(() => []),
         fetchAppSheetCached('LIST_Soportes_MS').catch(() => []),
-        fetchAppSheetCached('REG_MontajeSoportes_MS').catch(() => [])
+        fetchAppSheetCached('REG_MontajeSoportes_MS').catch(() => []),
+        obtenerCustodias(supabase).catch(() => ({}))
     ]);
 
     // 1. Juntas ejecutadas
@@ -389,9 +393,12 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
         if (pctJuntas >= 100) estadoGeneral = 'COMPLETO';
         else if (pctJuntas > 0) estadoGeneral = 'EN_PROCESO';
 
+        const custodiaActual = (custodiasMap && (custodiasMap[tp.nombre] || custodiasMap[tp.nombre.toLowerCase()])) || null;
+
         return {
             nombre: tp.nombre,
             estado: estadoGeneral,
+            custodia: custodiaActual,
             metricas: {
                 juntas_total: tp.juntasCount,
                 juntas_ejecutadas: tp.juntasEjecutadas,
@@ -577,12 +584,31 @@ async function procesarArbolTestPacks(fetchAppSheetCached, forceRefresh = false)
         }
     });
 
+    let countTerreno = 0, countQAQC = 0, countOT = 0, countSinAsignar = 0;
+    testPacksList.forEach(tp => {
+        if (!tp.custodia) {
+            countSinAsignar++;
+        } else if (tp.custodia.departamento === 'Terreno') {
+            countTerreno++;
+        } else if (tp.custodia.departamento === 'QAQC') {
+            countQAQC++;
+        } else if (tp.custodia.departamento === 'Oficina Técnica') {
+            countOT++;
+        } else {
+            countSinAsignar++;
+        }
+    });
+
     const totalJuntasGlobal = todasLasJuntasConTp.size + juntasSinTp.length;
     const coberturaJuntasPct = totalJuntasGlobal > 0 ? ((todasLasJuntasConTp.size / totalJuntasGlobal) * 100) : 0;
 
     const result = {
         kpis: {
             total_test_packs: testPacksList.length,
+            custodia_terreno: countTerreno,
+            custodia_qaqc: countQAQC,
+            custodia_oficina_tecnica: countOT,
+            custodia_sin_asignar: countSinAsignar,
             total_juntas_asignadas: todasLasJuntasConTp.size,
             total_juntas_sin_asignar: juntasSinTp.length,
             total_juntas_global: totalJuntasGlobal,
@@ -721,9 +747,163 @@ async function eliminarComentario(supabase, id) {
     return { success: true, id };
 }
 
+/**
+ * Persistencia de Custodia de Carpeta Física (Supabase con fallback local en JSON)
+ */
+function getLocalCustodia() {
+    try {
+        if (!fs.existsSync(LOCAL_CUSTODIA_FILE)) return [];
+        const raw = fs.readFileSync(LOCAL_CUSTODIA_FILE, 'utf-8');
+        return JSON.parse(raw) || [];
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveLocalCustodia(list) {
+    try {
+        const dir = path.dirname(LOCAL_CUSTODIA_FILE);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(LOCAL_CUSTODIA_FILE, JSON.stringify(list, null, 2), 'utf-8');
+    } catch (e) {
+        console.error('[testPackService] Error guardando custodia local:', e.message);
+    }
+}
+
+function normalizarDepartamento(dep) {
+    const d = String(dep || '').trim().toLowerCase();
+    if (d.includes('terreno')) return 'Terreno';
+    if (d.includes('qa') || d.includes('qc') || d.includes('calidad')) return 'QAQC';
+    if (d.includes('oficina') || d.includes('tecnica') || d.includes('técnica') || d.includes('ot')) return 'Oficina Técnica';
+    return 'Terreno';
+}
+
+/**
+ * Obtiene la custodia de carpetas físicas.
+ * - Si query.test_pack está definido: retorna el historial completo de traspasos para ese Test Pack.
+ * - Si NO está definido: retorna un mapa { [test_pack]: { responsable, departamento, ... } } con el estado actual de cada uno.
+ */
+async function obtenerCustodias(supabase, query = {}) {
+    let allRecords = [];
+
+    // 1. Intentar con Supabase
+    if (supabase) {
+        try {
+            let sbQuery = supabase.from('testpack_custodia').select('*').order('fecha_entrega', { ascending: false });
+            if (query.test_pack) {
+                sbQuery = sbQuery.eq('test_pack', query.test_pack);
+            }
+            const { data, error } = await sbQuery;
+            if (!error && data && data.length > 0) {
+                allRecords = data;
+            }
+        } catch (e) {
+            // Silencioso, usar fallback
+        }
+    }
+
+    // 2. Si no hubo datos de Supabase o falló, usar fallback local
+    if (!allRecords || allRecords.length === 0) {
+        allRecords = getLocalCustodia();
+        if (query.test_pack) {
+            allRecords = allRecords.filter(c => String(c.test_pack || '').toLowerCase() === String(query.test_pack).toLowerCase());
+        }
+    }
+
+    // Ordenar cronológicamente descendente
+    allRecords.sort((a, b) => new Date(b.fecha_entrega || b.created_at) - new Date(a.fecha_entrega || a.created_at));
+
+    // Si pidieron historial de un TP específico, devolver el array completo
+    if (query.test_pack) {
+        return allRecords;
+    }
+
+    // Si es consulta general, armar mapa del estado más reciente por Test Pack
+    const mapaActual = {};
+    allRecords.forEach(reg => {
+        const tpKey = String(reg.test_pack || '').trim();
+        if (!tpKey) return;
+        if (!mapaActual[tpKey]) {
+            mapaActual[tpKey] = reg;
+        }
+    });
+
+    return mapaActual;
+}
+
+/**
+ * Registra un traspaso o asignación de custodia de la carpeta física de un Test Pack
+ */
+async function guardarCustodia(supabase, { test_pack, responsable, departamento, ubicacion_detalle, usuario_registro, fecha_entrega }) {
+    const tpClean = String(test_pack || '').trim();
+    const respClean = String(responsable || '').trim();
+    const deptoClean = normalizarDepartamento(departamento);
+
+    if (!tpClean) {
+        throw new Error('El campo test_pack es obligatorio.');
+    }
+    if (!respClean) {
+        throw new Error('El nombre del responsable de la carpeta física es obligatorio.');
+    }
+
+    const nuevo = {
+        id: require('crypto').randomUUID(),
+        test_pack: tpClean,
+        responsable: respClean,
+        departamento: deptoClean,
+        ubicacion_detalle: String(ubicacion_detalle || '').trim(),
+        usuario_registro: String(usuario_registro || 'Supervisor').trim(),
+        fecha_entrega: fecha_entrega ? new Date(fecha_entrega).toISOString() : new Date().toISOString(),
+        created_at: new Date().toISOString()
+    };
+
+    // 1. Guardar en Supabase si está disponible
+    if (supabase) {
+        try {
+            const { data, error } = await supabase.from('testpack_custodia').insert([nuevo]).select().single();
+            if (!error && data) {
+                const local = getLocalCustodia();
+                local.unshift(data);
+                saveLocalCustodia(local);
+                // Invalidar caché de árbol para reflejar el cambio
+                _testPacksCache = null;
+                return data;
+            }
+        } catch (e) {
+            // Silencioso, continuar a local
+        }
+    }
+
+    // 2. Guardar en local JSON
+    const local = getLocalCustodia();
+    local.unshift(nuevo);
+    saveLocalCustodia(local);
+
+    // Invalidar caché de árbol para reflejar el cambio
+    _testPacksCache = null;
+
+    return nuevo;
+}
+
+async function eliminarCustodia(supabase, id) {
+    if (supabase) {
+        try {
+            await supabase.from('testpack_custodia').delete().eq('id', id);
+        } catch (e) { /* silencioso */ }
+    }
+    const local = getLocalCustodia().filter(c => c.id !== id);
+    saveLocalCustodia(local);
+    _testPacksCache = null;
+    return { success: true, id };
+}
+
 module.exports = {
     procesarArbolTestPacks,
     obtenerComentarios,
     guardarComentario,
-    eliminarComentario
+    eliminarComentario,
+    obtenerCustodias,
+    guardarCustodia,
+    eliminarCustodia,
+    normalizarDepartamento
 };

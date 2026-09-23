@@ -4231,5 +4231,249 @@ body.cliente-reemplazos-mode #bim-capa-reemplazo {
     color: #cbd5e1;
 }
 
+/* ================================================================
+   CUSTODIA DE CARPETA FÍSICA TEST PACK
+   ================================================================ */
+
+.tp-custodia-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 9px;
+    border-radius: 7px;
+    font-size: 0.76rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    user-select: none;
+    text-decoration: none;
+    border: 1px solid transparent;
+}
+
+.tp-custodia-badge:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+.tp-custodia-badge.custodia-terreno {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.35);
+    color: #fbbf24;
+}
+
+.tp-custodia-badge.custodia-terreno:hover {
+    background: rgba(245, 158, 11, 0.22);
+    border-color: rgba(245, 158, 11, 0.6);
+}
+
+.tp-custodia-badge.custodia-qaqc {
+    background: rgba(168, 85, 247, 0.12);
+    border-color: rgba(168, 85, 247, 0.35);
+    color: #c084fc;
+}
+
+.tp-custodia-badge.custodia-qaqc:hover {
+    background: rgba(168, 85, 247, 0.22);
+    border-color: rgba(168, 85, 247, 0.6);
+}
+
+.tp-custodia-badge.custodia-ot {
+    background: rgba(6, 182, 212, 0.12);
+    border-color: rgba(6, 182, 212, 0.35);
+    color: #38bdf8;
+}
+
+.tp-custodia-badge.custodia-ot:hover {
+    background: rgba(6, 182, 212, 0.22);
+    border-color: rgba(6, 182, 212, 0.6);
+}
+
+.tp-custodia-badge.custodia-sin-asignar {
+    background: rgba(148, 163, 184, 0.08);
+    border-color: rgba(148, 163, 184, 0.25);
+    border-style: dashed;
+    color: #94a3b8;
+}
+
+.tp-custodia-badge.custodia-sin-asignar:hover {
+    background: rgba(148, 163, 184, 0.18);
+    color: #e2e8f0;
+    border-style: solid;
+}
+
+/* Modal de Custodia */
+.custodia-current-card {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 12px;
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.custodia-current-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.custodia-current-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+}
+
+.custodia-form-card {
+    background: rgba(15, 23, 42, 0.45);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 12px;
+    padding: 14px 16px;
+}
+
+.custodia-dept-selector {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.dept-radio-label {
+    cursor: pointer;
+    margin: 0;
+}
+
+.dept-radio-label input[type="radio"] {
+    display: none;
+}
+
+.dept-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 500;
+    background: rgba(30, 41, 59, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #94a3b8;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+.dept-btn:hover {
+    border-color: rgba(255, 255, 255, 0.3);
+    color: #e2e8f0;
+}
+
+.dept-radio-label input[type="radio"]:checked + .dept-btn.dept-terreno {
+    background: rgba(245, 158, 11, 0.25);
+    border-color: #f59e0b;
+    color: #fbbf24;
+    font-weight: 600;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+}
+
+.dept-radio-label input[type="radio"]:checked + .dept-btn.dept-qaqc {
+    background: rgba(168, 85, 247, 0.25);
+    border-color: #a855f7;
+    color: #c084fc;
+    font-weight: 600;
+    box-shadow: 0 0 12px rgba(168, 85, 247, 0.3);
+}
+
+.dept-radio-label input[type="radio"]:checked + .dept-btn.dept-ot {
+    background: rgba(6, 182, 212, 0.25);
+    border-color: #06b6d4;
+    color: #38bdf8;
+    font-weight: 600;
+    box-shadow: 0 0 12px rgba(6, 182, 212, 0.3);
+}
+
+.custodia-input {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    padding: 8px 12px;
+    color: #f8fafc;
+    font-size: 0.85rem;
+    font-family: inherit;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+}
+
+.custodia-input:focus {
+    outline: none;
+    border-color: #f59e0b;
+    box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+}
+
+.btn-guardar-custodia {
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+.btn-guardar-custodia:hover {
+    background: linear-gradient(135deg, #fbbf24 0%, #b45309 100%);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 16px rgba(245, 158, 11, 0.4);
+}
+
+.custodia-history-section {
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 12px;
+}
+
+.custodia-history-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 180px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.custodia-history-item {
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 0.8rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.custodia-history-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.custodia-history-right {
+    font-size: 0.72rem;
+    color: #94a3b8;
+    text-align: right;
+}
+
 
 
