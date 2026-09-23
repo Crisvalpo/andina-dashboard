@@ -9,6 +9,7 @@
  */
 
 import { state } from '../modules/state.js';
+import { resolveSpoolStatuses, resolveSpoolId, normalizeStatus } from '../utils/statusHelpers.js';
 
 let lineasCacheData = null;
 let testPacksCacheData = null;
@@ -129,21 +130,20 @@ function tryPreFillInitialKPIs() {
         }
 
         if (state.spools && state.spools.length > 0 && elSpools) {
-            const totalS = state.spools.length;
+            const statusMap = resolveSpoolStatuses();
+            let totalActivos = 0;
             let montadosS = 0;
-            if (state.spoolStatuses) {
-                Object.values(state.spoolStatuses).forEach(s => {
-                    const st = String(s.status || '').toUpperCase();
-                    if (st === 'MONTADO' || st === 'MONTADA') montadosS++;
-                });
-            } else {
-                state.spools.forEach(s => {
-                    const cv = String(s.ESTADO_CICLO_VIDA || s.Montaje || '').toUpperCase();
-                    if (cv === 'MONTADO' || cv === 'MONTADA' || cv === 'SI' || cv === '1') montadosS++;
-                });
-            }
-            const pctS = totalS > 0 ? ((montadosS / totalS) * 100).toFixed(1) : '0';
-            elSpools.textContent = `${montadosS} / ${totalS} (${pctS}%)`;
+            state.spools.forEach(s => {
+                const id = resolveSpoolId(s);
+                const rawSt = statusMap.get(id);
+                const st = rawSt ? normalizeStatus(rawSt) : '';
+                if (st !== 'ELIMINADO') {
+                    totalActivos++;
+                    if (st === 'MONTADO') montadosS++;
+                }
+            });
+            const pctS = totalActivos > 0 ? ((montadosS / totalActivos) * 100).toFixed(1) : '0';
+            elSpools.textContent = `${montadosS} / ${totalActivos} (${pctS}%)`;
         }
     } catch (e) { /* silencioso */ }
 }

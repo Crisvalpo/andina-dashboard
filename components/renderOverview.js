@@ -7,6 +7,7 @@
 import { state } from '../modules/state.js';
 import { setText } from '../utils/domUtils.js';
 import { getVal, getEstado, getMaxEtapa, getWeekOfDate } from '../utils/dataHelpers.js';
+import { resolveSpoolStatuses, resolveSpoolId, normalizeStatus } from '../utils/statusHelpers.js';
 import { renderSCurve, renderBarChart, renderLogTable } from './charts.js';
 
 export function renderOverview() {
@@ -15,8 +16,27 @@ export function renderOverview() {
     // Totales del proyecto
     setText('kpi-lineas', lineas.length);
     setText('kpi-isos', isos.length);
-    const activeSpools = spools.filter(s => !String(s.Proceso || '').trim().startsWith('00.'));
-    setText('kpi-spools-total', activeSpools.length);
+
+    // Spools activos y eliminados resueltos desde la bitácora oficial (LOG_Spool_MS)
+    const statusMap = resolveSpoolStatuses();
+    let eliminadosCount = 0;
+    let activosCount = 0;
+    spools.forEach(s => {
+        const id = resolveSpoolId(s);
+        const rawStatus = statusMap.get(id);
+        const st = rawStatus ? normalizeStatus(rawStatus) : '';
+        if (st === 'ELIMINADO') {
+            eliminadosCount++;
+        } else {
+            activosCount++;
+        }
+    });
+
+    setText('kpi-spools-total', activosCount);
+    const subSpoolsEl = document.getElementById('kpi-spools-total-sub');
+    if (subSpoolsEl) {
+        subSpoolsEl.textContent = eliminadosCount > 0 ? `${spools.length} total (${eliminadosCount} elim.)` : `${spools.length} total`;
+    }
     
     const totalPulgadas = juntas.reduce((sum, j) => {
         const npsVal = getVal(j, 'NPS') || getVal(j, 'NPS_JUNTA') || 0;
