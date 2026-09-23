@@ -11,6 +11,7 @@ const {
     procesarArbolTestPacks,
     obtenerComentarios: obtenerTpComentarios,
     guardarComentario: guardarTpComentario,
+    resolverComentario: resolverTpComentario,
     eliminarComentario: eliminarTpComentario,
     obtenerCustodias: obtenerTpCustodias,
     guardarCustodia: guardarTpCustodia,
@@ -2582,6 +2583,19 @@ app.post('/api/testpacks/comentarios', async (req, res) => {
     } catch (e) {
         console.error('[API POST /api/testpacks/comentarios Error]', e.message);
         res.status(400).json({ error: e.message });
+    }
+});
+
+// PUT /api/testpacks/comentarios/:id/resolver → Marcar como resuelto o reabrir
+app.put('/api/testpacks/comentarios/:id/resolver', async (req, res) => {
+    try {
+        let sb = null;
+        try { sb = getSupabase(); } catch (err) {}
+        const data = await resolverTpComentario(sb, req.params.id, req.body || {});
+        res.json(data);
+    } catch (e) {
+        console.error('[API PUT /api/testpacks/comentarios/:id/resolver Error]', e.message);
+        res.status(500).json({ error: e.message });
     }
 });
 

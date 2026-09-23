@@ -13,8 +13,17 @@ create table if not exists andina.testpack_comentarios (
     test_pack text,             -- Test Pack de referencia si aplica
     comentario text not null,
     usuario text not null default 'Supervisor',
+    resuelto boolean not null default false,
+    resuelto_at timestamptz,
+    resuelto_por text,
     created_at timestamptz not null default now()
 );
+
+-- Asegurar columnas si la tabla ya existía de versiones anteriores
+alter table andina.testpack_comentarios 
+    add column if not exists resuelto boolean not null default false,
+    add column if not exists resuelto_at timestamptz,
+    add column if not exists resuelto_por text;
 
 -- Índices de consulta rápida
 create index if not exists idx_tp_comentarios_entidad 
@@ -22,6 +31,9 @@ create index if not exists idx_tp_comentarios_entidad
 
 create index if not exists idx_tp_comentarios_tp 
     on andina.testpack_comentarios (test_pack);
+
+create index if not exists idx_tp_comentarios_resuelto 
+    on andina.testpack_comentarios (resuelto);
 
 -- Permisos para PostgREST (service_role bypass RLS)
 grant all on andina.testpack_comentarios to service_role;

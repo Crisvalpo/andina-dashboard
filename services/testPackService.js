@@ -706,6 +706,9 @@ async function guardarComentario(supabase, { entidad_tipo, entidad_id, test_pack
         test_pack: String(test_pack || '').trim(),
         comentario: String(comentario || '').trim(),
         usuario: String(usuario || 'Supervisor').trim(),
+        resuelto: false,
+        resuelto_at: null,
+        resuelto_por: null,
         created_at: new Date().toISOString()
     };
 
@@ -734,6 +737,52 @@ async function guardarComentario(supabase, { entidad_tipo, entidad_id, test_pack
     local.unshift(nuevo);
     saveLocalComments(local);
     return nuevo;
+}
+
+async function resolverComentario(supabase, id, { resuelto = true, resuelto_por = 'Supervisor' }) {
+    const isResuelto = Boolean(resuelto);
+    const resueltoAt = isResuelto ? new Date().toISOString() : null;
+    const resueltoPor = isResuelto ? String(resuelto_por || 'Supervisor').trim() : null;
+
+    const updates = {
+        resuelto: isResuelto,
+        resuelto_at: resueltoAt,
+        resuelto_por: resueltoPor
+    };
+
+    // 1. Supabase
+    if (supabase) {
+        try {
+            const { data, error } = await supabase
+                .from('testpack_comentarios')
+                .update(updates)
+                .eq('id', id)
+                .select()
+                .single();
+            if (!error && data) {
+                const local = getLocalComments();
+                const idx = local.findIndex(c => c.id === id);
+                if (idx !== -1) {
+                    local[idx] = { ...local[idx], ...updates };
+                    saveLocalComments(local);
+                }
+                return data;
+            }
+        } catch (e) {
+            // Continuar con local
+        }
+    }
+
+    // 2. Fallback local
+    const local = getLocalComments();
+    const idx = local.findIndex(c => c.id === id);
+    if (idx !== -1) {
+        local[idx] = { ...local[idx], ...updates };
+        saveLocalComments(local);
+        return local[idx];
+    }
+
+    return { id, ...updates };
 }
 
 async function eliminarComentario(supabase, id) {
@@ -901,6 +950,7 @@ module.exports = {
     procesarArbolTestPacks,
     obtenerComentarios,
     guardarComentario,
+    resolverComentario,
     eliminarComentario,
     obtenerCustodias,
     guardarCustodia,

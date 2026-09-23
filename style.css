@@ -4132,6 +4132,96 @@ body.cliente-reemplazos-mode #bim-capa-reemplazo {
     border-radius: 10px;
     padding: 12px 14px;
     position: relative;
+    transition: all 0.2s ease;
+}
+
+.comentario-bubble.comentario-resuelto {
+    background: rgba(15, 23, 42, 0.45);
+    border-color: rgba(16, 185, 129, 0.3);
+    border-left: 3px solid #10b981;
+}
+
+.comentario-bubble.comentario-pendiente {
+    border-left: 3px solid rgba(245, 158, 11, 0.6);
+}
+
+.badge-comentario-resuelto {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    color: #10b981;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.badge-comentario-pendiente {
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+    font-size: 0.68rem;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.comentario-texto.texto-resuelto {
+    opacity: 0.85;
+}
+
+.comentario-bubble-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.btn-resolver-comentario {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid transparent;
+}
+
+.btn-resolver-comentario.btn-resolver {
+    background: rgba(16, 185, 129, 0.15);
+    border-color: rgba(16, 185, 129, 0.35);
+    color: #34d399;
+}
+
+.btn-resolver-comentario.btn-resolver:hover {
+    background: rgba(16, 185, 129, 0.3);
+    border-color: #10b981;
+    color: #fff;
+    transform: translateY(-1px);
+}
+
+.btn-resolver-comentario.btn-reabrir {
+    background: rgba(148, 163, 184, 0.12);
+    border-color: rgba(148, 163, 184, 0.25);
+    color: #94a3b8;
+}
+
+.btn-resolver-comentario.btn-reabrir:hover {
+    background: rgba(148, 163, 184, 0.25);
+    color: #f8fafc;
+    transform: translateY(-1px);
 }
 
 .comentario-bubble-header {
@@ -4161,7 +4251,7 @@ body.cliente-reemplazos-mode #bim-capa-reemplazo {
     color: #ef4444;
     cursor: pointer;
     font-size: 0.8rem;
-    opacity: 0.7;
+    opacity: 0.6;
     padding: 2px 4px;
     transition: opacity 0.2s;
 }

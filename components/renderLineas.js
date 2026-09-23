@@ -1205,23 +1205,105 @@ function renderListaComentarios(comentarios) {
     let html = ``;
     comentarios.forEach(c => {
         const fechaStr = formatearFecha(c.created_at);
+        const isResuelto = Boolean(c.resuelto);
+        const fechaResueltoStr = c.resuelto_at ? formatearFecha(c.resuelto_at) : '';
+
         html += `
-            <div class="comentario-bubble" id="comentario-item-${c.id}">
+            <div class="comentario-bubble ${isResuelto ? 'comentario-resuelto' : 'comentario-pendiente'}" id="comentario-item-${c.id}">
                 <div class="comentario-bubble-header">
-                    <span class="comentario-autor"><i class="fas fa-user-circle"></i> ${escapeHtml(c.usuario || 'Supervisor')}</span>
                     <div style="display:flex; align-items:center; gap:8px;">
-                        <span>${fechaStr}</span>
-                        <button class="comentario-delete-btn" onclick="eliminarComentarioUI('${c.id}')" title="Eliminar nota">
+                        <span class="comentario-autor"><i class="fas fa-user-circle"></i> ${escapeHtml(c.usuario || 'Supervisor')}</span>
+                        ${isResuelto ? `
+                            <span class="badge-comentario-resuelto" title="Resuelto el ${fechaResueltoStr} por ${escapeHtml(c.resuelto_por || 'Supervisor')}">
+                                <i class="fas fa-check-circle"></i> Resuelto
+                            </span>
+                        ` : `
+                            <span class="badge-comentario-pendiente">
+                                <i class="fas fa-clock"></i> Pendiente
+                            </span>
+                        `}
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span style="font-size:0.75rem; color:#94a3b8;">${fechaStr}</span>
+                        <button class="comentario-delete-btn" onclick="eliminarComentarioUI('${c.id}')" title="Eliminar nota permanentemente">
                             <i class="fas fa-trash-alt"></i>
                         </button>
                     </div>
                 </div>
-                <div class="comentario-texto">${escapeHtml(c.comentario)}</div>
+
+                <div class="comentario-texto ${isResuelto ? 'texto-resuelto' : ''}">${escapeHtml(c.comentario)}</div>
+
+                <div class="comentario-bubble-footer">
+                    <div class="comentario-resolve-info">
+                        ${isResuelto ? `
+                            <small style="color:#10b981; font-size:0.72rem; display:inline-flex; align-items:center; gap:4px;">
+                                <i class="fas fa-check-double"></i> Atendido el ${fechaResueltoStr} por <strong>${escapeHtml(c.resuelto_por || 'Supervisor')}</strong>
+                            </small>
+                        ` : `
+                            <small style="color:#94a3b8; font-size:0.72rem;">Observación abierta sin resolver</small>
+                        `}
+                    </div>
+                    <div>
+                        ${isResuelto ? `
+                            <button class="btn-resolver-comentario btn-reabrir" onclick="toggleResolverComentario('${c.id}', false)" title="Reabrir esta observación">
+                                <i class="fas fa-undo"></i> Reabrir
+                            </button>
+                        ` : `
+                            <button class="btn-resolver-comentario btn-resolver" onclick="toggleResolverComentario('${c.id}', true)" title="Marcar como resuelto y guardar fecha">
+                                <i class="fas fa-check"></i> Resolver
+                            </button>
+                        `}
+                    </div>
+                </div>
             </div>
         `;
     });
 
     listaEl.innerHTML = html;
+}
+
+export async function toggleResolverComentario(id, nuevoEstado) {
+    const autorSelect = document.getElementById('modal-comentario-autor');
+    const usuario = autorSelect?.value || 'Supervisor Piping';
+
+    try {
+        const res = await fetch(`/api/testpacks/comentarios/${id}/resolver`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                resuelto: nuevoEstado,
+                resuelto_por: usuario
+            })
+        });
+
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Error ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        // Actualizar en caché en memoria
+        if (currentCommentEntity) {
+            const key = `${currentCommentEntity.tipo}:${currentCommentEntity.id}`.toLowerCase();
+            const list = comentariosCacheMap.get(key) || [];
+            const idx = list.findIndex(c => c.id === id);
+            if (idx !== -1) {
+                list[idx] = { ...list[idx], ...data };
+            }
+        }
+
+        // Recargar listado en el modal
+        const resList = await fetch(`/api/testpacks/comentarios?entidad_tipo=${encodeURIComponent(currentCommentEntity.tipo)}&entidad_id=${encodeURIComponent(currentCommentEntity.id)}`);
+        if (resList.ok) {
+            const d = await resList.json();
+            renderListaComentarios(d);
+        }
+
+        filterLineas();
+    } catch (e) {
+        alert(`Error al actualizar estado del comentario: ${e.message}`);
+    }
 }
 
 export function cerrarModalComentarios() {
@@ -1579,6 +1661,7 @@ window.handleComentarioKeydown  = handleComentarioKeydown;
 window.abrirModalCustodia       = abrirModalCustodia;
 window.cerrarModalCustodia      = cerrarModalCustodia;
 window.guardarCustodiaCarpeta   = guardarCustodiaCarpeta;
+window.toggleResolverComentario = toggleResolverComentario;
 
 window.verIsoPdf = function(idIso, directUrl) {
     if (window.showSection) window.showSection('bim');
